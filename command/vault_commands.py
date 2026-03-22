@@ -1,6 +1,7 @@
 import secrets
 import string
 from typing import Optional
+from spinner import Spinner
 
 import typer
 from cryptography.exceptions import InvalidTag
@@ -9,7 +10,33 @@ import api_client
 from crypto import decrypt_credentials, derive_key, encrypt_credentials
 from session import load_session
 
-app = typer.Typer(help="Vault commands")
+app = typer.Typer(
+    name="vault",
+    help="Vault commands",
+    
+)
+
+@app.callback(invoke_without_command=True)
+def vault_help(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        typer.echo("""
+  psamvault vault — credential commands
+ 
+  COMMAND    USAGE
+  ──────────────────────────────────────────────────────────────────────────────
+  add        psamvault add <site> --user <username> --pass <password>
+  add        psamvault add <site> --user <username> --pass <password> --notes <notes>
+  get        psamvault get <site>
+  list       psamvault list
+  update     psamvault update <site> --pass <new_password>
+  update     psamvault update <site> --user <new_user> --pass <new_password>
+  update     psamvault update <site> --notes <new_notes>
+  delete     psamvault delete <site>
+  generate   psamvault generate
+  generate   psamvault generate --length <number>
+  generate   psamvault generate --length <number> --no-symbols
+  generate   psamvault generate --save <site> --user <username>              
+""")
 
 def _get_sesssion_and_key() -> tuple[dict, bytes]:
     """
@@ -39,11 +66,13 @@ def add(
     \b
     Example:
         psamvault add github.com --user me@example.com --pass secret
+        psamvault add github.com --user me@example.com --pass secret --notes "2FA enabled"
         psamvault add github.com --user me@example.com   (prompts for password)
     """
     if password is None:
         password = typer.prompt(f"Password for {site}", hide_input=False)
     
+    typer.echo("")
     session, key = _get_sesssion_and_key()
     
     encrypted_blob, iv = encrypt_credentials(
@@ -53,16 +82,17 @@ def add(
         notes=notes or ""
     )
     
-    api_client.add_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site,
-        encrypted_blob=encrypted_blob,
-        iv=iv,
-        username_hint=user
-    )
+    with Spinner(f"Saving credentials for {site}"):
+        api_client.add_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site,
+            encrypted_blob=encrypted_blob,
+            iv=iv,
+            username_hint=user
+        )
     
-    typer.echo(f" Credential for {site} saved successfully")
+    typer.echo(f" Credential for {site} saved successfully\n")
 
 
 @app.command()
@@ -78,14 +108,17 @@ def get(
     \b
     Example:
         psamvault get github.com
+        psamvault vault get github.com
+        
     """
     session, key = _get_sesssion_and_key()
     
-    data = api_client.get_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site
-    )
+    with Spinner(f"Fetching credentials for {site}"):
+        data = api_client.get_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site
+        )
 
     
     try:
@@ -121,19 +154,21 @@ def list_entries():
     \b
     Example:
         psamvault list
+        psamvault vault list
     """
     session = load_session()
     
-    data = api_client.list_vault_entries(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"]
-    )
+    with Spinner("Fetching your vault"):
+        data = api_client.list_vault_entries(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"]
+        )
     
     entries = data["entries"]
     total = data["total"]
     
     if total == 0:
-        typer.echo("Your vault is empty. User psamvault add to store credentials")
+        typer.echo("Your vault is empty. User psamvault add to store credentials\n")
         return
     
     typer.echo(f"\n  {'SITE':<35} {'USERNAME HINT':<30} {'UPDATED'}")
@@ -165,14 +200,17 @@ def update(
     Example:
         psamvault update github.com --pass mynewpassword
         psamvault update github.com --user newuser@example.com --pass newpass
+        psamvault vault update github.com --notes "2FA disabled"
+        
     """
     session, key = _get_sesssion_and_key()
     
-    current_data = api_client.get_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site
-    )
+    with Spinner(f"Fetching current entry for {site}"):
+        current_data = api_client.get_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site
+        )
     
     try:
         current = decrypt_credentials(
@@ -200,16 +238,17 @@ def update(
         notes=updated_notes
     )
     
-    api_client.update_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site,
-        encrypted_blob=encrypted_blob,
-        iv=iv,
-        username_hint=updated_user
-    )
+    with Spinner(f"Updating credentials for {site}"):
+        api_client.update_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site,
+            encrypted_blob=encrypted_blob,
+            iv=iv,
+            username_hint=updated_user
+        )
     
-    typer.echo(f" Credentials for {site} updated successfully")
+    typer.echo(f" Credentials for {site} updated successfully\n")
 
 
 @app.command()
@@ -224,6 +263,7 @@ def delete(
     \b
     Example:
         psamvault delete github.com
+        psamvault vault delete github.com
     """
     confirm = typer.confirm(
         f"Are you sure you want to permanently delete the entry for '{site}'?"
@@ -233,15 +273,17 @@ def delete(
         typer.echo("Cancelled")
         raise typer.Exit()
     
+    typer.echo("")
     session = load_session()
     
-    api_client.delete_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site,
-    )    
+    with Spinner(f"Deleting entry for {site}"):
+        api_client.delete_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site,
+        )    
     
-    typer.echo(f" Entry for '{site}' deleted.")
+    typer.echo(f" Entry for '{site}' deleted.\n")
     
 
 @app.command()
@@ -271,6 +313,7 @@ def generate(
         psamvault generate
         psamvault generate --length 32 --no-symbols
         psamvault generate --save github.com --user me@example.com
+        psamvault vault generate --length 32 --no-digits
     """
     if length < 8:
         typer.echo("Error: Password length must be at least 8.", err=True)
@@ -303,14 +346,15 @@ def generate(
             password=generated
         )
         
-        api_client.add_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=save,
-            encrypted_blob=encrypted_blob,
-            iv=iv,
-            username_hint=user,
-        )
+        with Spinner(f"Saving generated password for {save}"):
+            api_client.add_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=save,
+                encrypted_blob=encrypted_blob,
+                iv=iv,
+                username_hint=user,
+            )
     
         typer.echo(f" Saved generated password for {save}.")
     
