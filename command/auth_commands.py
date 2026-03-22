@@ -4,7 +4,25 @@ from crypto import derive_master_password
 import api_client
 from session import clear_session, is_logged_in, load_session, save_session
 
-app = typer.Typer(help="Authentication commands")
+from spinner import Spinner
+
+app = typer.Typer(
+    name="auth",
+    help="Manage your psamvault account - signup, login, and logout",
+)
+
+@app.callback(invoke_without_command=True)
+def auth_help(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        typer.echo("""
+  psamvault auth — account commands
+ 
+  COMMAND    USAGE
+  ─────────────────────────────────────────────────────
+  signup     psamvault signup
+  login      psamvault login
+  logout     psamvault logout               
+""")
 
 @app.command()
 def signup():
@@ -25,12 +43,14 @@ def signup():
         typer.echo("Error: Passwords do not match", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo("\nCreating your account...")
+    typer.echo("")
+
     
     try:
-        result = api_client.signup(username, email, login_password)
+        with Spinner("Creating your account"):
+            result = api_client.signup(username, email, login_password)
     except Exception as e: 
-        typer.echo(f"Error: Could not reach the server. Is it running?\n{e}", err=True)
+        typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
         raise typer.Exit(code=1)
  
     typer.echo(f"\n Account created for {result['username']}.")
@@ -48,6 +68,11 @@ def login():
  
     Your vault encryption key is derived automatically from your login
     password — no separate master password required.
+    
+    \b
+    Example:
+      psamvault login
+      psamvault auth login
     """
     if is_logged_in():
         overwrite = typer.confirm(
@@ -61,10 +86,11 @@ def login():
     username = typer.prompt("Username")
     login_password = typer.prompt("Login password", hide_input=True)
     
-    typer.echo("\nAuthentication...")
+    typer.echo("")
     
     try:
-        result = api_client.login(username, login_password)
+        with Spinner("Authentication..."):
+            result = api_client.login(username, login_password)
     except Exception as e:
         typer.echo(f"Error: Could not reach the server. Is it running?\n{e}", err=True)
         raise typer.Exit(code=1)
@@ -91,6 +117,11 @@ def logout():
  
     Revokes the refresh token on the server and deletes the local session
     file. Your encrypted vault data remains safely stored on the server.
+    
+    \b
+    Example:
+      psamvault logout
+      psamvault auth logout
     """
     if not is_logged_in():
         typer.echo("You are not logged in.")
@@ -98,12 +129,15 @@ def logout():
     
     confirm = typer.confirm("Are you sure want to log out?")
     if not confirm:
+        typer.echo("Cancelled")
         raise typer.Exit()
     
+    typer.echo("")
     session = load_session()
     
     try:
-        api_client.logout(session["access_token"], session["refresh_token"])
+        with Spinner("Logging out"):
+            api_client.logout(session["access_token"], session["refresh_token"])
     except Exception: # pylint: disable=broad-exception-caught
         # even if the server fails the session will still be cleared
         pass
