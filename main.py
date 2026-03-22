@@ -5,6 +5,7 @@ from command.vault_commands import app as vault_app
 
 
 
+
 app = typer.Typer(
     name="psamvault",
     help="psamvault - a secure password vault for the terminal",
