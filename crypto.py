@@ -136,3 +136,99 @@ def decrypt_credentials(
         None
     )
     return json.loads(plaintext.decode("utf-8"))
+
+# recovery code helpers
+
+def generate_recovery_codes(count: int = 8) -> list[str]:
+    """
+    Generate a set of cryptographically secure recovery codes.
+ 
+    Each code is formatted as XXXX-XXXX-XXXX (groups of 4 uppercase hex
+    characters) — easy to read and write down, hard to guess.
+ 
+    Args:
+        count: Number of codes to generate (default 8).
+ 
+    Returns:
+        A list of raw code strings shown to the user once and never stored.
+    """
+    codes = []
+    for _ in range(count):
+        raw = os.urandom(6).hex().upper()
+        formatted = f"{raw[0:4]}-{raw[4:8]}-{raw[8:12]}"
+        codes.append(formatted)
+    return codes
+
+
+def encrypt_master_with_code(
+    recovery_code: str,
+    master_password: str
+) -> tuple[str, str]:
+    """
+    Encrypt the master password using a recovery code as the AES key.
+ 
+    The recovery code is hashed with PBKDF2 to produce a proper 256-bit key
+    before encryption — raw recovery codes are too short to use directly.
+ 
+    Args:
+        recovery_code:   Raw recovery code string (e.g. "A1B2-C3D4-E5F6").
+        master_password: The user's master password hex string to protect.
+ 
+    Returns:
+        A tuple of (encrypted_master_hex, iv_hex).
+    """
+    key = hashlib.pbkdf2_hmac(
+        hash_name= "sha256",
+        password= recovery_code.encode("utf-8"),
+        salt= b"psamvault-recovery-salt",
+        iterations=100_000,
+        dklen=32
+    )
+    
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    encrypted = aesgcm.encrypt(iv, master_password.encode("utf-8"), None)
+    
+    return encrypted.hex(), iv.hex()
+
+
+def decrypt_master_with_code(
+    recovery_code: str,
+    encrypted_master: str,
+    iv: str
+) -> str:
+    """
+    Decrypt the master password using a recovery code.
+ 
+    Args:
+        recovery_code:    Raw recovery code typed by the user.
+        encrypted_master: Hex-encoded ciphertext from the server.
+        iv:               Hex-encoded IV from the server.
+ 
+    Returns:
+        The plaintext master password string.
+ 
+    Raises:
+        cryptography.exceptions.InvalidTag: If the recovery code is wrong.
+    """
+    key = hashlib.pbkdf2_hmac(
+        hash_name="sha256",
+        password=recovery_code.encode("utf-8"),
+        salt=b"psamvault-recovery-salt",
+        iterations=100_000,
+        dklen=32
+    )
+    
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(
+        bytes.fromhex(iv),
+        bytes.fromhex(encrypted_master),
+        None
+    )
+    return plaintext.decode("utf-8")
+
+def hash_recovery_code(raw_code: str) -> str:
+    return hashlib.sha256(raw_code.encode()).hexdigest()
+    
+    
+    
