@@ -229,3 +229,68 @@ def delete_vault_entry(
     if result is None:
         return _refresh_and_retry(refresh_token, _call)
     return result
+
+# recovery endpoints
+def generate_recovery_codes_api(
+    access_token: str,
+    codes: list[dict],
+    
+) -> dict:
+    """POST /auth/recovery/generate — store a fresh set of recovery codes."""
+    response = httpx.post(
+        f"{BASE_URL}/auth/recovery/generate",
+        headers=_auth_headers(access_token),
+        json={"codes": codes}
+    )
+    _handle_error(response)
+    return response.json()
+
+
+def get_remaining_codes(access_token: str) -> dict:
+    """GET /auth/recovery/remaining — check how many codes are left."""
+    response = httpx.get(
+        f"{BASE_URL}/auth/recovery/remaining",
+        headers=_auth_headers(access_token)
+    )
+    _handle_error(response)
+    return response.json()
+
+
+def recover_with_code(username: str, recovery_code: str) -> dict:
+    """
+    POST /auth/recovery/recover — step 1 of recovery flow.
+    Returns encrypted_master, iv, kdf_salt.
+    """
+    response = httpx.post(
+        f"{BASE_URL}/auth/recovery/recover",
+        json={
+            "username": username,
+            "recovery_code": recovery_code
+        }
+    )
+    _handle_error(response)
+    return response.json()
+
+
+def reset_password_api(
+    username: str,
+    recovery_code: str,
+    new_login_password: str
+) -> dict:
+    """
+    POST /auth/recovery/reset-password — step 2 of recovery flow.
+    Sets the new login password. Only the used code is consumed —
+    remaining codes stay valid. Returns remaining_codes count.
+    """
+    response = httpx.post(
+        f"{BASE_URL}/auth/recovery/reset-password",
+        json={
+            "username": username,
+            "recovery_code": recovery_code,
+            "new_login_password": new_login_password
+        }
+    )
+    _handle_error(response)
+    return response.json()
+    
+    
