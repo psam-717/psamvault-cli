@@ -404,12 +404,15 @@ def recover():
         master_password=new_master # new master matches new login password
     )
     
-    remaining = reset_result.get("remaining_codes", 0)
-    
-    typer.echo("  Password reset successfully.")
-    typer.echo(f"  {count} vault entr{'y' if count == 1 else 'ies'} re-encrypted.")
-    typer.echo(f"  Logged in as {username}.")
-    typer.echo(f"  {remaining} of 8 recovery code(s) remaining.\n")
-    typer.echo("Run 'psamvault generate-codes' your other code is nullified")
-            
-    _warn_if_low(remaining)
+    typer.echo(f"  ✓ Password reset successfully.")
+    typer.echo(f"  ✓ {count} vault entr{'y' if count == 1 else 'ies'} re-encrypted.")
+    typer.echo(f"  ✓ Logged in as {username}.\n")
+    typer.echo(
+        "  ⚠  Important: your remaining recovery codes are no longer valid.\n"
+        "     Recovery codes are tied to your old password. Now that your\n"
+        "     password has changed, those codes cannot unlock your vault.\n"
+    )
+    typer.echo(
+        "  → Run  psamvault generate-codes  now to create a fresh set.\n"
+        "     You are already logged in — this only takes a moment.\n"
+    )
