@@ -1,8 +1,11 @@
 import secrets
+import threading
+import time
 import string
 from typing import Optional
 from spinner import Spinner
 
+import pyperclip
 import typer
 from cryptography.exceptions import InvalidTag
 
@@ -27,6 +30,7 @@ def vault_help(ctx: typer.Context):
   add        psamvault add <site> --user <username> --pass <password>
   add        psamvault add <site> --user <username> --pass <password> --notes <notes>
   get        psamvault get <site>
+  get        psamvault get <site> --copy
   list       psamvault list
   update     psamvault update <site> --pass <new_password>
   update     psamvault update <site> --user <new_user> --pass <new_password>
@@ -97,7 +101,11 @@ def add(
 
 @app.command()
 def get(
-    site: str = typer.Argument(..., help="Site name to retrieve, e.g. github.com")
+    site: str = typer.Argument(..., help="Site name to retrieve, e.g. github.com"),
+    copy: bool = typer.Option(
+        False, "--copy", "-c",
+        help="Copy the password to clipboard instead of displaying it"
+    )
 ):
     """
     Retrieve and decrypt credentials for a site.
@@ -136,7 +144,21 @@ def get(
     
     typer.echo(f"\n  Site:      {site}")
     typer.echo(f"  Username:  {credentials['username']}")
-    typer.echo(f"  Password:  {credentials['password']}")
+    
+    if copy:
+        pyperclip.copy(credentials["password"])
+        typer.echo("  Password: [copied to clipboard - clears in 30 seconds]")
+        
+        def _clear():
+            time.sleep(30)
+            try:
+                if pyperclip.paste() == credentials["password"]:
+                    pyperclip.copy("")
+            except Exception:
+                pass
+        threading.Thread(target=_clear, daemon=True).start()
+    else:
+        typer.echo(f"  Password:  {credentials['password']}")
     
     if credentials.get("notes"):
         typer.echo(f"  Notes:     {credentials['notes']}")

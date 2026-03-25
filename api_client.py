@@ -102,10 +102,19 @@ def logout(access_token: str, refresh_token: str) -> None:
     _handle_error(response)
     
     
+def me(access_token: str) -> dict:
+    """GET /auth/me - return the current user's profile"""
+    response = httpx.get(
+        f"{BASE_URL}/auth/me",
+        headers=_auth_headers(access_token)
+    )
+    _handle_error(response)
+    return response.json()
+    
+    
     
     
 # Vault endpoints
-
 def add_vault_entry(
     access_token: str,
     refresh_token: str,
@@ -229,6 +238,8 @@ def delete_vault_entry(
     if result is None:
         return _refresh_and_retry(refresh_token, _call)
     return result
+
+
 
 # recovery endpoints
 def generate_recovery_codes_api(
