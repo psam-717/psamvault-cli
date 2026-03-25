@@ -21,7 +21,8 @@ def auth_help(ctx: typer.Context):
   ─────────────────────────────────────────────────────
   signup     psamvault signup
   login      psamvault login
-  logout     psamvault logout               
+  logout     psamvault logout  
+  whoami     psamvault whoami             
 """)
 
 @app.command()
@@ -144,4 +145,31 @@ def logout():
         
     clear_session()
     typer.echo(" Logged out. Your vault data remains encrypted on the server")
+    
+    
+@app.command()
+def whoami():
+    """
+    Show the currently logged in user.
+ 
+    Displays your username and email without hitting the vault.
+    Useful for confirming which account is active in this session.
+ 
+    \b
+    Example:
+      psamvault whoami
+      psamvault auth whoami
+    """
+    if not is_logged_in():
+        typer.echo(" You are not logged in. Run psamvault login first")
+        raise typer.Exit()
+    
+    session = load_session()
+    
+    with Spinner("Fetching profile"):
+        result = api_client.me(session["access_token"])
+        
+    typer.echo(
+        f"\n Logged in as: {result['username']} ({result['email']})"
+    )
     
