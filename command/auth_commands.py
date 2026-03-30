@@ -1,6 +1,7 @@
+import os
 import typer
 
-from crypto import derive_master_password
+from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
 from session import clear_session, is_logged_in, load_session, save_session
 
@@ -38,7 +39,31 @@ def signup():
     username = typer.prompt("Username")
     email = typer.prompt("Email")
     
+    typer.echo(
+        "\n Password requirements:"
+        "\n  • At least 8 characters"
+        "\n  • At least one uppercase letter"
+        "\n  • At least one digit\n"
+    )
     login_password = typer.prompt("Login password", hide_input=True)
+
+    # Validate password rules client-side immediately — same rules as the server,
+    # so the user gets instant feedback without a network round-trip.
+    errors = []
+    if len(login_password) < 8:
+        errors.append("  • at least 8 characters")
+    if not any(c.isupper() for c in login_password):
+        errors.append("  • at least one uppercase letter")
+    if not any(c.isdigit() for c in login_password):
+        errors.append("  • at least one digit")
+
+    if errors:
+        typer.echo("\n Error: Password does not meet the requirements:", err=True)
+        for e in errors:
+            typer.echo(e, err=True)
+        typer.echo("", err=True)
+        raise typer.Exit(code=1)
+
     login_password_confirm = typer.prompt("Confirm login password", hide_input=True)
     if login_password != login_password_confirm:
         typer.echo("Error: Passwords do not match", err=True)
@@ -46,10 +71,25 @@ def signup():
 
     typer.echo("")
 
-    
+    # Generate kdf_salt and VEK client-side so we can encrypt everything
+    # in one atomic round-trip to the server.
+    kdf_salt_bytes = os.urandom(32)
+    kdf_salt_hex = kdf_salt_bytes.hex()
+    vek = generate_vek()
+    master = derive_master_password(login_password)
+    login_key = derive_key(master, kdf_salt_hex)
+    encrypted_vek_hex, vek_iv_hex = encrypt_vek(login_key, vek)
+
     try:
         with Spinner("Creating your account"):
-            result = api_client.signup(username, email, login_password)
+            result = api_client.signup(
+                username, email, login_password,
+                kdf_salt=kdf_salt_hex,
+                encrypted_vek=encrypted_vek_hex,
+                vek_iv=vek_iv_hex,
+            )
+    except typer.Exit:
+        raise
     except Exception as e: 
         typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
         raise typer.Exit(code=1)
@@ -92,23 +132,37 @@ def login():
     try:
         with Spinner("Authentication..."):
             result = api_client.login(username, login_password)
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"Error: Could not reach the server. Is it running?\n{e}", err=True)
         raise typer.Exit(code=1)
     
-    # derive the master password locally from the login password
-    # this is never sent to the server - it stays on this machine only
-    master_password = derive_master_password(login_password)
+    # Derive the login key locally and use it to decrypt the VEK from the server.
+    # The VEK is stored in the session so vault commands can use it directly
+    # without re-deriving or prompting the user again.
+    master = derive_master_password(login_password)
+    login_key = derive_key(master, result["kdf_salt"])
+    vek = decrypt_vek(login_key, result["encrypted_vek"], result["vek_iv"])
     
     save_session(
         access_token=result["access_token"],
         refresh_token=result["refresh_token"],
         kdf_salt=result["kdf_salt"],
-        master_password=master_password
+        vek=vek.hex(),
+        encrypted_vek=result["encrypted_vek"],
+        vek_iv=result["vek_iv"],
     )
     
     typer.echo(f"\n Logged in as {username}")
-    typer.echo("Your vault is ready. Try 'psamvault list' to see your entries.")
+    typer.echo(" Your vault is ready. Try 'psamvault list' to see your entries.")
+
+    if not result["has_recovery_codes"]:
+        typer.echo(
+            "\n  ⚠  You have no recovery codes set up."
+            "\n     If you forget your password, you will not be able to recover your account."
+            "\n\n  → Run  psamvault generate-codes  now to protect your account.\n"
+        )
     
     
 @app.command()
