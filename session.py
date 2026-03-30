@@ -11,25 +11,32 @@ def save_session(
     access_token: str,
     refresh_token: str,
     kdf_salt: str,
-    master_password: str
+    vek: str,
+    encrypted_vek: str,
+    vek_iv: str,
 ) -> None:
     """
     Persist the session to disk after a successful login.
- 
-    The master password stored here is NOT what the user typed. It is a
-    64-character hex string derived from the login password via HMAC-SHA256
-    in crypto.derive_master_password(). It is stored locally only and is
-    never sent to the server. It is needed on every vault command to
-    re-derive the AES encryption key without prompting the user each time.
- 
+
+    The vek stored here is the raw 32-byte Vault Encryption Key as a hex string,
+    decrypted locally from the server's encrypted copy using the login-derived key.
+    It is stored locally only and is never sent to the server. It is needed on
+    every vault command to encrypt/decrypt entries without prompting each time.
+
+    The encrypted_vek and vek_iv are stored so that recovery_commands can build
+    code payloads without requiring the user to re-enter their password
+    (they verify identity with the password, then decrypt from these stored values).
+
     The session folder is created with restricted permissions (700) so only
     the current OS user can enter it.
- 
+
     Args:
-        access_token:    Short-lived JWT from the server (15 min).
-        refresh_token:   Long-lived opaque token from the server (30 days).
-        kdf_salt:        Hex string from the server used to derive the key.
-        master_password: Raw master password typed by the user at login.
+        access_token:  Short-lived JWT from the server (15 min).
+        refresh_token: Long-lived opaque token from the server (30 days).
+        kdf_salt:      Hex string from the server used to derive the login key.
+        vek:           Hex-encoded 32-byte Vault Encryption Key (decrypted locally).
+        encrypted_vek: Hex-encoded server copy of the VEK (encrypted with login key).
+        vek_iv:        Hex-encoded IV used when encrypting the VEK.
     """
     SESSION_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     
@@ -37,7 +44,9 @@ def save_session(
         "access_token": access_token,
         "refresh_token": refresh_token,
         "kdf_salt": kdf_salt,
-        "master_password": master_password
+        "vek": vek,
+        "encrypted_vek": encrypted_vek,
+        "vek_iv": vek_iv,
     }
     
     SESSION_FILE.write_text(json.dumps(session_data, indent=2))
