@@ -229,6 +229,56 @@ def decrypt_master_with_code(
 
 def hash_recovery_code(raw_code: str) -> str:
     return hashlib.sha256(raw_code.encode()).hexdigest()
+
+
+def generate_vek() -> bytes:
+    """Generate a cryptographically random 32-byte Vault Encryption Key."""
+    return os.urandom(32)
+
+
+def encrypt_vek(login_key: bytes, vek: bytes) -> tuple[str, str]:
+    """
+    Encrypt the VEK with the login-derived key using AES-256-GCM.
+
+    Called at signup and again after a password reset to wrap the VEK
+    with the new login key. The encrypted result is stored on the server.
+
+    Args:
+        login_key: 32-byte key from derive_key(derive_master_password(pw), kdf_salt).
+        vek:       32-byte raw Vault Encryption Key.
+
+    Returns:
+        (encrypted_vek_hex, vek_iv_hex) — hex strings safe to send as JSON.
+    """
+    iv = os.urandom(12)
+    aesgcm = AESGCM(login_key)
+    encrypted = aesgcm.encrypt(iv, vek, None)
+    return encrypted.hex(), iv.hex()
+
+
+def decrypt_vek(login_key: bytes, encrypted_vek: str, vek_iv: str) -> bytes:
+    """
+    Decrypt the VEK using the login-derived key.
+
+    Called at login to recover the raw VEK from the server's encrypted copy.
+
+    Args:
+        login_key:     32-byte key from derive_key(derive_master_password(pw), kdf_salt).
+        encrypted_vek: Hex-encoded ciphertext from the server.
+        vek_iv:        Hex-encoded IV from the server.
+
+    Returns:
+        32 raw bytes — the Vault Encryption Key.
+
+    Raises:
+        cryptography.exceptions.InvalidTag: If the login key is wrong.
+    """
+    aesgcm = AESGCM(login_key)
+    return aesgcm.decrypt(
+        bytes.fromhex(vek_iv),
+        bytes.fromhex(encrypted_vek),
+        None
+    )
     
     
     

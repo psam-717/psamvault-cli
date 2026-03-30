@@ -19,8 +19,41 @@ def _handle_error(response: httpx.Response) -> None:
     Raise a clean typer error for non-2xx responses instead of letting
     httpx bubble up a raw exception.
     """
+    if response.status_code == 422:
+        # Pydantic validation error — extract the human-readable messages
+        # from FastAPI's error list: [{"msg": "...", "loc": [...], ...}, ...]
+        try:
+            errors = response.json().get("detail", [])
+            messages = []
+            for err in errors:
+                msg = err.get("msg", "")
+                # FastAPI prefixes field_validator messages with "Value error, " — strip it
+                msg = msg.removeprefix("Value error, ")
+                if msg:
+                    messages.append(f"  • {msg}")
+            if messages:
+                typer.echo("\n Error: Validation failed:", err=True)
+                for m in messages:
+                    typer.echo(m, err=True)
+                typer.echo("", err=True)
+            else:
+                typer.echo("Error: Invalid request (422).", err=True)
+        except Exception:
+            typer.echo(f"Error: Invalid request (422): {response.text}", err=True)
+        raise typer.Exit(code=1)
+
     if response.status_code == 401:
-        typer.echo("Session expired or invalid. Please run  psamvault login  again.", err=True)
+        detail = response.json().get("detail", "")
+        if detail == "Could not validate credentials":
+            # Access token expired (15-min TTL). Vault commands auto-refresh,
+            # but other commands don't — guide the user to trigger a refresh.
+            typer.echo(
+                "\n Session timed out after inactivity."
+                "\n → Run  psamvault list  to refresh your session, then try again.\n",
+                err=True,
+            )
+        else:
+            typer.echo(f" Error: {detail or 'Invalid credentials or session expired.'}", err=True)
         raise typer.Exit(code=1)
  
     if response.status_code == 404:
@@ -54,14 +87,17 @@ def _refresh_and_retry(refresh_token: str, retry_fn):
     
 
 # Auth endpoints
-def signup(username: str, email: str, login_password: str) -> dict:
+def signup(username: str, email: str, login_password: str, kdf_salt: str, encrypted_vek: str, vek_iv: str) -> dict:
     """POST /auth/signup"""
     response = httpx.post(
         f"{BASE_URL}/auth/signup",
         json={
             "username": username,
             "email": email,
-            "login_password": login_password
+            "login_password": login_password,
+            "kdf_salt": kdf_salt,
+            "encrypted_vek": encrypted_vek,
+            "vek_iv": vek_iv,
         }
     )
     _handle_error(response)
@@ -286,19 +322,24 @@ def recover_with_code(username: str, recovery_code: str) -> dict:
 def reset_password_api(
     username: str,
     recovery_code: str,
-    new_login_password: str
+    new_login_password: str,
+    new_encrypted_vek: str,
+    new_vek_iv: str,
 ) -> dict:
     """
     POST /auth/recovery/reset-password — step 2 of recovery flow.
-    Sets the new login password. Only the used code is consumed —
-    remaining codes stay valid. Returns remaining_codes count.
+    Sets the new login password and updates the encrypted VEK.
+    Only the used code is consumed — remaining codes stay valid.
+    Returns remaining_codes count.
     """
     response = httpx.post(
         f"{BASE_URL}/auth/recovery/reset-password",
         json={
             "username": username,
             "recovery_code": recovery_code,
-            "new_login_password": new_login_password
+            "new_login_password": new_login_password,
+            "new_encrypted_vek": new_encrypted_vek,
+            "new_vek_iv": new_vek_iv,
         }
     )
     _handle_error(response)

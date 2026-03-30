@@ -10,7 +10,7 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
-from crypto import decrypt_credentials, derive_key, encrypt_credentials
+from crypto import decrypt_credentials, encrypt_credentials
 from session import load_session
 
 app = typer.Typer(
@@ -44,11 +44,12 @@ def vault_help(ctx: typer.Context):
 
 def _get_sesssion_and_key() -> tuple[dict, bytes]:
     """
-    Load the session and derive the encryption key from the master password.
-    Called at the start of every vault command that needs to encrypt or decrypt.
+    Load the session and return the Vault Encryption Key.
+    The VEK is stored directly in the session after being decrypted at login —
+    no key derivation needed here.
     """
     session = load_session()
-    key = derive_key(session["master_password"], session["kdf_salt"])
+    key = bytes.fromhex(session["vek"])
     return session, key
 
 
