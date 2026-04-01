@@ -1,12 +1,9 @@
 import os
 import httpx
 import typer
-from dotenv import load_dotenv
 
 from session import update_tokens
 
-
-load_dotenv()
 
 BASE_URL = os.getenv("PSAMVAULT_API_URL", "http://127.0.0.1:8000")
 
