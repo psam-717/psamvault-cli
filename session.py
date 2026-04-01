@@ -61,7 +61,7 @@ def load_session() -> dict:
     Load the session from disk.
  
     Returns:
-        Dict with keys: access_token, refresh_token, kdf_salt, master_password.
+        Dict with keys: access_token, refresh_token, kdf_salt, vek, encrypted_vek, vek_iv.
  
     Raises:
         SystemExit: If no session file exists, prompting the user to log in.
