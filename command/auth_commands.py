@@ -3,6 +3,7 @@ import typer
 
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
+from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
 from session import clear_session, is_logged_in, load_session, save_session
 
 from spinner import Spinner
@@ -26,14 +27,125 @@ def auth_help(ctx: typer.Context):
   whoami     psamvault whoami             
 """)
 
+
+@app.command()
+def configure():
+    """
+    Set up psamvault on this machine.
+ 
+    Run this once after installing psamvault. The API URL is pre-filled
+    and a secure pepper is generated automatically — just press Enter
+    to accept the defaults.
+ 
+    \b
+    Example:
+      psamvault configure
+      psamvault auth configure
+    """
+    typer.echo("\n psamvault setup\n")
+    
+    current_url = DEFAULT_API_URL
+    if is_configured():
+        current = get_config()
+        pepper = current["PSAMVAULT_PEPPER"]
+        current_url = current["PSAMVAULT_API_URL"]
+        typer.echo(" Current configuration:")
+        typer.echo(f"   API URL : {current_url}")
+        typer.echo(f"   Pepper  : {pepper[:8]}...{pepper[-4:]}")
+        typer.echo("")
+        overwrite = typer.confirm(" Overwrite existing configuration?")
+        if not overwrite:
+            typer.echo("  Cancelled. Configuration unchanged. \n")
+            raise typer.Exit()
+        typer.echo("")
+      
+    typer.echo(" Press Enter to accept the default value shown in brackets.\n")
+    api_url = typer.prompt(
+        " API URL",
+        default=current_url
+    ).strip().rstrip("/")
+        
+    if not api_url.startswith("http"):
+        typer.echo("\n  Error: API URL must start with http:// or https://", err=True)
+        raise typer.Exit(code=1)
+    
+    # Pepper is generated automatically - no user input needed
+    typer.echo(" Generating a secure pepper for your vault...")
+    pepper = generate_pepper()
+    
+    typer.echo("")
+    with Spinner("Verifying connection to server"):
+        try:
+            import httpx
+            response = httpx.get(f"{api_url}/health", timeout=10)
+            response.raise_for_status()
+        except Exception:
+            typer.echo(f"\n Warning: could not reach {api_url}/health")
+            typer.echo(" The config was saved anyway - check the URL if the commands fail. \n")
+            
+            
+    save_config(api_url, pepper)
+    
+    typer.echo(
+        f"  Configuration saved to ~/.psamvault/config.env"
+        f"\n  API URL : {api_url}"
+        f"\n  Pepper  : {pepper[:8]}...{pepper[-4:]}\n"
+    )
+    typer.echo(
+        "  Important: your pepper is stored in ~/.psamvault/config.env"
+        "\n  Back up this file — losing it means losing access to your vault.\n"
+    )
+    typer.echo("  You are ready. Run  psamvault signup  to create your account.\n")
+        
+
+@app.command(name="config-show")
+def config_show():
+    """
+    Show the current configuration.
+ 
+    \b
+    Example:
+      psamvault config-show
+      psamvault auth config-show
+    """
+    if not is_configured():
+        typer.echo(
+            "\n  Not configured. Run   psamvault configure  to set up. \n",
+            err=True
+        )
+        raise typer.Exit(code=1)
+    
+    current = get_config()
+    pepper = current["PSAMVAULT_PEPPER"]
+    masked = f"{pepper[:8]}...{pepper[-4:]}"
+    
+    typer.echo(
+        f"\n  API URL  :  {current['PSAMVAULT_API_URL']}"
+        f"\n  Pepper   :  {masked}"
+        f"\n  Config   :   ~/.psamvault/config.env\n"
+    )
+
+    
+    
+
 @app.command()
 def signup():
     """
     Create a new psamvault account.
  
-    You only need one password. Your vault encryption key is derived
-    automatically from your login password — no master password to remember.
+    \b
+    Example:
+      psamvault signup
+      psamvault auth signup
     """
+    if not is_configured():
+        typer.echo(
+            "\n  psamvault is not configured"
+            "\n  Run 'psamvault configure'  first. \n",
+            err=True
+        )
+        raise typer.Exit(code=1)
+    
     typer.echo("Create your psamvault account\n")
     
     username = typer.prompt("Username")
@@ -106,15 +218,20 @@ def signup():
 def login():
     """
     Log in to your psamvault account.
- 
-    Your vault encryption key is derived automatically from your login
-    password — no separate master password required.
     
     \b
     Example:
       psamvault login
       psamvault auth login
     """
+    if not is_configured():
+        typer.echo(
+            "\n  psamvault is not configured"
+            "\n  Run  'psamvault configure'  first. \n",
+            err=True
+        )
+        raise typer.Exit(code=1)
+    
     if is_logged_in():
         overwrite = typer.confirm(
             "You are already logged in. Log in as a different user?"
