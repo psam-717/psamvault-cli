@@ -1,3 +1,5 @@
+from config import load_config
+load_config()
 import typer
 
 from command.auth_commands import app as auth_app
@@ -28,11 +30,12 @@ app.add_typer(vault_app, name="vault", invoke_without_command=True)
 # register recovery commands
 app.add_typer(recovery_app, name="recovery", invoke_without_command=True)
 
-from command.auth_commands import login, logout, signup, whoami
+from command.auth_commands import login, logout, signup, whoami, config_show, configure
 from command.vault_commands import add, delete, generate, get, list_entries, update
 from command.recovery_commands import generate_codes, remaining_codes, recover
 
-
+app.command("configure")(configure)
+app.command("config-show")(config_show)
 app.command("signup")(signup)
 app.command("login")(login)
 app.command("logout")(logout)
