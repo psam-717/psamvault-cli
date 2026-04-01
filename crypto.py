@@ -2,12 +2,8 @@ import hashlib
 import json
 import hmac
 import os
-from dotenv import load_dotenv
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-load_dotenv()
-
-_PEPPER =  os.getenv("PSAMVAULT_PEPPER")
 
 def derive_master_password(login_password: str) -> str:
     """
@@ -35,7 +31,7 @@ def derive_master_password(login_password: str) -> str:
         master_password -> "a3f8c2d1e9b47f6c..." (64 hex chars, always)
     """
     return hmac.new(
-        key=_PEPPER.encode("utf-8"),
+        key=os.getenv("PSAMVAULT_PEPPER", "").encode("utf-8"),
         msg=login_password.encode("utf-8"),
         digestmod=hashlib.sha256
     ).hexdigest()
