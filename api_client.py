@@ -5,7 +5,8 @@ import typer
 from session import update_tokens
 
 
-BASE_URL = os.getenv("PSAMVAULT_API_URL", "http://127.0.0.1:8000")
+def _base_url() -> str:
+    return os.getenv("PSAMVAULT_API_URL", "https://psam-vault-backend.onrender.com")
 
 # internal helpers
 def _auth_headers(access_token: str) -> dict:
@@ -87,7 +88,7 @@ def _refresh_and_retry(refresh_token: str, retry_fn):
 def signup(username: str, email: str, login_password: str, kdf_salt: str, encrypted_vek: str, vek_iv: str) -> dict:
     """POST /auth/signup"""
     response = httpx.post(
-        f"{BASE_URL}/auth/signup",
+        f"{_base_url()}/auth/signup",
         json={
             "username": username,
             "email": email,
@@ -104,7 +105,7 @@ def signup(username: str, email: str, login_password: str, kdf_salt: str, encryp
 def login(username: str, login_password: str) -> dict:
     """POST /auth/login — returns access_token, refresh_token, kdf_salt."""
     response = httpx.post(
-        f"{BASE_URL}/auth/login",
+        f"{_base_url()}/auth/login",
         json={
             "username": username,
             "login_password": login_password
@@ -117,7 +118,7 @@ def login(username: str, login_password: str) -> dict:
 def refresh_access_token(refresh_token: str) -> str:
     """POST /auth/refresh - returns a new access_token string"""
     response = httpx.post(
-        f"{BASE_URL}/auth/refresh",
+        f"{_base_url()}/auth/refresh",
         json={"refresh_token": refresh_token}
     )
     _handle_error(response)
@@ -128,7 +129,7 @@ def refresh_access_token(refresh_token: str) -> str:
 def logout(access_token: str, refresh_token: str) -> None:
     """POST /auth/logout - revokes the refresh token on the server"""
     response = httpx.post(
-        f"{BASE_URL}/auth/logout",
+        f"{_base_url()}/auth/logout",
         headers=_auth_headers(access_token),
         json={"refresh_token": refresh_token}
     )
@@ -138,7 +139,7 @@ def logout(access_token: str, refresh_token: str) -> None:
 def me(access_token: str) -> dict:
     """GET /auth/me - return the current user's profile"""
     response = httpx.get(
-        f"{BASE_URL}/auth/me",
+        f"{_base_url()}/auth/me",
         headers=_auth_headers(access_token)
     )
     _handle_error(response)
@@ -159,7 +160,7 @@ def add_vault_entry(
     """POST /vault - store a new encrypted entry"""
     def _call(token: str) -> dict:
         response = httpx.post(
-            f"{BASE_URL}/vault",
+            f"{_base_url()}/vault",
             headers=_auth_headers(token),
             json={
                 "site_name": site_name,
@@ -187,7 +188,7 @@ def get_vault_entry(
     """GET /vault/{site_name} — fetch a single encrypted entry."""
     def _call(token: str) -> dict:
         response = httpx.get(
-            f"{BASE_URL}/vault/{site_name}",
+            f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token)
         )
         if response.status_code == 401:
@@ -208,7 +209,7 @@ def list_vault_entries(
     """GET /vault — fetch all entries as lightweight list items."""
     def _call(token: str) -> dict:
         response = httpx.get(
-            f"{BASE_URL}/vault",
+            f"{_base_url()}/vault",
             headers=_auth_headers(token)
         )
         if response.status_code == 401:
@@ -233,7 +234,7 @@ def update_vault_entry(
     """PUT /vault/{site_name} — update an existing encrypted entry"""
     def _call(token: str) -> dict:
         response = httpx.put(
-            f"{BASE_URL}/vault/{site_name}",
+            f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token),
             json={
                 "encrypted_blob": encrypted_blob,
@@ -259,7 +260,7 @@ def delete_vault_entry(
     """DELETE /vault/{site_name} — permanently remove an entry."""
     def _call(token: str) -> dict:
         response = httpx.delete(
-            f"{BASE_URL}/vault/{site_name}",
+            f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token)
         )
         if response.status_code == 401:
@@ -282,7 +283,7 @@ def generate_recovery_codes_api(
 ) -> dict:
     """POST /auth/recovery/generate — store a fresh set of recovery codes."""
     response = httpx.post(
-        f"{BASE_URL}/auth/recovery/generate",
+        f"{_base_url()}/auth/recovery/generate",
         headers=_auth_headers(access_token),
         json={"codes": codes}
     )
@@ -293,7 +294,7 @@ def generate_recovery_codes_api(
 def get_remaining_codes(access_token: str) -> dict:
     """GET /auth/recovery/remaining — check how many codes are left."""
     response = httpx.get(
-        f"{BASE_URL}/auth/recovery/remaining",
+        f"{_base_url()}/auth/recovery/remaining",
         headers=_auth_headers(access_token)
     )
     _handle_error(response)
@@ -306,7 +307,7 @@ def recover_with_code(username: str, recovery_code: str) -> dict:
     Returns encrypted_master, iv, kdf_salt.
     """
     response = httpx.post(
-        f"{BASE_URL}/auth/recovery/recover",
+        f"{_base_url()}/auth/recovery/recover",
         json={
             "username": username,
             "recovery_code": recovery_code
@@ -330,7 +331,7 @@ def reset_password_api(
     Returns remaining_codes count.
     """
     response = httpx.post(
-        f"{BASE_URL}/auth/recovery/reset-password",
+        f"{_base_url()}/auth/recovery/reset-password",
         json={
             "username": username,
             "recovery_code": recovery_code,
