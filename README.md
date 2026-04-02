@@ -32,16 +32,27 @@ HMAC-SHA256 + pepper  →  master password
 
 ## Installation
 
+[pipx](https://pipx.pypa.io) installs psamvault in an isolated environment and exposes it as a global command — the recommended way to install CLI tools.
+
 ```bash
-pip install psamvault
+pipx install psamvault
 ```
+
+If you don't have pipx yet:
+
+```bash
+pip install pipx
+pipx ensurepath
+```
+
+Then restart your terminal and run `pipx install psamvault`.
 
 Or install from source:
 
 ```bash
 git clone https://github.com/psam-717/psamvault-cli
 cd psamvault-cli/cli
-pip install -e .
+pipx install -e .
 ```
 
 ---
