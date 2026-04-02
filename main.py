@@ -1,5 +1,7 @@
 from config import load_config
 load_config()
+import importlib.metadata
+from typing import Annotated, Optional
 import typer
 
 from command.auth_commands import app as auth_app
@@ -19,6 +21,30 @@ app = typer.Typer(
     ),
     no_args_is_help=True
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        try:
+            version = importlib.metadata.version("psamvault")
+        except importlib.metadata.PackageNotFoundError:
+            import tomllib
+            from pathlib import Path
+            pyproject = Path(__file__).parent / "pyproject.toml"
+            with open(pyproject, "rb") as f:
+                version = tomllib.load(f)["project"]["version"]
+        typer.echo(f"psamvault {version}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: Annotated[
+        Optional[bool],
+        typer.Option("--version", "-V", callback=_version_callback, is_eager=True, help="Show version and exit."),
+    ] = None,
+) -> None:
+    pass
 
 
 # register auth commands
