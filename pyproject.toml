@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "psamvault"
-version = "0.1.4"
+version = "0.2.1"
 description = "A secure command-line password vault."
 readme = "README.md"
 requires-python = ">=3.11"
