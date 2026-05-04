@@ -159,8 +159,8 @@ def signup():
     )
     login_password = typer.prompt("Login password", hide_input=True)
 
-    # Validate password rules client-side immediately — same rules as the server,
-    # so the user gets instant feedback without a network round-trip.
+    # Validate password rules client-side — the server accepts any 64-char hex master
+    # password, so validation must happen here before the user sees a confusing error.
     errors = []
     if len(login_password) < 8:
         errors.append("  • at least 8 characters")
