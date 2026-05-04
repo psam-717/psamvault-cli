@@ -45,18 +45,21 @@ def _build_code_payloads(
     """
     For each raw recovery code, encrypt the VEK with it and return the list
     of dicts the server expects:
-    [{"code_hash": "...", "encrypted_master": "...", "iv": "..."}, ...]
+    [{"code_hash": "...", "encrypted_master": "...", "iv": "...", "kdf_salt": "..."}, ...]
 
     The column is still named encrypted_master on the server for backwards
     compatibility, but it now holds the encrypted VEK hex string.
+    A fresh random per-code PBKDF2 salt is included so two codes with the
+    same value produce different AES keys.
     """
     payloads = []
     for code in raw_codes:
-        encrypted_vek_hex, iv = encrypt_master_with_code(code, vek.hex())
+        encrypted_vek_hex, iv, kdf_salt = encrypt_master_with_code(code, vek.hex())
         payloads.append({
             "code_hash": hash_recovery_code(code),
             "encrypted_master": encrypted_vek_hex,
-            "iv": iv
+            "iv": iv,
+            "kdf_salt": kdf_salt,
         })
     return payloads
 
@@ -230,11 +233,13 @@ def recover():
     
     # Step 2 — decrypt the VEK using the recovery code
     # encrypted_master column on the server holds the encrypted VEK hex string.
+    # code_kdf_salt is the per-code PBKDF2 salt stored alongside each recovery code.
     try:
         recovered_vek_hex = decrypt_master_with_code(
             recovery_code=recovery_code,
             encrypted_master=result["encrypted_master"],
-            iv=result["iv"]
+            iv=result["iv"],
+            salt=result["code_kdf_salt"],
         )
     except InvalidTag:
         typer.echo(
@@ -256,8 +261,19 @@ def recover():
         typer.echo(" \n Error: Passwords do not match", err=True)
         raise typer.Exit(code=1) 
     
+    errors = []
     if len(new_login_password) < 8:
-        typer.echo("\n Password should have at least 8 characters")
+        errors.append("  • at least 8 characters")
+    if not any(c.isupper() for c in new_login_password):
+        errors.append("  • at least one uppercase letter")
+    if not any(c.isdigit() for c in new_login_password):
+        errors.append("  • at least one digit")
+
+    if errors:
+        typer.echo("\n Error: Password does not meet the requirements:", err=True)
+        for e in errors:
+            typer.echo(e, err=True)
+        typer.echo("", err=True)
         raise typer.Exit(code=1)
     
     typer.echo("")
@@ -272,14 +288,14 @@ def recover():
         api_client.reset_password_api(
             username=username,
             recovery_code=recovery_code,
-            new_login_password=new_login_password,
+            new_login_password=new_master,
             new_encrypted_vek=new_encrypted_vek,
             new_vek_iv=new_vek_iv,
         )
 
     # Step 6 — log in with the new password to get a valid session
     with Spinner("Logging in with new password"):
-        login_result = api_client.login(username, new_login_password)
+        login_result = api_client.login(username, new_master)
 
     # Step 7 — save the session with the recovered VEK
     save_session(
