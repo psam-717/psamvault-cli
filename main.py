@@ -63,11 +63,12 @@ app.add_typer(recovery_app, name="recovery", invoke_without_command=True)
 # register ak commands
 app.add_typer(apikey_app, name="ak", invoke_without_command=True)
 
-from command.auth_commands import login, logout, signup, whoami, config_show, configure
+from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
 from command.vault_commands import add, delete, generate, get, list_entries, update
 from command.recovery_commands import generate_codes, remaining_codes, recover
 from command.api_key_commands import ak_add, ak_get, ak_delete, ak_list, ak_update
 
+app.command("migrate")(migrate)
 app.command("configure")(configure)
 app.command("config-show")(config_show)
 app.command("signup")(signup)
