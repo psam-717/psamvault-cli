@@ -155,7 +155,15 @@ psamvault get github.com --copy   # copies password to clipboard, clears after 3
 psamvault list
 ```
 
-Shows site name, username hint, and last-updated date. Does not decrypt entries.
+Shows all stored entries in two labelled sections — **Site Credentials** and **API Keys** — with name/username hint and last-updated date. Does not decrypt entries.
+
+### List site credentials only
+
+```bash
+psamvault site-list
+```
+
+Shows only site credential entries (same columns as above).
 
 ### Update a credential
 
@@ -275,6 +283,7 @@ All commands are available at the root level and also under grouped sub-commands
 |---|---|
 | `psamvault login` | `psamvault auth login` |
 | `psamvault add` | `psamvault vault add` |
+| `psamvault site-list` | `psamvault vault site-list` |
 | `psamvault generate-codes` | `psamvault recovery generate-codes` |
 | `psamvault ak-add` | `psamvault ak add` |
 
