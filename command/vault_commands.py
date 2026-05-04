@@ -41,8 +41,27 @@ def vault_help(ctx: typer.Context):
   generate   psamvault generate --length <number> --no-symbols
   generate   psamvault generate --save <site> --user <username>              
 """)
+        
+FORBIDDEN_SITE_CHARS = set('\\/"\' <>|?*&#%')
 
-def _get_sesssion_and_key() -> tuple[dict, bytes]:
+def _validate_site_name(site: str) -> None:
+    """Raise a user-friendly error if the site name contains forbidden characters."""
+    if not site.strip():
+        typer.echo("Error: Site name cannot be blank", err=True)
+        raise typer.Exit(code=1)
+    
+    found = [c for c in site if c in FORBIDDEN_SITE_CHARS]
+    if found:
+        unique = "".join(dict.fromkeys(found)) # deduplicate, preserve order
+        typer.echo(
+            f"Error: Site name contains invalid character(s): {' '.join(repr(c) for c in unique)}\n"
+            f"  Forbidden characters: \\ / \" ' < > | ? * & # %",
+            err=True
+        )
+        raise typer.Exit(code=1)
+    
+    
+def _get_session_and_key() -> tuple[dict, bytes]:
     """
     Load the session and return the Vault Encryption Key.
     The VEK is stored directly in the session after being decrypted at login —
@@ -74,11 +93,13 @@ def add(
         psamvault add github.com --user me@example.com --pass secret --notes "2FA enabled"
         psamvault add github.com --user me@example.com   (prompts for password)
     """
+    _validate_site_name(site)
+    
     if password is None:
-        password = typer.prompt(f"Password for {site}", hide_input=False)
+        password = typer.prompt(f"Password for {site}", hide_input=True)
     
     typer.echo("")
-    session, key = _get_sesssion_and_key()
+    session, key = _get_session_and_key()
     
     encrypted_blob, iv = encrypt_credentials(
         key,
@@ -120,7 +141,9 @@ def get(
         psamvault vault get github.com
         
     """
-    session, key = _get_sesssion_and_key()
+    _validate_site_name(site)
+    
+    session, key = _get_session_and_key()
     
     with Spinner(f"Fetching credentials for {site}"):
         data = api_client.get_vault_entry(
@@ -191,7 +214,7 @@ def list_entries():
     total = data["total"]
     
     if total == 0:
-        typer.echo("Your vault is empty. User psamvault add to store credentials\n")
+        typer.echo("Your vault is empty. Use psamvault add to store credentials\n")
         return
     
     typer.echo(f"\n  {'SITE':<35} {'USERNAME HINT':<30} {'UPDATED'}")
@@ -226,7 +249,9 @@ def update(
         psamvault vault update github.com --notes "2FA disabled"
         
     """
-    session, key = _get_sesssion_and_key()
+    _validate_site_name(site)
+    
+    session, key = _get_session_and_key()
     
     with Spinner(f"Fetching current entry for {site}"):
         current_data = api_client.get_vault_entry(
@@ -288,6 +313,8 @@ def delete(
         psamvault delete github.com
         psamvault vault delete github.com
     """
+    _validate_site_name(site)
+    
     confirm = typer.confirm(
         f"Are you sure you want to permanently delete the entry for '{site}'?"
     )
@@ -361,7 +388,7 @@ def generate(
             )
             raise typer.Exit(code=1)
         
-        session, key = _get_sesssion_and_key()
+        session, key = _get_session_and_key()
         
         encrypted_blob, iv = encrypt_credentials(
             key,
