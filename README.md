@@ -74,10 +74,10 @@ psamvault configure
 
  API URL [https://psam-vault-backend.onrender.com]:
  Generating a secure pepper for your vault...
- Configuration saved to ~/.psamvault/config.env
+ Configuration saved.
 ```
 
-> ⚠️ **Back up `~/.psamvault/config.env`** — it contains your pepper. Losing it means losing access to your vault.
+> ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper. Keep your recovery codes up to date so you can always regain vault access.
 
 To review your current config:
 
@@ -108,7 +108,7 @@ Password requirements:
 psamvault login
 ```
 
-Decrypts your VEK locally using your login password and saves it to a local session file (`~/.psamvault/session.json`). All vault commands use this session — you won't be prompted for your password again until the session expires.
+Decrypts your VEK locally using your login password. All sensitive session data — tokens, VEK, and kdf_salt — are stored in the **OS keychain**, not on disk. A lightweight presence marker (`~/.psamvault/session.json`) lets psamvault detect that you are logged in without reading any secrets from disk. All vault commands use this session — you won't be prompted for your password again until the session expires.
 
 ---
 
@@ -293,12 +293,12 @@ psamvault ak
 
 | File | Purpose |
 |---|---|
-| `~/.psamvault/config.env` | API URL only — pepper is stored in the OS keychain |
-| `~/.psamvault/session.json` | Empty session presence marker — tokens and VEK are stored in the OS keychain |
+| `~/.psamvault/config.env` | Non-sensitive API URL only |
+| `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
+
+All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain.
 
 Both files are restricted to owner read/write only (`chmod 600`).
-
-> The OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service) holds all sensitive values: pepper, access token, refresh token, kdf_salt, and the decrypted VEK. Nothing sensitive is written to disk in plaintext.
 
 ---
 
@@ -309,3 +309,22 @@ Both files are restricted to owner read/write only (`chmod 600`).
 - The server stores only **encrypted blobs** — it cannot decrypt your vault
 - **AES-256-GCM** is used for all encryption (authenticated — detects tampering)
 - **PBKDF2-HMAC-SHA256** with 600,000 iterations for key derivation (NIST recommended minimum)
+- **Argon2id** is used to hash recovery codes server-side (memory-hard, brute-force resistant)
+
+### OS keychain storage
+
+All sensitive session and config values are stored in the OS keychain — never written to disk in plaintext:
+
+| Value | Keychain key |
+|---|---|
+| HMAC pepper | `psamvault / config.pepper` |
+| Access token (JWT) | `psamvault / session.access_token` |
+| Refresh token | `psamvault / session.refresh_token` |
+| KDF salt | `psamvault / session.kdf_salt` |
+| Vault Encryption Key | `psamvault / session.vek` |
+| Encrypted VEK (server copy) | `psamvault / session.encrypted_vek` |
+| VEK IV | `psamvault / session.vek_iv` |
+
+On **macOS** this is the system Keychain. On **Windows** it is the Credential Manager (`%LOCALAPPDATA%\Microsoft\Credentials`). On **Linux** it is the Secret Service (GNOME Keyring or KWallet).
+
+`~/.psamvault/session.json` contains only `{}` — an empty presence marker. `~/.psamvault/config.env` contains only the non-sensitive API URL. Both files are restricted to owner read/write only (`chmod 600`).
