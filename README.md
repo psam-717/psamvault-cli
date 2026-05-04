@@ -24,7 +24,7 @@ HMAC-SHA256 + pepper  →  master password
                                               VEK encrypts every vault entry
 ```
 
-- **Pepper** — unique per device, stored in `~/.psamvault/config.env`. Never sent to the server.
+- **Pepper** — unique per device, stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Never sent to the server.
 - **VEK (Vault Encryption Key)** — a random 32-byte key generated at signup. Stored encrypted on the server; decrypted locally at login.
 - **kdf_salt** — stored on the server, tied to your account. Ensures two users with the same password get different keys.
 
@@ -120,6 +120,18 @@ psamvault whoami
 
 ---
 
+### Migrate (one-time upgrade)
+
+If you created your account before the master-password scheme was introduced, run this once to upgrade your authentication:
+
+```bash
+psamvault migrate
+```
+
+Your vault data is preserved. After migrating, regenerate your recovery codes with `psamvault generate-codes`.
+
+---
+
 ## Vault commands
 
 ### Add a credential
@@ -203,6 +215,48 @@ Use one of your saved recovery codes to reset your login password without losing
 
 ---
 
+## API key commands
+
+### Add an API key
+
+```bash
+psamvault ak-add xai-prod --service XAI --key sk-...
+psamvault ak-add stripe-test --service Stripe --key sk_test_... --notes "test mode only"
+psamvault ak-add gh-token --service GitHub   # prompts for key
+```
+
+### Retrieve an API key
+
+```bash
+psamvault ak-get openai-prod
+psamvault ak-get openai-prod --copy   # copies key to clipboard, clears after 30s
+```
+
+### List all API key entries
+
+```bash
+psamvault ak-list
+```
+
+Shows entry name, service hint, and last-updated date. Does not decrypt entries.
+
+### Update an API key entry
+
+```bash
+psamvault ak-update xai-prod --key sk-newkey...
+psamvault ak-update stripe-test --notes "deprecated, use stripe-live"
+```
+
+### Delete an API key entry
+
+```bash
+psamvault ak-delete openai-prod
+```
+
+Permanent — prompts for confirmation first.
+
+---
+
 ## Log out
 
 ```bash
@@ -222,6 +276,7 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault login` | `psamvault auth login` |
 | `psamvault add` | `psamvault vault add` |
 | `psamvault generate-codes` | `psamvault recovery generate-codes` |
+| `psamvault ak-add` | `psamvault ak add` |
 
 Run any group without a subcommand to see its full command table:
 
@@ -229,6 +284,7 @@ Run any group without a subcommand to see its full command table:
 psamvault auth
 psamvault vault
 psamvault recovery
+psamvault ak
 ```
 
 ---
@@ -237,10 +293,12 @@ psamvault recovery
 
 | File | Purpose |
 |---|---|
-| `~/.psamvault/config.env` | API URL and pepper — **back this up** |
-| `~/.psamvault/session.json` | Active session tokens and decrypted VEK |
+| `~/.psamvault/config.env` | API URL only — pepper is stored in the OS keychain |
+| `~/.psamvault/session.json` | Empty session presence marker — tokens and VEK are stored in the OS keychain |
 
 Both files are restricted to owner read/write only (`chmod 600`).
+
+> The OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service) holds all sensitive values: pepper, access token, refresh token, kdf_salt, and the decrypted VEK. Nothing sensitive is written to disk in plaintext.
 
 ---
 
