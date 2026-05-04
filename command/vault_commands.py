@@ -25,21 +25,22 @@ def vault_help(ctx: typer.Context):
         typer.echo("""
   psamvault vault — credential commands
  
-  COMMAND    USAGE
+  COMMAND      USAGE
   ──────────────────────────────────────────────────────────────────────────────
-  add        psamvault add <site> --user <username> --pass <password>
-  add        psamvault add <site> --user <username> --pass <password> --notes <notes>
-  get        psamvault get <site>
-  get        psamvault get <site> --copy
-  list       psamvault list
-  update     psamvault update <site> --pass <new_password>
-  update     psamvault update <site> --user <new_user> --pass <new_password>
-  update     psamvault update <site> --notes <new_notes>
-  delete     psamvault delete <site>
-  generate   psamvault generate
-  generate   psamvault generate --length <number>
-  generate   psamvault generate --length <number> --no-symbols
-  generate   psamvault generate --save <site> --user <username>              
+  add          psamvault add <site> --user <username> --pass <password>
+  add          psamvault add <site> --user <username> --pass <password> --notes <notes>
+  get          psamvault get <site>
+  get          psamvault get <site> --copy
+  list         psamvault list                  (sites + API keys combined)
+  site-list    psamvault site-list             (site credentials only)
+  update       psamvault update <site> --pass <new_password>
+  update       psamvault update <site> --user <new_user> --pass <new_password>
+  update       psamvault update <site> --notes <new_notes>
+  delete       psamvault delete <site>
+  generate     psamvault generate
+  generate     psamvault generate --length <number>
+  generate     psamvault generate --length <number> --no-symbols
+  generate     psamvault generate --save <site> --user <username>              
 """)
         
 FORBIDDEN_SITE_CHARS = set('\\/"\' <>|?*&#%')
@@ -189,44 +190,108 @@ def get(
     typer.echo()
     
     
+@app.command(name="site-list")
+def site_list():
+    """
+    List all site credential entries in your vault.
+
+    Shows site names and username hints only — does not decrypt any entries.
+    Use  psamvault get <site>  to retrieve the full credentials for a site.
+
+    \b
+    Example:
+        psamvault site-list
+        psamvault vault site-list
+    """
+    session = load_session()
+
+    with Spinner("Fetching your vault"):
+        data = api_client.list_vault_entries(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"]
+        )
+
+    entries = data["entries"]
+    total = data["total"]
+
+    if total == 0:
+        typer.echo("Your vault is empty. Use psamvault add to store credentials\n")
+        return
+
+    typer.echo(f"\n  {'SITE':<35} {'USERNAME HINT':<30} {'UPDATED'}")
+    typer.echo(f"  {'-'*35} {'-'*30} {'-'*20}")
+
+    for entry in entries:
+        updated = entry["updated_at"][:10]
+        hint = entry["username_hint"] or "-"
+        typer.echo(f" {entry['site_name']:<35} {hint:<30} {updated}")
+
+    typer.echo(f"\n {total} entr{'y' if total == 1 else 'ies'} in your vault.\n")
+
+
 @app.command(name="list")
 def list_entries():
     """
-    List all sites stored in your vault.
- 
-    Shows site names and username hints only — does not decrypt any entries.
-    Use  psamvault get <site>  to retrieve the full credentials for a site.
- 
+    List all entries in your vault — site credentials and API keys.
+
+    Shows a combined overview of both entry types without decrypting anything.
+    Use  psamvault site-list  for sites only, or  psamvault ak-list  for API keys only.
+
     \b
     Example:
         psamvault list
         psamvault vault list
     """
     session = load_session()
-    
+
     with Spinner("Fetching your vault"):
-        data = api_client.list_vault_entries(
+        site_data = api_client.list_vault_entries(
             access_token=session["access_token"],
             refresh_token=session["refresh_token"]
         )
-    
-    entries = data["entries"]
-    total = data["total"]
-    
-    if total == 0:
-        typer.echo("Your vault is empty. Use psamvault add to store credentials\n")
-        return
-    
-    typer.echo(f"\n  {'SITE':<35} {'USERNAME HINT':<30} {'UPDATED'}")
-    typer.echo(f"  {'-'*35} {'-'*30} {'-'*20}")
-    
-    
-    for entry in entries:
-        updated = entry["updated_at"][:10] # show date only, trim the time
-        hint = entry["username_hint"] or "-"
-        typer.echo(f" {entry['site_name']:<35} {hint:<30} {updated}")
-        
-    typer.echo(f"\n {total} entr{'y' if total == 1 else 'ies'} in your vault.\n")
+
+    with Spinner("Fetching your API keys"):
+        ak_data = api_client.list_api_key_entries(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"]
+        )
+
+    site_entries = site_data["entries"]
+    site_total = site_data["total"]
+    ak_entries = ak_data["entries"]
+    ak_total = ak_data["total"]
+
+    # ── Site credentials ──────────────────────────────────────────────────────
+    typer.echo(f"\n  SITE CREDENTIALS")
+    typer.echo(f"  {'─'*80}")
+
+    if site_total == 0:
+        typer.echo("  No site credentials stored. Use  psamvault add  to store one.")
+    else:
+        typer.echo(f"  {'SITE':<35} {'USERNAME HINT':<30} {'UPDATED'}")
+        typer.echo(f"  {'-'*35} {'-'*30} {'-'*20}")
+        for entry in site_entries:
+            updated = entry["updated_at"][:10]
+            hint = entry["username_hint"] or "-"
+            typer.echo(f"  {entry['site_name']:<35} {hint:<30} {updated}")
+        typer.echo(f"\n  {site_total} site entr{'y' if site_total == 1 else 'ies'}.")
+
+    # ── API keys ──────────────────────────────────────────────────────────────
+    typer.echo(f"\n  API KEYS")
+    typer.echo(f"  {'─'*80}")
+
+    if ak_total == 0:
+        typer.echo("  No API keys stored. Use  psamvault ak-add  to store one.")
+    else:
+        typer.echo(f"  {'NAME':<30} {'SERVICE':<25} {'UPDATED'}")
+        typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
+        for entry in ak_entries:
+            updated = entry["updated_at"][:10]
+            service = entry["service_hint"] or "-"
+            typer.echo(f"  {entry['name']:<30} {service:<25} {updated}")
+        typer.echo(f"\n  {ak_total} API key entr{'y' if ak_total == 1 else 'ies'}.")
+
+    typer.echo()
     
     
 @app.command()
