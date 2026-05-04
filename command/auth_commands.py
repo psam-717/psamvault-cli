@@ -195,7 +195,7 @@ def signup():
     try:
         with Spinner("Creating your account"):
             result = api_client.signup(
-                username, email, login_password,
+                username, email, master,
                 kdf_salt=kdf_salt_hex,
                 encrypted_vek=encrypted_vek_hex,
                 vek_iv=vek_iv_hex,
@@ -247,8 +247,9 @@ def login():
     typer.echo("")
     
     try:
-        with Spinner("Authentication..."):
-            result = api_client.login(username, login_password)
+        with Spinner("Authenticating"):
+            master = derive_master_password(login_password)
+            result = api_client.login(username, master)
     except typer.Exit:
         raise
     except Exception as e:
@@ -258,7 +259,6 @@ def login():
     # Derive the login key locally and use it to decrypt the VEK from the server.
     # The VEK is stored in the session so vault commands can use it directly
     # without re-deriving or prompting the user again.
-    master = derive_master_password(login_password)
     login_key = derive_key(master, result["kdf_salt"])
     vek = decrypt_vek(login_key, result["encrypted_vek"], result["vek_iv"])
     
@@ -280,8 +280,87 @@ def login():
             "\n     If you forget your password, you will not be able to recover your account."
             "\n\n  → Run  psamvault generate-codes  now to protect your account.\n"
         )
-    
-    
+
+
+@app.command()
+def migrate():
+    """
+    One-time account migration to the new authentication scheme.
+
+    Run this once after updating psamvault. It re-hashes your password
+    using the new master-password scheme (HMAC + Argon2) and logs you in.
+    Your vault data is preserved — nothing is deleted from the server.
+
+    After migration, regenerate your recovery codes with:
+      psamvault generate-codes
+
+    \b
+    Example:
+      psamvault migrate
+    """
+    if not is_configured():
+        typer.echo(
+            "\n  psamvault is not configured."
+            "\n  Run  'psamvault configure'  first.\n",
+            err=True
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo("\n psamvault account migration\n")
+    typer.echo(
+        "  This upgrades your account to the new authentication scheme."
+        "\n  You will need your current login password.\n"
+    )
+
+    username = typer.prompt(" Username")
+    old_password = typer.prompt(" Current login password", hide_input=True)
+
+    typer.echo("")
+
+    master = derive_master_password(old_password)
+
+    with Spinner("Migrating account"):
+        try:
+            api_client.migrate_password(username, old_password, master)
+        except typer.Exit:
+            raise
+        except Exception as e:
+            typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
+            raise typer.Exit(code=1)
+
+    typer.echo("  ✓ Account migrated.\n")
+
+    # Log in automatically with the new credentials so the user is ready to go.
+    typer.echo("  Logging you in...\n")
+    with Spinner("Authenticating"):
+        try:
+            result = api_client.login(username, master)
+        except typer.Exit:
+            raise
+        except Exception as e:
+            typer.echo(f"\n Error: Login after migration failed.\n{e}", err=True)
+            raise typer.Exit(code=1)
+
+    login_key = derive_key(master, result["kdf_salt"])
+    vek = decrypt_vek(login_key, result["encrypted_vek"], result["vek_iv"])
+
+    save_session(
+        access_token=result["access_token"],
+        refresh_token=result["refresh_token"],
+        kdf_salt=result["kdf_salt"],
+        vek=vek.hex(),
+        encrypted_vek=result["encrypted_vek"],
+        vek_iv=result["vek_iv"],
+    )
+
+    typer.echo(f"  ✓ Logged in as {username}.")
+    typer.echo("  ✓ Your vault is intact.\n")
+    typer.echo(
+        "  ⚠  Your old recovery codes are no longer valid."
+        "\n  → Run  psamvault generate-codes  now to set up new ones.\n"
+    )
+
+
 @app.command()
 def logout():
     """
