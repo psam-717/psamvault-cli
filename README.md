@@ -24,7 +24,7 @@ HMAC-SHA256 + pepper  →  master password
                                               VEK encrypts every vault entry
 ```
 
-- **Pepper** — unique per device, stored in `~/.psamvault/config.env`. Never sent to the server.
+- **Pepper** — unique per device, stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Never sent to the server.
 - **VEK (Vault Encryption Key)** — a random 32-byte key generated at signup. Stored encrypted on the server; decrypted locally at login.
 - **kdf_salt** — stored on the server, tied to your account. Ensures two users with the same password get different keys.
 
@@ -74,10 +74,10 @@ psamvault configure
 
  API URL [https://psam-vault-backend.onrender.com]:
  Generating a secure pepper for your vault...
- Configuration saved to ~/.psamvault/config.env
+ Configuration saved.
 ```
 
-> ⚠️ **Back up `~/.psamvault/config.env`** — it contains your pepper. Losing it means losing access to your vault.
+> ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper. Keep your recovery codes up to date so you can always regain vault access.
 
 To review your current config:
 
@@ -108,7 +108,7 @@ Password requirements:
 psamvault login
 ```
 
-Decrypts your VEK locally using your login password and saves it to a local session file (`~/.psamvault/session.json`). All vault commands use this session — you won't be prompted for your password again until the session expires.
+Decrypts your VEK locally using your login password. All sensitive session data — tokens, VEK, and kdf_salt — are stored in the **OS keychain**, not on disk. A lightweight presence marker (`~/.psamvault/session.json`) lets psamvault detect that you are logged in without reading any secrets from disk. All vault commands use this session — you won't be prompted for your password again until the session expires.
 
 ---
 
@@ -117,6 +117,18 @@ Decrypts your VEK locally using your login password and saves it to a local sess
 ```bash
 psamvault whoami
 ```
+
+---
+
+### Migrate (one-time upgrade)
+
+If you created your account before the master-password scheme was introduced, run this once to upgrade your authentication:
+
+```bash
+psamvault migrate
+```
+
+Your vault data is preserved. After migrating, regenerate your recovery codes with `psamvault generate-codes`.
 
 ---
 
@@ -143,7 +155,15 @@ psamvault get github.com --copy   # copies password to clipboard, clears after 3
 psamvault list
 ```
 
-Shows site name, username hint, and last-updated date. Does not decrypt entries.
+Shows all stored entries in two labelled sections — **Site Credentials** and **API Keys** — with name/username hint and last-updated date. Does not decrypt entries.
+
+### List site credentials only
+
+```bash
+psamvault site-list
+```
+
+Shows only site credential entries (same columns as above).
 
 ### Update a credential
 
@@ -203,6 +223,48 @@ Use one of your saved recovery codes to reset your login password without losing
 
 ---
 
+## API key commands
+
+### Add an API key
+
+```bash
+psamvault ak-add xai-prod --service XAI --key sk-...
+psamvault ak-add stripe-test --service Stripe --key sk_test_... --notes "test mode only"
+psamvault ak-add gh-token --service GitHub   # prompts for key
+```
+
+### Retrieve an API key
+
+```bash
+psamvault ak-get openai-prod
+psamvault ak-get openai-prod --copy   # copies key to clipboard, clears after 30s
+```
+
+### List all API key entries
+
+```bash
+psamvault ak-list
+```
+
+Shows entry name, service hint, and last-updated date. Does not decrypt entries.
+
+### Update an API key entry
+
+```bash
+psamvault ak-update xai-prod --key sk-newkey...
+psamvault ak-update stripe-test --notes "deprecated, use stripe-live"
+```
+
+### Delete an API key entry
+
+```bash
+psamvault ak-delete openai-prod
+```
+
+Permanent — prompts for confirmation first.
+
+---
+
 ## Log out
 
 ```bash
@@ -221,7 +283,9 @@ All commands are available at the root level and also under grouped sub-commands
 |---|---|
 | `psamvault login` | `psamvault auth login` |
 | `psamvault add` | `psamvault vault add` |
+| `psamvault site-list` | `psamvault vault site-list` |
 | `psamvault generate-codes` | `psamvault recovery generate-codes` |
+| `psamvault ak-add` | `psamvault ak add` |
 
 Run any group without a subcommand to see its full command table:
 
@@ -229,6 +293,7 @@ Run any group without a subcommand to see its full command table:
 psamvault auth
 psamvault vault
 psamvault recovery
+psamvault ak
 ```
 
 ---
@@ -237,8 +302,10 @@ psamvault recovery
 
 | File | Purpose |
 |---|---|
-| `~/.psamvault/config.env` | API URL and pepper — **back this up** |
-| `~/.psamvault/session.json` | Active session tokens and decrypted VEK |
+| `~/.psamvault/config.env` | Non-sensitive API URL only |
+| `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
+
+All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain.
 
 Both files are restricted to owner read/write only (`chmod 600`).
 
@@ -251,3 +318,22 @@ Both files are restricted to owner read/write only (`chmod 600`).
 - The server stores only **encrypted blobs** — it cannot decrypt your vault
 - **AES-256-GCM** is used for all encryption (authenticated — detects tampering)
 - **PBKDF2-HMAC-SHA256** with 600,000 iterations for key derivation (NIST recommended minimum)
+- **Argon2id** is used to hash recovery codes server-side (memory-hard, brute-force resistant)
+
+### OS keychain storage
+
+All sensitive session and config values are stored in the OS keychain — never written to disk in plaintext:
+
+| Value | Keychain key |
+|---|---|
+| HMAC pepper | `psamvault / config.pepper` |
+| Access token (JWT) | `psamvault / session.access_token` |
+| Refresh token | `psamvault / session.refresh_token` |
+| KDF salt | `psamvault / session.kdf_salt` |
+| Vault Encryption Key | `psamvault / session.vek` |
+| Encrypted VEK (server copy) | `psamvault / session.encrypted_vek` |
+| VEK IV | `psamvault / session.vek_iv` |
+
+On **macOS** this is the system Keychain. On **Windows** it is the Credential Manager (`%LOCALAPPDATA%\Microsoft\Credentials`). On **Linux** it is the Secret Service (GNOME Keyring or KWallet).
+
+`~/.psamvault/session.json` contains only `{}` — an empty presence marker. `~/.psamvault/config.env` contains only the non-sensitive API URL. Both files are restricted to owner read/write only (`chmod 600`).

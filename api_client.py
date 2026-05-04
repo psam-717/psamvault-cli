@@ -115,6 +115,20 @@ def login(username: str, login_password: str) -> dict:
     return response.json()
 
 
+def migrate_password(username: str, old_login_password: str, new_master_password: str) -> dict:
+    """POST /auth/migrate — swap old password hash for new master-password hash."""
+    response = httpx.post(
+        f"{_base_url()}/auth/migrate",
+        json={
+            "username": username,
+            "old_login_password": old_login_password,
+            "new_master_password": new_master_password,
+        }
+    )
+    _handle_error(response)
+    return response.json()
+
+
 def refresh_access_token(refresh_token: str) -> str:
     """POST /auth/refresh - returns a new access_token string"""
     response = httpx.post(
@@ -342,5 +356,131 @@ def reset_password_api(
     )
     _handle_error(response)
     return response.json()
+
+
+
+def add_api_key_entry(
+    access_token: str,
+    refresh_token: str,
+    name: str,
+    service_hint: str,
+    encrypted_blob: str,
+    iv: str,
+) -> dict:
+    """POST /apikeys - store a new encrypted API key entry"""
+    def _call(token: str) -> dict:
+        response = httpx.post(
+            f"{_base_url()}/apikeys",
+            headers=_auth_headers(token),
+            json={
+                "name": name,
+                "service_hint": service_hint,
+                "encrypted_blob": encrypted_blob,
+                "iv": iv
+            }
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
     
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def get_api_key_entry(
+    access_token: str,
+    refresh_token: str,
+    name: str,
+) -> dict:
+    """GET /apikeys/{name} — fetch a single encrypted API key entry."""
+    def _call(token: str) -> dict:
+        response = httpx.get(
+            f"{_base_url()}/apikeys/{name}",
+            headers=_auth_headers(token)
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
     
+    result= _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    
+    return result
+
+
+def list_api_key_entries(
+    access_token: str,
+    refresh_token: str,
+) -> dict:
+    """GET /apikeys — fetch all API key entries as lightweight list items."""
+    def _call(token: str) -> dict:
+        response = httpx.get(
+            f"{_base_url()}/apikeys",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+ 
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+ 
+ 
+def update_api_key_entry(
+    access_token: str,
+    refresh_token: str,
+    name: str,
+    service_hint: str,
+    encrypted_blob: str,
+    iv: str,
+) -> dict:
+    """PUT /apikeys/{name} — update an existing API key entry."""
+    def _call(token: str) -> dict:
+        response = httpx.put(
+            f"{_base_url()}/apikeys/{name}",
+            headers=_auth_headers(token),
+            json={
+                "service_hint": service_hint,
+                "encrypted_blob": encrypted_blob,
+                "iv": iv,
+            },
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+ 
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+ 
+ 
+def delete_api_key_entry(
+    access_token: str,
+    refresh_token: str,
+    name: str,
+) -> dict:
+    """DELETE /apikeys/{name} — permanently remove an API key entry."""
+    def _call(token: str) -> dict:
+        response = httpx.delete(
+            f"{_base_url()}/apikeys/{name}",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+ 
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
