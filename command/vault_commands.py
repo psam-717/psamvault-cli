@@ -250,6 +250,10 @@ def list_entries():
             refresh_token=session["refresh_token"]
         )
 
+    # Reload session — the first call may have rotated the tokens, revoking
+    # the old refresh token. Using stale tokens for the next call would fail.
+    session = load_session()
+
     with Spinner("Fetching your API keys"):
         ak_data = api_client.list_api_key_entries(
             access_token=session["access_token"],
@@ -324,6 +328,9 @@ def update(
             refresh_token=session["refresh_token"],
             site_name=site
         )
+
+    # Reload session — the fetch above may have rotated the tokens.
+    session = load_session()
     
     try:
         current = decrypt_credentials(
