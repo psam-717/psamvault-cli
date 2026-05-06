@@ -9,6 +9,7 @@ from command.vault_commands import app as vault_app
 from command.recovery_commands import app as recovery_app
 from command.api_key_commands import app as apikey_app
 from update_check import start_update_check, print_update_notice
+from changelog import check_and_show_upgrade_notice
 
 
 
@@ -49,6 +50,7 @@ def _main(
 ) -> None:
     # Kick off the update check in the background - won't block the command
     start_update_check()
+    check_and_show_upgrade_notice()
 
 
 # register auth commands
@@ -67,6 +69,7 @@ from command.auth_commands import login, logout, signup, whoami, config_show, co
 from command.vault_commands import add, delete, generate, get, list_entries, site_list, update
 from command.recovery_commands import generate_codes, remaining_codes, recover
 from command.api_key_commands import ak_add, ak_get, ak_delete, ak_list, ak_update
+from command.changelog_command import changelog
 
 app.command("migrate")(migrate)
 app.command("configure")(configure)
@@ -90,6 +93,7 @@ app.command("ak-get")(ak_get)
 app.command("ak-list")(ak_list)
 app.command("ak-update")(ak_update)
 app.command("ak-delete")(ak_delete)
+app.command("changelog")(changelog)
 
 
 if __name__ == "__main__":

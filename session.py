@@ -160,3 +160,33 @@ def is_logged_in() -> bool:
     """Check whether a session file exists without raising an error"""
     return SESSION_FILE.exists()
 
+
+# ── Version state ─────────────────────────────────────────────────────────────
+
+_VERSION_FILE = SESSION_DIR / "last_seen_version"
+
+
+def get_last_seen_version() -> "str | None":
+    """
+    Return the last version string written by set_last_seen_version(),
+    or None if the file does not exist yet (first ever run).
+    """
+    try:
+        if _VERSION_FILE.exists():
+            return _VERSION_FILE.read_text().strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def set_last_seen_version(version: str) -> None:
+    """
+    Persist the current installed version so the next run can detect upgrades.
+    Creates ~/.psamvault/ if needed. Silently swallows any I/O errors.
+    """
+    try:
+        SESSION_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _VERSION_FILE.write_text(version)
+    except Exception:
+        pass
+
