@@ -29,6 +29,7 @@ def vault_help(ctx: typer.Context):
   ──────────────────────────────────────────────────────────────────────────────
   add          psamvault add <site> --user <username> --pass <password>
   add          psamvault add <site> --user <username> --pass <password> --notes <notes>
+  add          psamvault add <site> --user <username> --pass <password> --login-url <url>
   get          psamvault get <site>
   get          psamvault get <site> --copy
   list         psamvault list                  (sites + API keys combined)
@@ -80,35 +81,43 @@ def add(
     password: Optional[str] = typer.Option(
         None, "--pass", "-p", help="Password (omit to be prompted securely)"
     ),
-    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes")
+    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes"),
+    login_url: Optional[str] = typer.Option(
+        None, "--login-url", help="Login page URL for use with  psamvault open  (e.g. https://github.com/login)"
+    ),
 ):
     """
     Add a new credential entry to your vault.
- 
+
     The credentials are encrypted locally before being sent to the server.
     The server never sees your plaintext password.
- 
+
     \b
     Example:
         psamvault add github.com --user me@example.com --pass secret
         psamvault add github.com --user me@example.com --pass secret --notes "2FA enabled"
+        psamvault add github.com --user me@example.com --login-url https://github.com/login
         psamvault add github.com --user me@example.com   (prompts for password)
     """
     _validate_site_name(site)
-    
+
+    if login_url is not None and not login_url.startswith(("http://", "https://")):
+        typer.echo("Error: --login-url must start with http:// or https://", err=True)
+        raise typer.Exit(code=1)
+
     if password is None:
         password = typer.prompt(f"Password for {site}", hide_input=True)
-    
+
     typer.echo("")
     session, key = _get_session_and_key()
-    
+
     encrypted_blob, iv = encrypt_credentials(
         key,
         username=user,
         password=password,
         notes=notes or ""
     )
-    
+
     with Spinner(f"Saving credentials for {site}"):
         api_client.add_vault_entry(
             access_token=session["access_token"],
@@ -116,9 +125,10 @@ def add(
             site_name=site,
             encrypted_blob=encrypted_blob,
             iv=iv,
-            username_hint=user
+            username_hint=user,
+            login_url=login_url,
         )
-    
+
     typer.echo(f" Credential for {site} saved successfully\n")
 
 
@@ -169,11 +179,11 @@ def get(
     
     typer.echo(f"\n  Site:      {site}")
     typer.echo(f"  Username:  {credentials['username']}")
-    
+
     if copy:
         pyperclip.copy(credentials["password"])
         typer.echo("  Password: [copied to clipboard - clears in 30 seconds]")
-        
+
         def _clear():
             time.sleep(30)
             try:
@@ -184,9 +194,15 @@ def get(
         threading.Thread(target=_clear, daemon=True).start()
     else:
         typer.echo(f"  Password:  {credentials['password']}")
-    
+
     if credentials.get("notes"):
         typer.echo(f"  Notes:     {credentials['notes']}")
+
+    login_url = data.get("login_url")
+    if login_url:
+        link = f"\033]8;;{login_url}\033\\{login_url}\033]8;;\033\\"
+        typer.echo(f"  Login URL: {link}")
+
     typer.echo()
     
     
@@ -303,25 +319,33 @@ def update(
     site: str = typer.Argument(..., help="Site name to update, e.g. github.com"),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="New username or email"),
     password: Optional[str] = typer.Option(None, "--pass", "-p", help="New password"),
-    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="New notes")
+    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="New notes"),
+    login_url: Optional[str] = typer.Option(
+        None, "--login-url", help="New login page URL for use with  psamvault open"
+    ),
 ):
     """
     Update the credentials for an existing vault entry.
- 
+
     Fetches the current entry, decrypts it, merges your changes, then
     re-encrypts and sends the updated blob with a fresh IV.
- 
+
     \b
     Example:
         psamvault update github.com --pass mynewpassword
         psamvault update github.com --user newuser@example.com --pass newpass
         psamvault vault update github.com --notes "2FA disabled"
-        
+        psamvault update github.com --login-url https://github.com/login
+
     """
     _validate_site_name(site)
-    
+
+    if login_url is not None and not login_url.startswith(("http://", "https://")):
+        typer.echo("Error: --login-url must start with http:// or https://", err=True)
+        raise typer.Exit(code=1)
+
     session, key = _get_session_and_key()
-    
+
     with Spinner(f"Fetching current entry for {site}"):
         current_data = api_client.get_vault_entry(
             access_token=session["access_token"],
@@ -331,7 +355,7 @@ def update(
 
     # Reload session — the fetch above may have rotated the tokens.
     session = load_session()
-    
+
     try:
         current = decrypt_credentials(
             key,
@@ -344,12 +368,12 @@ def update(
             err=True
         )
         raise typer.Exit(code=1) # pylint: disable=raise-missing-from
-    
-    # merge - new values should be used where provided else keep existing values otherwise
+
+    # merge — new values override existing; omitted fields keep current values
     updated_user = user or current["username"]
     updated_pass = password or current["password"]
     updated_notes = notes if notes is not None else current.get("notes", "")
-    
+
     # Re-encrypt with a fresh iv
     encrypted_blob, iv = encrypt_credentials(
         key,
@@ -357,7 +381,7 @@ def update(
         password=updated_pass,
         notes=updated_notes
     )
-    
+
     with Spinner(f"Updating credentials for {site}"):
         api_client.update_vault_entry(
             access_token=session["access_token"],
@@ -365,9 +389,10 @@ def update(
             site_name=site,
             encrypted_blob=encrypted_blob,
             iv=iv,
-            username_hint=updated_user
+            username_hint=updated_user,
+            login_url=login_url,
         )
-    
+
     typer.echo(f" Credentials for {site} updated successfully\n")
 
 
