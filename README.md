@@ -4,6 +4,10 @@ A secure command-line password vault for the terminal.
 
 Your credentials are **encrypted locally** before being sent to the server — the server never sees your plaintext passwords or your encryption key.
 
+```bash
+psamvault --version     # or -V — show the installed version
+```
+
 ---
 
 ## How it works
@@ -53,6 +57,12 @@ Or install from source:
 git clone https://github.com/psam-717/psamvault-cli
 cd psamvault-cli/cli
 pipx install -e .
+```
+
+**Browser autofill setup (one-time):** if you plan to use `psamvault open`, install the Chromium browser binary after installation:
+
+```bash
+playwright install chromium
 ```
 
 ---
@@ -139,8 +149,11 @@ Your vault data is preserved. After migrating, regenerate your recovery codes wi
 ```bash
 psamvault add github.com --user me@example.com --pass mysecret
 psamvault add github.com --user me@example.com --pass mysecret --notes "2FA enabled"
+psamvault add github.com --user me@example.com --login-url https://github.com/login
 psamvault add github.com --user me@example.com   # prompts for password
 ```
+
+The optional `--login-url` flag stores the login page URL for use with `psamvault open`.
 
 ### Retrieve a credential
 
@@ -148,6 +161,8 @@ psamvault add github.com --user me@example.com   # prompts for password
 psamvault get github.com
 psamvault get github.com --copy   # copies password to clipboard, clears after 30s
 ```
+
+Output includes site, username, password, and notes. If a login URL is stored for the entry, it is also shown as a clickable terminal hyperlink (Ctrl+Click to open in the browser).
 
 ### List all entries
 
@@ -171,7 +186,10 @@ Shows only site credential entries (same columns as above).
 psamvault update github.com --pass mynewpassword
 psamvault update github.com --user newuser@example.com --pass newpass
 psamvault update github.com --notes "2FA disabled"
+psamvault update github.com --login-url https://github.com/login
 ```
+
+All flags are optional — only the provided fields are changed. Omitting `--login-url` leaves any existing URL unchanged.
 
 ### Delete a credential
 
@@ -192,6 +210,23 @@ psamvault generate --save github.com --user me@example.com  # generate and save
 ```
 
 Uses Python's `secrets` module (cryptographically secure).
+
+### Open browser and autofill login
+
+```bash
+psamvault open github.com
+psamvault open github.com --no-submit     # fill fields but don't click submit
+psamvault open github.com --headless      # run browser without a visible window
+```
+
+Opens a Chromium browser, navigates to the stored login URL, and types your saved username and password directly into the login form. The browser stays open so you can handle 2FA or CAPTCHAs manually.
+
+If no login URL is stored for the site, you are prompted to enter one and given the option to save it for future use. You can also store the URL when adding or updating an entry with `--login-url`.
+
+> **One-time setup:** After installing psamvault, run the following once to download the Chromium browser binary:
+> ```bash
+> playwright install chromium
+> ```
 
 ---
 
@@ -220,6 +255,33 @@ psamvault recover
 ```
 
 Use one of your saved recovery codes to reset your login password without losing your vault data. The VEK is recovered and re-wrapped with your new login key — no vault re-encryption needed.
+
+---
+
+## Changelog
+
+View what's changed between versions.
+
+```bash
+psamvault changelog              # latest version only
+psamvault changelog latest       # same as above
+psamvault changelog all          # full version history
+psamvault changelog show 0.3.0   # specific version
+```
+
+After every `pipx upgrade psamvault`, the changelog for any new versions is shown automatically on the next command you run — you never need to remember to check.
+
+---
+
+## Upgrade
+
+Check for and install the latest version from PyPI.
+
+```bash
+psamvault upgrade
+```
+
+Uses `pipx` under the hood. If pipx is not on your PATH, instructions are printed instead.
 
 ---
 
@@ -286,6 +348,9 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault site-list` | `psamvault vault site-list` |
 | `psamvault generate-codes` | `psamvault recovery generate-codes` |
 | `psamvault ak-add` | `psamvault ak add` |
+| `psamvault open` | `psamvault browser open` |
+| `psamvault changelog` | `psamvault changelog latest` |
+| `psamvault upgrade` | `psamvault upgrade` |
 
 Run any group without a subcommand to see its full command table:
 
@@ -294,6 +359,9 @@ psamvault auth
 psamvault vault
 psamvault recovery
 psamvault ak
+psamvault browser
+psamvault changelog
+psamvault upgrade
 ```
 
 ---
