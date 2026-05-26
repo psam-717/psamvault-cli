@@ -8,6 +8,9 @@ from command.auth_commands import app as auth_app
 from command.vault_commands import app as vault_app
 from command.recovery_commands import app as recovery_app
 from command.api_key_commands import app as apikey_app
+from command.browser_commands import app as browser_app
+from command.changelog_command import app as changelog_app
+from command.upgrade_command import app as update_app
 from update_check import start_update_check, print_update_notice
 from changelog import check_and_show_upgrade_notice
 
@@ -20,7 +23,7 @@ app = typer.Typer(
         "Your credentials are encrypted locally before being sent to the server.\n"
         "The server never sees your plaintext passwords.\n\n"
         "Run  psamvault auth  or  psamvault vault  to see grouped commands.\n"
-        "Or use the short forms directly — psamvault login, psamvault add, etc."         
+        "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
     result_callback= lambda result, **kwargs: print_update_notice() # runs after every command
@@ -65,11 +68,20 @@ app.add_typer(recovery_app, name="recovery", invoke_without_command=True)
 # register ak commands
 app.add_typer(apikey_app, name="ak", invoke_without_command=True)
 
+# register browser commands
+app.add_typer(browser_app, name="browser", invoke_without_command=True)
+
+# register changelog commands
+app.add_typer(changelog_app, name="changelog", invoke_without_command=True)
+
+# register update commands
+app.add_typer(update_app, name="upgrade", invoke_without_command=True)
+
 from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
 from command.vault_commands import add, delete, generate, get, list_entries, site_list, update
 from command.recovery_commands import generate_codes, remaining_codes, recover
 from command.api_key_commands import ak_add, ak_get, ak_delete, ak_list, ak_update
-from command.changelog_command import changelog
+from command.browser_commands import open_site
 
 app.command("migrate")(migrate)
 app.command("configure")(configure)
@@ -93,7 +105,7 @@ app.command("ak-get")(ak_get)
 app.command("ak-list")(ak_list)
 app.command("ak-update")(ak_update)
 app.command("ak-delete")(ak_delete)
-app.command("changelog")(changelog)
+app.command("open")(open_site)
 
 
 if __name__ == "__main__":
