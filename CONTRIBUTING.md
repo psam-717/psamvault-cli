@@ -62,18 +62,28 @@ psamvault configure
 
 ```
 cli/
-├── main.py              # CLI entrypoint, registers all commands
-├── api_client.py        # HTTP client (wraps httpx)
-├── config.py            # Loads ~/.psamvault/config.env
-├── crypto.py            # Encryption / key derivation logic
-├── session.py           # Local session management
-├── spinner.py           # Terminal spinner utility
+├── main.py                  # CLI entrypoint, registers all commands
+├── api_client.py            # HTTP client (wraps httpx)
+├── config.py                # Loads config from file + OS keychain
+├── crypto.py                # Encryption / key derivation logic
+├── session.py               # Local session management (keychain + presence marker)
+├── spinner.py               # Terminal spinner utility
+├── changelog.py             # Changelog data, formatting helpers, upgrade notice
+├── update_check.py          # Background PyPI version checker
 ├── command/
-│   ├── auth_commands.py     # login, logout, signup, whoami, configure
-│   ├── vault_commands.py    # add, get, list, update, delete, generate
-│   └── recovery_commands.py # generate-codes, remaining-codes, recover
-├── pyproject.toml       # Package metadata and dependencies
-└── README.md
+│   ├── auth_commands.py     # login, logout, signup, whoami, configure, migrate
+│   ├── vault_commands.py    # add, get, list, site-list, update, delete, generate
+│   ├── recovery_commands.py # generate-codes, remaining-codes, recover
+│   ├── api_key_commands.py  # ak-add, ak-get, ak-list, ak-update, ak-delete
+│   ├── browser_commands.py  # open (browser autofill with Playwright)
+│   ├── changelog_command.py # changelog latest, all, show <version>
+│   └── upgrade_command.py   # upgrade (pipx upgrade)
+├── scripts/
+│   └── release.py           # One-command GitHub release automation
+├── pyproject.toml           # Package metadata and dependencies
+├── README.md
+├── CONTRIBUTING.md
+└── LICENSE
 ```
 
 ---
