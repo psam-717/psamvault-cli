@@ -12,6 +12,12 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.4.0": [
+        "New:   psamvault open — browser autofill for vault entries via Playwright",
+        "New:   --login-url flag on add/update to associate a URL with an entry",
+        "New:   psamvault upgrade — upgrade psamvault in-place via pipx",
+        "New:   psamvault changelog latest/all/show — richer changelog subcommands",
+    ],
     "0.3.0": [
         "New:   psamvault changelog — view the full version history on demand",
         "New:   Auto-shows what changed on first run after pipx upgrade psamvault",
