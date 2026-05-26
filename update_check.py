@@ -16,28 +16,37 @@ import httpx
 PYPI_URL = "https://pypi.org/pypi/psamvault/json"
 _UPDATE_NOTICE: Optional[str] = None
 
-def _get_installed_version() -> Optional[str]:
+def get_installed_version() -> Optional[str]:
     try:
         return importlib.metadata.version("psamvault")
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+_get_installed_version = get_installed_version  # backward compat
     
 
-def _fetch_latest_version() -> Optional[str]:
+def fetch_latest_version() -> Optional[str]:
     try:
         response = httpx.get(PYPI_URL, timeout=3)
         response.raise_for_status()
         return response.json()["info"]["version"]
     except Exception:
         return None # silently ignore network error, timeouts, etc
-    
 
-def _version_tuple(v: str) -> tuple[int, ...]:
+
+_fetch_latest_version = fetch_latest_version  # backward compat
+
+
+def version_tuple(v: str) -> tuple[int, ...]:
     """Convert a version string like '1.2.3' into a comparable tuple"""
     try:
         return tuple(int(x) for x in v.strip().split("."))
     except ValueError:
-        return(0,)
+        return (0,)
+
+
+_version_tuple = version_tuple  # backward compat
     
 
 def _check(installed: str) -> None:

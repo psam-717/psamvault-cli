@@ -12,6 +12,12 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.4.0": [
+        "New:   psamvault open — browser autofill for vault entries via Playwright",
+        "New:   --login-url flag on add/update to associate a URL with an entry",
+        "New:   psamvault upgrade — upgrade psamvault in-place via pipx",
+        "New:   psamvault changelog latest/all/show — richer changelog subcommands",
+    ],
     "0.3.0": [
         "New:   psamvault changelog — view the full version history on demand",
         "New:   Auto-shows what changed on first run after pipx upgrade psamvault",
@@ -39,11 +45,33 @@ CHANGELOG: dict[str, list[str]] = {
 }
 
 
-def _version_tuple(v: str) -> tuple[int, ...]:
+def get_latest_version() -> str | None:
+    """Return the newest version key from CHANGELOG, or None if empty."""
+    if not CHANGELOG:
+        return None
+    return max(CHANGELOG.keys(), key=version_tuple)
+
+
+def format_version(v: str) -> str:
+    """Return formatted changelog entries for a single version, or an error string."""
+    entries = CHANGELOG.get(v)
+    if not entries:
+        return f"  Version {v} not found in changelog."
+    lines = [f"\n  ── v{v} {'─' * (60 - len(v))}"]
+    for entry in entries:
+        lines.append(f"  {entry}")
+    return "\n".join(lines)
+
+
+def version_tuple(v: str) -> tuple[int, ...]:
+    """Convert a version string like '0.3.0' into a comparable tuple of ints."""
     try:
         return tuple(int(x) for x in v.strip().split("."))
     except ValueError:
         return (0,)
+
+
+_version_tuple = version_tuple  # backward compat for internal callers
 
 
 def _get_installed_version() -> Optional[str]:
@@ -104,7 +132,7 @@ def check_and_show_upgrade_notice() -> None:
         typer.echo(
             f"\n  🎉 psamvault updated {last_seen} → {installed}  What's new:\n"
             + format_changelog(new_versions)
-            + "\n\n  Run  psamvault changelog  to see the full history.\n",
+            + "\n\n  Run  psamvault changelog all  to see the full history.\n",
             err=True,
         )
     except Exception:
