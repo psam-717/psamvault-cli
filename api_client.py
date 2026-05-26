@@ -169,8 +169,9 @@ def add_vault_entry(
     site_name: str,
     encrypted_blob: str,
     iv: str,
-    username_hint: str | None
-) -> dict: 
+    username_hint: str | None,
+    login_url: str | None = None,
+) -> dict:
     """POST /vault - store a new encrypted entry"""
     def _call(token: str) -> dict:
         response = httpx.post(
@@ -180,7 +181,8 @@ def add_vault_entry(
                 "site_name": site_name,
                 "encrypted_blob": encrypted_blob,
                 "iv": iv,
-                "username_hint": username_hint
+                "username_hint": username_hint,
+                "login_url": login_url,
             },
         )
         if response.status_code == 401:
@@ -243,7 +245,8 @@ def update_vault_entry(
     site_name: str,
     encrypted_blob: str,
     iv: str,
-    username_hint: str | None
+    username_hint: str | None,
+    login_url: str | None = None,
 ) -> dict:
     """PUT /vault/{site_name} — update an existing encrypted entry"""
     def _call(token: str) -> dict:
@@ -253,7 +256,8 @@ def update_vault_entry(
             json={
                 "encrypted_blob": encrypted_blob,
                 "iv": iv,
-                "username_hint": username_hint
+                "username_hint": username_hint,
+                "login_url": login_url,
             }
         )
         if response.status_code == 401:
@@ -265,6 +269,30 @@ def update_vault_entry(
     if result is None:
         return _refresh_and_retry(refresh_token, _call)
     return result
+
+def update_vault_entry_url(
+    access_token: str,
+    refresh_token: str,
+    site_name: str,
+    login_url: str,
+) -> dict:
+    """PUT /vault/{site_name} — update only the login_url field."""
+    def _call(token: str) -> dict:
+        response = httpx.put(
+            f"{_base_url()}/vault/{site_name}",
+            headers=_auth_headers(token),
+            json={"login_url": login_url},
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
 
 def delete_vault_entry(
     access_token: str,
