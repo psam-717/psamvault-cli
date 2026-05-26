@@ -2,6 +2,7 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+from config import is_configured
 from crypto import (
     decrypt_master_with_code,
     decrypt_vek,
@@ -212,6 +213,15 @@ def recover():
       psamvault recover
       psamvault recovery recover
     """
+    if not is_configured():
+        typer.echo(
+            "\n  Error: psamvault is not fully configured."
+            "\n  Run  psamvault configure  first to set up your device key."
+            "\n  Recovery requires a consistent device key to derive your master password.\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     typer.echo("\n psamvault account recovery\n")
     typer.echo(
         "  You will need one of your saved recovery codes."
