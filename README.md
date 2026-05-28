@@ -221,7 +221,7 @@ psamvault open github.com --headless      # run browser without a visible window
 
 Opens a Chromium browser, navigates to the stored login URL, and types your saved username and password directly into the login form. The browser stays open so you can handle 2FA or CAPTCHAs manually.
 
-If no login URL is stored for the site, you are prompted to enter one and given the option to save it for future use. You can also store the URL when adding or updating an entry with `--login-url`.
+If no login URL is stored for the site, psamvault automatically scans the page for a sign-in link, navigates to it, and saves the discovered URL for future runs. If no link can be found, a warning is shown with a tip to set it manually via `psamvault update <site> --login-url <url>`. You can also store the URL upfront when adding or updating an entry with `--login-url`.
 
 > **One-time setup:** After installing psamvault, run the following once to download the Chromium browser binary:
 > ```bash
