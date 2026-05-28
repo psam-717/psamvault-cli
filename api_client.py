@@ -77,7 +77,10 @@ def _refresh_and_retry(refresh_token: str, retry_fn):
     try:
         new_access, new_refresh = refresh_access_token(refresh_token)
         update_tokens(new_access, new_refresh)
-        return retry_fn(new_access)
+        result = retry_fn(new_access)
+        if result is None:
+            raise ValueError("Still unauthorised after token refresh")
+        return result
     except Exception:
         typer.echo("Session expired. Please run psamvault login again", err=True)
         raise typer.Exit(code=1) # pylint: disable = raise-missing-from

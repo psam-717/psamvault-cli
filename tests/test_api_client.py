@@ -68,21 +68,20 @@ def test_get_vault_entry_retries_after_401(httpx_mock, mock_session):
 
 
 def test_get_vault_entry_returns_none_on_persistent_401(httpx_mock, mock_session):
-    """After refresh, if the retry GET still returns 401, the function returns None
-    (the _call helper returns None for 401, and _refresh_and_retry propagates it).
-    The caller is responsible for handling a None result."""
+    """After refresh, if the retry GET still returns 401, _refresh_and_retry
+    detects the None return and raises typer.Exit with a clear session-expired message."""
     httpx_mock.add_response(method="GET", url=f"{BASE}/vault/github.com", status_code=401, json={"detail": "Could not validate credentials"})
     httpx_mock.add_response(method="POST", url=f"{BASE}/auth/refresh", json={"access_token": "new", "refresh_token": "new_r", "token_type": "bearer"}, status_code=200)
     httpx_mock.add_response(method="GET", url=f"{BASE}/vault/github.com", status_code=401, json={"detail": "Could not validate credentials"})
 
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr("api_client.update_tokens", lambda a, r: None)
-        result = api_client.get_vault_entry(
-            access_token=mock_session["access_token"],
-            refresh_token=mock_session["refresh_token"],
-            site_name="github.com",
-        )
-    assert result is None
+        with pytest.raises((typer.Exit, SystemExit)):
+            api_client.get_vault_entry(
+                access_token=mock_session["access_token"],
+                refresh_token=mock_session["refresh_token"],
+                site_name="github.com",
+            )
 
 
 def test_get_vault_entry_404_exits(httpx_mock, mock_session):

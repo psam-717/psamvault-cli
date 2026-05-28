@@ -52,8 +52,14 @@ def derive_master_password(login_password: str) -> str:
         login_password  -> "mphil7177214"
         master_password -> "a3f8c2d1e9b47f6c..." (64 hex chars, always)
     """
+    pepper = os.getenv("PSAMVAULT_PEPPER", "")
+    if not pepper:
+        raise RuntimeError(
+            "PSAMVAULT_PEPPER is not set. "
+            "Run 'psamvault configure' to initialise your vault."
+        )
     return hmac.new(
-        key=os.getenv("PSAMVAULT_PEPPER", "").encode("utf-8"),
+        key=pepper.encode("utf-8"),
         msg=login_password.encode("utf-8"),
         digestmod=hashlib.sha256
     ).hexdigest()
