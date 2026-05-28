@@ -9,6 +9,20 @@ from session import load_session
 app = typer.Typer(name="browser", help="Browser automation commands")
 
 
+@app.callback(invoke_without_command=True)
+def browser_help(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        typer.echo("""
+  psamvault browser — browser automation commands
+
+  COMMAND    USAGE
+  ──────────────────────────────────────────────────────────────────────────────
+  open       psamvault open <site>
+  open       psamvault open <site> --headless
+  open       psamvault open <site> --no-submit
+""")
+
+
 @app.command(name="open")
 def open_site(
     site: str = typer.Argument(..., help="Site name as stored in your vault, e.g. github.com"),
