@@ -54,6 +54,18 @@ def test_derive_master_password_changes_with_different_password(monkeypatch):
     assert derive_master_password("password1") != derive_master_password("password2")
 
 
+def test_derive_master_password_raises_when_pepper_missing(monkeypatch):
+    monkeypatch.delenv("PSAMVAULT_PEPPER", raising=False)
+    with pytest.raises(RuntimeError, match="PSAMVAULT_PEPPER is not set"):
+        derive_master_password("any_password")
+
+
+def test_derive_master_password_raises_when_pepper_empty(monkeypatch):
+    monkeypatch.setenv("PSAMVAULT_PEPPER", "")
+    with pytest.raises(RuntimeError, match="PSAMVAULT_PEPPER is not set"):
+        derive_master_password("any_password")
+
+
 # ── derive_key ────────────────────────────────────────────────────────────────
 
 def test_derive_key_returns_32_bytes():
