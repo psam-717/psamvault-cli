@@ -22,7 +22,14 @@ app = typer.Typer(
         "psamvault — a secure password vault for the terminal.\n\n"
         "Your credentials are encrypted locally before being sent to the server.\n"
         "The server never sees your plaintext passwords.\n\n"
-        "Run  psamvault auth  or  psamvault vault  to see grouped commands.\n"
+        "Grouped commands — run any of these to see what's inside:\n\n"
+        "  psamvault auth       — account commands (signup, login, logout, whoami)\n"
+        "  psamvault vault      — credential commands (add, get, update, delete, list)\n"
+        "  psamvault ak         — API key commands (ak-add, ak-get, ak-list, ...)\n"
+        "  psamvault recovery   — account recovery (generate-codes, recover)\n"
+        "  psamvault browser    — browser autofill (open)\n"
+        "  psamvault changelog  — view version history\n"
+        "  psamvault upgrade    — upgrade psamvault in-place\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
