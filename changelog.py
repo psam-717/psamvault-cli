@@ -12,6 +12,10 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.4.1": [
+        "New:   psamvault browser — shows command table when run with no subcommand",
+        "New:   psamvault --help now lists all command groups with descriptions",
+    ],
     "0.4.0": [
         "New:   psamvault open — browser autofill for vault entries via Playwright",
         "New:   --login-url flag on add/update to associate a URL with an entry",
