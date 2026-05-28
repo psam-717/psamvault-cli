@@ -43,8 +43,8 @@ def _handle_error(response: httpx.Response) -> None:
     if response.status_code == 401:
         detail = response.json().get("detail", "")
         if detail == "Could not validate credentials":
-            # Access token expired (15-min TTL). Vault commands auto-refresh,
-            # but other commands don't — guide the user to trigger a refresh.
+            # Access token expired (15-min TTL). Vault and API key commands
+            # auto-refresh, but other commands don't — guide the user to trigger a refresh.
             typer.echo(
                 "\n Session timed out after inactivity."
                 "\n → Run  psamvault list  to refresh your session, then try again.\n",
