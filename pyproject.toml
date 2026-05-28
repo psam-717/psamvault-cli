@@ -50,3 +50,7 @@ Homepage = "https://github.com/psam-717/psamvault-cli"
 Repository = "https://github.com/psam-717/psamvault-cli"
 Issues = "https://github.com/psam-717/psamvault-cli/issues"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
