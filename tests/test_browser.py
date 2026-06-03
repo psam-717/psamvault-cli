@@ -139,20 +139,20 @@ def test_poll_for_username_returns_first_visible():
 
 # ── _submit_form ──────────────────────────────────────────────────────────────
 
-def test_submit_form_returns_true_when_button_found():
+def test_submit_form_returns_locator_when_button_found():
     page = MagicMock()
     visible = _visible_locator()
     page.get_by_role.return_value = visible
-    assert _submit_form(page) is True
-    visible.first.click.assert_called_once()
+    result = _submit_form(page)
+    assert result is visible.first
 
 
-def test_submit_form_returns_false_when_no_button():
+def test_submit_form_returns_none_when_no_button():
     page = MagicMock()
     invisible = _invisible_locator()
     page.get_by_role.return_value = invisible
     page.locator.return_value = invisible
-    assert _submit_form(page) is False
+    assert _submit_form(page) is None
 
 
 def test_submit_form_falls_back_to_css_selector():
@@ -164,7 +164,8 @@ def test_submit_form_falls_back_to_css_selector():
     visible = _visible_locator()
     page.locator.return_value = visible
 
-    assert _submit_form(page) is True
+    result = _submit_form(page)
+    assert result is visible.first
 
 
 # ── _discover_login_url ───────────────────────────────────────────────────────
