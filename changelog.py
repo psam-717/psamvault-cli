@@ -12,6 +12,15 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.4.2": [
+        "New:   Complete test suite — 4-layer coverage (crypto, CLI, API client, browser)",
+        "New:   CI pipeline — GitHub Actions with pytest on Python 3.11/3.12/3.13",
+        "New:   pv alias — 'pv' works as shorthand for every psamvault command",
+        "New:   Browser CAPTCHA detection, auto-login URL discovery, multi-step form support",
+        "Fixed: Clear error message when PSAMVAULT_PEPPER is missing or empty",
+        "Fixed: Graceful failure on persistent 401 after token refresh",
+        "Changed: Development status from Alpha to Beta",
+    ],
     "0.4.1": [
         "New:   psamvault browser — shows command table when run with no subcommand",
         "New:   psamvault --help now lists all command groups with descriptions",

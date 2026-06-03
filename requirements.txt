@@ -37,6 +37,7 @@ ptyprocess==0.7.0
 pycparser==3.0
 Pygments==2.19.2
 pyperclip==1.11.0
+playwright>=1.44.0
 pyproject_hooks==1.2.0
 python-discovery==1.2.1
 python-dotenv==1.2.2

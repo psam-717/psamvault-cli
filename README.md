@@ -42,6 +42,13 @@ HMAC-SHA256 + pepper  →  master password
 pipx install psamvault
 ```
 
+After installation, you can use either `psamvault` or the shorter `pv` alias:
+
+```bash
+psamvault --version
+pv --version              # same thing, shorter to type
+```
+
 If you don't have pipx yet:
 
 ```bash
