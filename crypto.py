@@ -3,6 +3,7 @@ import hashlib
 import json
 import hmac
 import os
+from datetime import datetime
 
 from argon2 import PasswordHasher
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -27,27 +28,28 @@ def wipe(buf: bytearray) -> None:
     if buf:
         ctypes.memset(ctypes.addressof(ctypes.c_char.from_buffer(buf)), 0, len(buf))
 
+
 def derive_master_password(login_password: str) -> str:
     """
     Derive a strong master password from the user's login password.
- 
+
     Uses HMAC-SHA256 keyed with a per-device pepper so the result is:
       - Always 64 hex characters (256 bits) regardless of login password strength
       - Completely different from the login password itself
       - Not guessable even if an attacker knows the derivation scheme,
         because they would also need the pepper value
- 
+
     This frees the user from remembering two passwords. They only ever
     type their login password — the master password is derived automatically
     and never shown or stored in plaintext anywhere.
- 
+
     Args:
         login_password: The raw login password typed by the user.
- 
+
     Returns:
         A 64-character hex string used as the master password for key
         derivation. Never transmitted to the server.
- 
+
     Example:
         login_password  -> "mphil7177214"
         master_password -> "a3f8c2d1e9b47f6c..." (64 hex chars, always)
@@ -63,7 +65,6 @@ def derive_master_password(login_password: str) -> str:
         msg=login_password.encode("utf-8"),
         digestmod=hashlib.sha256
     ).hexdigest()
-    
 
 
 def derive_key(master_password: str, kdf_salt: str) -> bytearray:
@@ -99,19 +100,19 @@ def encrypt_credentials(
 ) -> tuple[str, str]:
     """
     Encrypt a credential bundle using AES-256-GCM.
- 
+
     Bundles username, password, and optional notes into a single JSON payload
     before encrypting so the entire object is protected as one unit.
- 
+
     A fresh random IV is generated on every call — never reuse an IV with
     the same key, as this breaks AES-GCM's security guarantees.
- 
+
     Args:
         key:      32-byte encryption key from derive_key().
         username: Plaintext username or email for the site.
         password: Plaintext password for the site.
         notes:    Optional plaintext notes (default empty string).
- 
+
     Returns:
         A tuple of (encrypted_blob_hex, iv_hex) — both hex-encoded strings
         ready to be sent as JSON to the API.
@@ -121,12 +122,12 @@ def encrypt_credentials(
         "password": password,
         "notes": notes,
     }).encode("utf-8")
-    
+
     iv = os.urandom(12)
-    
+
     aesgcm = AESGCM(key)
     encrypted_blob = aesgcm.encrypt(iv, payload, None)
-    
+
     return encrypted_blob.hex(), iv.hex()
 
 
@@ -137,19 +138,19 @@ def decrypt_credentials(
 ) -> dict:
     """
     Decrypt a credential bundle using AES-256-GCM.
- 
+
     AES-GCM is authenticated encryption — if the ciphertext or IV has been
     tampered with, decryption raises an InvalidTag exception rather than
     returning corrupt data silently.
- 
+
     Args:
         key:            32-byte encryption key from derive_key().
         encrypted_blob: Hex-encoded ciphertext string from the API response.
         iv:             Hex-encoded IV string from the API response.
- 
+
     Returns:
         A dict with keys: username, password, notes.
- 
+
     Raises:
         cryptography.exceptions.InvalidTag: If decryption fails due to a
         wrong key or tampered ciphertext.
@@ -162,18 +163,20 @@ def decrypt_credentials(
     )
     return json.loads(plaintext.decode("utf-8"))
 
+
 # recovery code helpers
+
 
 def generate_recovery_codes(count: int = 8) -> list[str]:
     """
     Generate a set of cryptographically secure recovery codes.
- 
+
     Each code is formatted as XXXX-XXXX-XXXX (groups of 4 uppercase hex
     characters) — easy to read and write down, hard to guess.
- 
+
     Args:
         count: Number of codes to generate (default 8).
- 
+
     Returns:
         A list of raw code strings shown to the user once and never stored.
     """
@@ -255,6 +258,7 @@ def decrypt_master_with_code(
     )
     return plaintext.decode("utf-8")
 
+
 def hash_recovery_code(raw_code: str) -> str:
     """
     Hash a recovery code with Argon2id for secure server-side storage.
@@ -320,9 +324,8 @@ def decrypt_vek(login_key: bytes, encrypted_vek: str, vek_iv: str) -> bytearray:
         bytes.fromhex(encrypted_vek),
         None
     ))
-    
-    
-    
+
+
 def encrypt_api_key(
     key: bytes,
     service: str,
@@ -331,16 +334,16 @@ def encrypt_api_key(
 ) -> tuple[str, str]:
     """
     Encrypt an API key bundle using AES-256-GCM.
- 
+
     Bundles service name, the raw API key, and optional notes into a single
     JSON payload before encrypting — same pattern as encrypt_credentials().
- 
+
     Args:
         key:     32-byte VEK from the session.
         service: Human-readable service name, e.g. "OpenAI".
         api_key: The plaintext API key string.
         notes:   Optional notes, e.g. "read-only, expires 2025-12".
- 
+
     Returns:
         (encrypted_blob_hex, iv_hex)
     """
@@ -349,11 +352,11 @@ def encrypt_api_key(
         "api_key": api_key,
         "notes": notes
     }).encode("utf-8")
-    
-    iv= os.urandom(12)
+
+    iv = os.urandom(12)
     aesgcm = AESGCM(key)
     encrypted_blob = aesgcm.encrypt(iv, payload, None)
-    
+
     return encrypted_blob.hex(), iv.hex()
 
 
@@ -364,22 +367,121 @@ def decrypt_api_key(
 ) -> dict:
     """
      Decrypt an API key bundle using AES-256-GCM.
- 
+
     Args:
         key:            32-byte VEK from the session.
         encrypted_blob: Hex-encoded ciphertext from the API response.
         iv:             Hex-encoded IV from the API response.
- 
+
     Returns:
         A dict with keys: service, api_key, notes.
- 
+
     Raises:
         cryptography.exceptions.InvalidTag: If decryption fails
     """
-    aesgcm= AESGCM(key)
-    plaintext= aesgcm.decrypt(
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(
         bytes.fromhex(iv),
         bytes.fromhex(encrypted_blob),
         None
     )
+    return json.loads(plaintext.decode("utf-8"))
+
+
+# ── Export / Import encryption ──────────────────────────────────────────────────
+
+
+def _derive_export_key(passphrase: str, salt: bytes) -> bytes:
+    """Derive a 32-byte AES key from an export passphrase + random salt.
+
+    Uses PBKDF2-HMAC-SHA256 with 600k iterations — same strength as the
+    vault's login key derivation. The salt is stored alongside the encrypted
+    data so the passphrase alone is enough to decrypt.
+
+    Args:
+        passphrase: The user-chosen export passphrase.
+        salt:       16-byte random salt generated at export time.
+
+    Returns:
+        A 32-byte AES-256 key.
+    """
+    return hashlib.pbkdf2_hmac(
+        hash_name="sha256",
+        password=passphrase.encode("utf-8"),
+        salt=salt,
+        iterations=600_000,
+        dklen=32,
+    )
+
+
+def export_encrypt(data: dict, passphrase: str) -> str:
+    """Encrypt a JSON-serialisable dict for export with AES-256-GCM.
+
+    Wraps the payload in a versioned envelope so the import side knows
+    exactly how to handle it. The envelope structure:
+
+        {
+            "version": 1,
+            "exported_at": "2026-06-05T12:00:00",
+            "salt": <hex>,
+            "iv":   <hex>,
+            "data": <hex-encrypted JSON>
+        }
+
+    Args:
+        data:       Dict to encrypt (site credentials + API keys).
+        passphrase: User-chosen passphrase — NOT stored anywhere.
+
+    Returns:
+        A JSON string (the envelope) safe to write to a file.
+    """
+    salt = os.urandom(16)
+    key = _derive_export_key(passphrase, salt)
+
+    payload = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    encrypted = aesgcm.encrypt(iv, payload, None)
+
+    envelope = {
+        "version": 1,
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "salt": salt.hex(),
+        "iv": iv.hex(),
+        "data": encrypted.hex(),
+    }
+    return json.dumps(envelope, indent=2)
+
+
+def export_decrypt(envelope_json: str, passphrase: str) -> dict:
+    """Decrypt a psamvault export envelope, returning the original data dict.
+
+    Args:
+        envelope_json: The JSON string produced by export_encrypt.
+        passphrase:    The same passphrase used at export time.
+
+    Returns:
+        The decrypted data dict containing 'credentials' and/or 'api_keys'.
+
+    Raises:
+        cryptography.exceptions.InvalidTag: Wrong passphrase or tampered file.
+        json.JSONDecodeError:               Malformed envelope.
+    """
+    envelope = json.loads(envelope_json)
+
+    if envelope.get("version") != 1:
+        raise ValueError(
+            f"Unsupported export version: {envelope.get('version')}. "
+            "This version of psamvault supports version 1 only."
+        )
+
+    salt = bytes.fromhex(envelope["salt"])
+    iv = bytes.fromhex(envelope["iv"])
+    encrypted = bytes.fromhex(envelope["data"])
+
+    key = _derive_export_key(passphrase, salt)
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(iv, encrypted, None)
+
     return json.loads(plaintext.decode("utf-8"))
