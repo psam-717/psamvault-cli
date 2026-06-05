@@ -510,7 +510,73 @@ def delete_api_key_entry(
             return None
         _handle_error(response)
         return response.json()
- 
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+# ── Export / Account deletion ──────────────────────────────────────────────────
+
+
+def export_vault(
+    access_token: str,
+    refresh_token: str,
+) -> list[dict]:
+    """GET /vault/export/all — return all vault entries with full encrypted blobs."""
+    def _call(token: str) -> list[dict]:
+        response = httpx.get(
+            f"{_base_url()}/vault/export/all",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def export_api_keys(
+    access_token: str,
+    refresh_token: str,
+) -> list[dict]:
+    """GET /apikeys/export/all — return all API key entries with full encrypted blobs."""
+    def _call(token: str) -> list[dict]:
+        response = httpx.get(
+            f"{_base_url()}/apikeys/export/all",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def delete_account(
+    access_token: str,
+    refresh_token: str,
+) -> dict:
+    """DELETE /auth/account — permanently delete the user's account and all data."""
+    def _call(token: str) -> dict:
+        response = httpx.delete(
+            f"{_base_url()}/auth/account",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
     result = _call(access_token)
     if result is None:
         return _refresh_and_retry(refresh_token, _call)

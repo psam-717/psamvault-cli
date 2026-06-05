@@ -344,6 +344,84 @@ Revokes the refresh token on the server and deletes the local session file. Your
 
 ---
 
+## Export
+
+Export all your vault entries and API keys to an encrypted backup file on the Desktop.
+
+```bash
+psamvault export
+```
+
+You will be prompted for a passphrase to encrypt the backup (e.g. `MyDogBarksAtMidnight!23`). The same passphrase is required to restore the backup later. The file is saved as `psamvault-backup-<date>.json` on your Desktop.
+
+> Your vault is left **unchanged** — nothing is deleted.
+
+### Plaintext export (testing only)
+
+```bash
+psamvault export --plaintext
+```
+
+Saves credentials as readable JSON without encryption. A warning is shown before proceeding because anyone with Desktop access can read the file. Only use this for testing or temporary backups. Plaintext files are saved as `psamvault-backup-plaintext-<date>.json`.
+
+---
+
+## Import
+
+Restore credentials from a backup file created with `psamvault export` or `psamvault uninstall`.
+
+```bash
+psamvault import
+# scans Desktop for backup files and lets you pick one
+
+psamvault import ./psamvault-backup-2026-06-05_120000.json
+# specify a path directly
+```
+
+Supports both encrypted backups (prompts for passphrase) and plaintext backups (reads directly). If both types exist on the Desktop, encrypted backups are preferred.
+
+You must be logged in before importing — each credential is re-encrypted with your current VEK before being stored on the server.
+
+### Auto-detect after login
+
+After `psamvault login`, if a backup file is found on the Desktop, you will be prompted:
+
+> 📂 Found a psamvault backup file: psamvault-backup-2026-06-05_120000.json
+> Would you like to import your saved credentials now?
+
+---
+
+## Uninstall
+
+Cleanly remove psamvault from your machine with an encrypted backup of all credentials.
+
+```bash
+psamvault uninstall
+```
+
+**What it does:**
+1. Fetches all vault entries and API keys from the server
+2. Decrypts them locally with your VEK
+3. Prompts for a passphrase and saves an encrypted backup to `~/Desktop/psamvault-backup-<date>.json`
+4. Optionally deletes your account and all data from the server
+5. Clears your local session, keychain entries, and config files
+
+### Reinstall + restore
+
+After uninstalling, to restore your data:
+
+```bash
+pipx install psamvault
+psamvault configure
+psamvault signup       # creates a fresh account with a new VEK
+psamvault login        # auto-detects the backup on Desktop
+# → then import your credentials
+```
+
+Or manually: `psamvault import`
+
+---
+
 ## Command groups
 
 All commands are available at the root level and also under grouped sub-commands:
@@ -358,6 +436,9 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault open` | `psamvault browser open` |
 | `psamvault changelog` | `psamvault changelog latest` |
 | `psamvault upgrade` | `psamvault upgrade` |
+| `psamvault export` | `psamvault export` |
+| `psamvault import` | `psamvault import` |
+| `psamvault uninstall` | `psamvault uninstall` |
 
 Run any group without a subcommand to see its full command table:
 
@@ -369,6 +450,9 @@ psamvault ak
 psamvault browser
 psamvault changelog
 psamvault upgrade
+psamvault export
+psamvault import
+psamvault uninstall
 ```
 
 ---

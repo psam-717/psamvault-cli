@@ -11,6 +11,9 @@ from command.api_key_commands import app as apikey_app
 from command.browser_commands import app as browser_app
 from command.changelog_command import app as changelog_app
 from command.upgrade_command import app as update_app
+from command.uninstall_command import app as uninstall_app
+from command.import_command import app as import_app
+from command.export_command import app as export_app
 from update_check import start_update_check, print_update_notice
 from changelog import check_and_show_upgrade_notice
 
@@ -83,6 +86,15 @@ app.add_typer(changelog_app, name="changelog", invoke_without_command=True)
 
 # register update commands
 app.add_typer(update_app, name="upgrade", invoke_without_command=True)
+
+# register uninstall commands
+app.add_typer(uninstall_app, name="uninstall", invoke_without_command=True)
+
+# register import command
+app.add_typer(import_app, name="import", invoke_without_command=True)
+
+# register export command
+app.add_typer(export_app, name="export", invoke_without_command=True)
 
 from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
 from command.vault_commands import add, delete, generate, get, list_entries, site_list, update

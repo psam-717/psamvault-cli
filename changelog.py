@@ -12,6 +12,15 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.4.3": [
+        "New:   psamvault export — export all credentials to an encrypted backup file on Desktop",
+        "New:   psamvault export --plaintext — export as readable JSON (with security warning)",
+        "New:   psamvault import — restore credentials from encrypted or plaintext backup",
+        "New:   psamvault uninstall — cleanly remove psamvault with full data backup",
+        "New:   Auto-detect backup after login — prompts to import if a backup is found on Desktop",
+        "New:   Backend endpoints — GET /vault/export/all, GET /apikeys/export/all, DELETE /auth/account",
+        "Changed: Passphrase prompts now show visible input with example hint",
+    ],
     "0.4.2": [
         "New:   Complete test suite — 4-layer coverage (crypto, CLI, API client, browser)",
         "New:   CI pipeline — GitHub Actions with pytest on Python 3.11/3.12/3.13",
