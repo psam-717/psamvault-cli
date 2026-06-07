@@ -6,7 +6,7 @@ Your credentials are **encrypted locally** before being sent to the server — t
 
 ## Demo
 
-<video src="media/tui-demo.mp4" controls width="100%"></video>
+[▶️ Watch CLI walkthrough](media/tui-demo.mp4)
 
 A quick walkthrough of the CLI in action.
 
