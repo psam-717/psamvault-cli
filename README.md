@@ -4,6 +4,12 @@ A secure command-line password vault for the terminal.
 
 Your credentials are **encrypted locally** before being sent to the server — the server never sees your plaintext passwords or your encryption key.
 
+## Demo
+
+<video src="media/tui-demo.mp4" controls width="100%"></video>
+
+A quick walkthrough of the TUI dashboard — login, browsing vault entries, and viewing entry details.
+
 ```bash
 psamvault --version     # or -V — show the installed version
 ```
