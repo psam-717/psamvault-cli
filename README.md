@@ -8,7 +8,7 @@ Your credentials are **encrypted locally** before being sent to the server — t
 
 <video src="media/tui-demo.mp4" controls width="100%"></video>
 
-A quick walkthrough of the TUI dashboard — login, browsing vault entries, and viewing entry details.
+A quick walkthrough of the CLI in action.
 
 ```bash
 psamvault --version     # or -V — show the installed version
