@@ -126,10 +126,11 @@ def _try_auto_login() -> bool:
     session["access_token"] = sess["access_token"]
     session["refresh_token"] = sess["refresh_token"]
     session["vek"] = sess["vek"]
+    session["username"] = "User"
 
-    # Try to fetch the username from the profile endpoint
+    # Try to fetch the real username from the profile endpoint
     try:
-        profile = api_me(access)
+        profile = api_me(session["access_token"])
         session["username"] = profile.get("username", "User")
     except Exception:
         pass
