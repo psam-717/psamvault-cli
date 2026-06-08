@@ -100,11 +100,19 @@ def _validate_password(password: str) -> str | None:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _is_authenticated() -> bool:
-    """Check if the Flask session has a valid auth state."""
+    """Check if the user has a valid auth session.
+
+    Always prefers the OS keychain (which the CLI keeps current).
+    Falls back to the Flask session only when no keychain session exists.
+    This prevents stale-token errors when the CLI has rotated tokens
+    (every CLI command does) while the dashboard holds old ones.
+    """
+    if is_logged_in():
+        return _try_auto_login()
+    # No keychain session — use Flask session (future web-login path)
     if session.get("access_token") and session.get("vek"):
         return True
-    # Try auto-login from OS keychain (CLI session)
-    return _try_auto_login()
+    return False
 
 
 def _try_auto_login() -> bool:
@@ -128,11 +136,13 @@ def _try_auto_login() -> bool:
     session["vek"] = sess["vek"]
     session["username"] = "User"
 
-    # Try to fetch the real username from the profile endpoint
+    # Try to fetch the real username from the profile endpoint.
+    # The API client raises typer.Exit (SystemExit) on 401 — catch
+    # everything since a failed profile fetch is non-fatal here.
     try:
         profile = api_me(session["access_token"])
         session["username"] = profile.get("username", "User")
-    except Exception:
+    except BaseException:
         pass
 
     return True
@@ -189,6 +199,11 @@ def _get_vault_entries():
 
     try:
         data = list_vault_entries(token, refresh)
+    except SystemExit:
+        # typer.Exit from the API client — the string repr is empty,
+        # so provide a meaningful message.
+        flash("Session expired. Run  pv login  in your terminal to re-authenticate, then refresh.", "error")
+        return []
     except BaseException as exc:
         flash(f"Could not load entries: {exc}", "error")
         return []
@@ -207,6 +222,9 @@ def _get_api_keys():
 
     try:
         data = list_api_key_entries(token, refresh)
+    except SystemExit:
+        flash("Session expired. Run  pv login  in your terminal to re-authenticate, then refresh.", "error")
+        return []
     except BaseException as exc:
         flash(f"Could not load API keys: {exc}", "error")
         return []
@@ -219,14 +237,18 @@ def _get_api_keys():
 
 
 def _get_decrypted_entry(site_name: str) -> dict | None:
-    """Fetch, decrypt and return a single vault entry (matches CLI's `get` command)."""
+    """Fetch, decrypt and return a single vault entry (matches CLI's `get` command).
+
+    Returns None on any error (network, auth, decryption) so the caller
+    can render a user-friendly error page.
+    """
     token = session["access_token"]
     refresh = session["refresh_token"]
     vek = bytes.fromhex(session["vek"])
 
     try:
         data = get_vault_entry(token, refresh, site_name)
-    except Exception:
+    except BaseException:
         return None
 
     try:
@@ -252,7 +274,7 @@ def _get_decrypted_api_key(name: str) -> dict | None:
 
     try:
         data = get_api_key_entry(token, refresh, name)
-    except Exception:
+    except BaseException:
         return None
 
     try:
