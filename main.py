@@ -14,6 +14,7 @@ from command.upgrade_command import app as update_app
 from command.uninstall_command import app as uninstall_app
 from command.import_command import app as import_app
 from command.export_command import app as export_app
+
 from update_check import start_update_check, print_update_notice
 from changelog import check_and_show_upgrade_notice
 
@@ -48,53 +49,98 @@ def _version_callback(value: bool) -> None:
             import tomllib
             from pathlib import Path
             pyproject = Path(__file__).parent / "pyproject.toml"
-            with open(pyproject, "rb") as f:
-                version = tomllib.load(f)["project"]["version"]
+            if pyproject.exists():
+                with open(pyproject, "rb") as f:
+                    version = tomllib.load(f)["project"]["version"]
+            else:
+                version = "unknown"
         typer.echo(f"psamvault {version}")
         raise typer.Exit()
 
 
 @app.callback()
-def _main(
+def main(
     version: Annotated[
         Optional[bool],
-        typer.Option("--version", "-V", callback=_version_callback, is_eager=True, help="Show version and exit."),
+        typer.Option("--version", "-v", help="Show version and exit", callback=_version_callback),
     ] = None,
 ) -> None:
-    # Kick off the update check in the background - won't block the command
-    start_update_check()
-    check_and_show_upgrade_notice()
+    """psamvault — a secure password vault for the terminal."""
+    pass
 
 
-# register auth commands
-app.add_typer(auth_app, name="auth", invoke_without_command=True)
+# ── Include sub-command groups ──────────────────────────────────────────
+app.add_typer(auth_app, name="auth", help="Account commands (signup, login, logout, whoami)")
+app.add_typer(vault_app, name="vault", help="Credential commands (add, get, update, delete, list)")
+app.add_typer(recovery_app, name="recovery", help="Account recovery (generate-codes, recover)")
+app.add_typer(apikey_app, name="ak", help="API key commands (ak-add, ak-get, ak-list, ak-update, ak-delete)")
+app.add_typer(browser_app, name="browser", help="Browser autofill (open)")
+app.add_typer(changelog_app, name="changelog", help="View version history")
+app.add_typer(update_app, name="upgrade", help="Upgrade psamvault in-place")
+app.add_typer(uninstall_app, name="uninstall", help="Uninstall psamvault")
+app.add_typer(import_app, name="import", help="Import entries from other password managers")
+app.add_typer(export_app, name="export", help="Export vault entries to a JSON file")
 
-# register vault commands
-app.add_typer(vault_app, name="vault", invoke_without_command=True)
+# ── TUI — source kept in repo, command hidden from --help ──────────────
+# from tui.app import run_tui
 
-# register recovery commands
-app.add_typer(recovery_app, name="recovery", invoke_without_command=True)
+# @app.command(hidden=True)
+# def tui() -> None:
+#     """Launch the terminal UI (experimental)."""
+#     run_tui()
 
-# register ak commands
-app.add_typer(apikey_app, name="ak", invoke_without_command=True)
 
-# register browser commands
-app.add_typer(browser_app, name="browser", invoke_without_command=True)
+@app.command()
+def dashboard() -> None:
+    """Launch the web dashboard for psamvault (fresh — kills stale servers & clears cache)."""
+    import subprocess
+    import shutil
+    from pathlib import Path
 
-# register changelog commands
-app.add_typer(changelog_app, name="changelog", invoke_without_command=True)
+    # ── Kill any stale process on port 8500 ────────────────────────────
+    typer.echo("  Cleaning up stale dashboard processes...")
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+        )
+        for line in result.stdout.splitlines():
+            if ":8500" in line and "LISTENING" in line:
+                parts = line.strip().split()
+                pid = parts[-1]
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", pid],
+                    capture_output=True, text=True, timeout=5,
+                )
+                typer.echo(f"  Killed stale process PID {pid}")
+    except Exception:
+        pass  # best-effort cleanup
 
-# register update commands
-app.add_typer(update_app, name="upgrade", invoke_without_command=True)
+    # ── Clear Python bytecode cache for dashboard ──────────────────────
+    dashboard_dir = Path(__file__).parent / "dashboard"
+    for pycache in dashboard_dir.rglob("__pycache__"):
+        shutil.rmtree(pycache, ignore_errors=True)
 
-# register uninstall commands
-app.add_typer(uninstall_app, name="uninstall", invoke_without_command=True)
+    # ── Start fresh ────────────────────────────────────────────────────
+    from dashboard import create_app
+    import webbrowser
 
-# register import command
-app.add_typer(import_app, name="import", invoke_without_command=True)
+    app = create_app()
+    port = 8500
+    url = f"http://localhost:{port}"
 
-# register export command
-app.add_typer(export_app, name="export", invoke_without_command=True)
+    typer.echo(f" \n  psamvault dashboard starting...")
+    typer.echo(f"  → {url}")
+    typer.echo(f"  Press Ctrl+C to stop.\n")
+
+    try:
+        if not webbrowser.open(url):
+            raise RuntimeError("webbrowser.open returned False")
+    except Exception:
+        typer.echo(f"  ⚠ Could not open browser automatically.")
+        typer.echo(f"  → Open {url} manually in your browser.\n")
+
+    from waitress import serve
+    serve(app, host="127.0.0.1", port=port)
 
 from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
 from command.vault_commands import add, delete, generate, get, list_entries, site_list, update
@@ -110,22 +156,23 @@ app.command("login")(login)
 app.command("logout")(logout)
 app.command("whoami")(whoami)
 app.command("add")(add)
+app.command("delete")(delete)
+app.command("generate")(generate)
 app.command("get")(get)
 app.command("list")(list_entries)
 app.command("site-list")(site_list)
 app.command("update")(update)
-app.command("delete")(delete)
-app.command("generate")(generate)
+app.command("ak-list")(ak_list)
+app.command("ak-add")(ak_add)
+app.command("ak-get")(ak_get)
+app.command("ak-delete")(ak_delete)
+app.command("ak-update")(ak_update)
+app.command("open")(open_site)
 app.command("generate-codes")(generate_codes)
 app.command("remaining-codes")(remaining_codes)
 app.command("recover")(recover)
-app.command("ak-add")(ak_add)
-app.command("ak-get")(ak_get)
-app.command("ak-list")(ak_list)
-app.command("ak-update")(ak_update)
-app.command("ak-delete")(ak_delete)
-app.command("open")(open_site)
-
 
 if __name__ == "__main__":
+    start_update_check()
+    check_and_show_upgrade_notice()
     app()
