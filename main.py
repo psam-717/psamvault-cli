@@ -62,7 +62,7 @@ def _version_callback(value: bool) -> None:
 def main(
     version: Annotated[
         Optional[bool],
-        typer.Option("--version", "-v", help="Show version and exit", callback=_version_callback),
+        typer.Option("--version", "-V", help="Show version and exit", callback=_version_callback),
     ] = None,
 ) -> None:
     """psamvault — a secure password vault for the terminal."""
