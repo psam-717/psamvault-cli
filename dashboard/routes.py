@@ -40,7 +40,6 @@ from api_client import (
     login as api_login,
     signup as api_signup,
     me as api_me,
-    refresh_access_token,
 )
 from crypto import (
     decrypt_credentials,
@@ -58,7 +57,6 @@ from session import (
     load_session,
     save_session,
     clear_session,
-    update_tokens,
 )
 
 bp = Blueprint("dashboard", __name__)
@@ -110,9 +108,13 @@ def _is_authenticated() -> bool:
 
 
 def _try_auto_login() -> bool:
-    """
-    Attempt to restore session from the OS keychain (CLI session).
-    Returns True if a valid session was loaded into Flask.
+    """Restore session from OS keychain (CLI session).
+
+    Loads tokens from the keychain into the Flask session without
+    proactively refreshing them — the individual API calls (list_vault_entries
+    etc.) already have built-in refresh-and-retry logic. This avoids a race
+    condition where concurrent dashboard requests all try to use (and
+    invalidate) the same refresh token at the same time.
     """
     if not is_logged_in():
         return False
@@ -121,25 +123,9 @@ def _try_auto_login() -> bool:
     except Exception:
         return False
 
-    access = sess["access_token"]
-    refresh = sess["refresh_token"]
-    vek = sess["vek"]
-
-    # Try to refresh the token so we know the session is still valid
-    try:
-        new_access, new_refresh = refresh_access_token(refresh)
-        access = new_access
-        refresh = new_refresh
-        update_tokens(new_access, new_refresh)
-    except Exception:
-        # Token refresh failed — expired or offline. Still try the cached
-        # access token; the API client will handle 401s on first request.
-        pass
-
-    session["access_token"] = access
-    session["refresh_token"] = refresh
-    session["vek"] = vek
-    session["username"] = "User"
+    session["access_token"] = sess["access_token"]
+    session["refresh_token"] = sess["refresh_token"]
+    session["vek"] = sess["vek"]
 
     # Try to fetch the username from the profile endpoint
     try:
