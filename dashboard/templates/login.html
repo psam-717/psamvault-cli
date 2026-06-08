@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Sign In{% endblock %}
+{% block content %}
+<div class="login-wrapper">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-logo-icon">pv</div>
+      <div class="login-title">psamvault</div>
+      <div class="login-subtitle">CLI Login Required</div>
+    </div>
+
+    <div class="gold-divider login-divider"></div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="cli-login-box">
+      <div class="cli-icon">💻</div>
+      <p class="login-cli-text">
+        Login can only be carried out via the terminal.
+      </p>
+      <p class="login-cli-hint">Run this command:</p>
+      <div class="cli-code">pv login</div>
+      <p class="login-cli-action">
+        Then click the button below to refresh.
+      </p>
+    </div>
+
+    <form method="GET" action="{{ url_for('dashboard.index') }}">
+      <button type="submit" class="btn-primary btn-full">
+        ↻ Auto-Login
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
