@@ -11,7 +11,7 @@ Your credentials are **encrypted locally** before being sent to the server — t
 A quick walkthrough of the CLI in action.
 
 ```bash
-psamvault --version     # or -v — show the installed version
+psamvault --version     # or -V — show the installed version
 ```
 
 ---
