@@ -28,7 +28,7 @@ cli_venv/
 venv/
 env/
 ENV/
-
+build_venv/
 # =============================================================================
 # Environment variables — never commit secrets
 # =============================================================================
@@ -132,3 +132,4 @@ logs/
 SECURITY_PLAN.md
 plans
 .github\skills
+.claude
