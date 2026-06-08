@@ -1,0 +1,65 @@
+<div class="toolbar">
+  <div class="search-wrapper">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input class="search-input" type="text" placeholder="Search entries..."
+           name="search"
+           hx-get="{{ url_for('dashboard.entries_list') }}"
+           hx-trigger="keyup changed delay:300ms"
+           hx-target="#tab-content"
+           hx-swap="innerHTML"
+           hx-include="this" />
+  </div>
+  <button type="button" class="btn-primary" onclick="openModal('add-entry')">
+    <span class="btn-icon">+</span> Add Entry
+  </button>
+  <button type="button" class="btn-secondary" onclick="openModal('add-apikey')">
+    + API Key
+  </button>
+</div>
+
+<div class="entries-card">
+  {% if entries %}
+  <table class="entries-table">
+    <thead>
+      <tr>
+        <th class="col-site">Site</th>
+        <th class="col-username">Username hint</th>
+        <th class="col-date">Updated</th>
+        <th class="col-actions"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>
+          <div class="site-cell">
+            <div class="site-favicon">{{ entry.site_name[:2].upper() }}</div>
+            <div>
+              <div class="site-name">{{ entry.site_name }}</div>
+            </div>
+          </div>
+        </td>
+        <td><span class="mono-inline">{{ entry.username_hint }}</span></td>
+        <td class="cell-date">{{ entry.updated_at }}</td>
+        <td>
+          <div class="actions-cell">
+            <a href="{{ url_for('dashboard.entries_detail', site_name=entry.site_name) }}" class="btn-action view" title="View details">👁</a>
+            <a href="{{ url_for('dashboard.entries_edit', site_name=entry.site_name) }}" class="btn-action edit" title="Edit">✏️</a>
+            <form method="POST" action="{{ url_for('dashboard.entries_delete', site_name=entry.site_name) }}"
+                  class="actions-form" onsubmit="return confirm('Delete ' + {{ entry.site_name | tojson }} + '?')">
+              <button type="submit" class="btn-action delete" title="Delete">🗑️</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🔐</div>
+    <div class="empty-text">No vault entries yet</div>
+    <div class="empty-sub">Use <span class="mono-inline text-accent">psamvault add</span> or click "+ Add Entry" to store your first credential</div>
+  </div>
+  {% endif %}
+</div>

@@ -12,6 +12,22 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.5.1": [
+        "Fixed: Dashboard token sync — always loads from OS keychain (CLI session), never uses stale Flask session tokens",
+        "Fixed: Dashboard now catches typer.Exit (SystemExit) gracefully — shows user-friendly toast instead of terminal error flood",
+    ],
+    "0.5.0": [
+        "New:   psamvault dashboard — web dashboard for managing vault entries and API keys",
+        "       Flask + Waitress on localhost:8500, CLI-only authentication, auto-login from session",
+        "New:   Server-side sessions — VEK and tokens stored on filesystem, not in browser cookie",
+        "New:   On-demand password reveal — passwords fetched via fetch(), never in HTML source",
+        "Fixed: Plaintext passwords no longer embedded in HTML/JS page source",
+        "Fixed: VEK no longer exposed in signed (unencrypted) Flask session cookie",
+        "Fixed: XSS vectors in confirm() dialogs and flash message rendering",
+        "Fixed: Dashboard auto-cleanup kills stale server processes on startup",
+        "Changed: pv tui command hidden from --help (WIP, source files retained in repo)",
+        "Changed: pv dashboard server uses Waitress (production-grade, no dev warning)",
+    ],
     "0.4.3": [
         "New:   psamvault export — export all credentials to an encrypted backup file on Desktop",
         "New:   psamvault export --plaintext — export as readable JSON (with security warning)",

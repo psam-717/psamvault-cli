@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-enter">
+
+<!-- ═══ Top Bar ═══ -->
+<div class="topbar">
+  <div class="logo-area">
+    <div class="logo-icon">pv</div>
+    <div class="logo-text">psam<span>vault</span></div>
+  </div>
+  <div class="topbar-right">
+    <div class="user-badge">
+      <div class="user-avatar">{{ username[:2].upper() }}</div>
+      <span>{{ username }}</span>
+    </div>
+    <form method="POST" action="{{ url_for('dashboard.logout_view') }}" class="detail-action-btn delete-form"
+          onsubmit="return confirm('Login can only be done via the CLI. Are you sure you want to sign out?\n\nAfter signing out, run \"pv login\" in your terminal to log back in, then restart the dashboard.');">
+      <button type="submit" class="btn-logout">→ Sign out</button>
+    </form>
+  </div>
+</div>
+
+<div class="gold-divider"></div>
+
+<!-- ═══ If error ═══ -->
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<!-- ═══ Stats ═══ -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-icon entries">🔐</div>
+    <div class="stat-info">
+      <div class="stat-label">Vault entries</div>
+      <div class="stat-value">{{ entries|length }}</div>
+      <div class="stat-detail">Stored credentials</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon apikeys">🔑</div>
+    <div class="stat-info">
+      <div class="stat-label">API keys</div>
+      <div class="stat-value">{{ api_keys|length }}</div>
+      <div class="stat-detail">Managed keys</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon storage">🛡️</div>
+    <div class="stat-info">
+      <div class="stat-label">Vault status</div>
+      <div class="stat-value">Secure</div>
+      <div class="stat-detail">End-to-end encrypted</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Tabs ═══ -->
+<div class="tab-bar" hx-target="#tab-content" hx-swap="innerHTML">
+  <button class="tab-btn active"
+          hx-get="{{ url_for('dashboard.entries_list') }}"
+          hx-trigger="click"
+          onclick="document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active');">
+    🔐 Vault Entries <span class="tab-badge-count">{{ entries|length }}</span>
+  </button>
+  <button class="tab-btn"
+          hx-get="{{ url_for('dashboard.api_keys_list') }}"
+          hx-trigger="click"
+          onclick="document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active');">
+    🔑 API Keys <span class="tab-badge-count">{{ api_keys|length }}</span>
+  </button>
+</div>
+
+<!-- ═══ Toolbar + Table (HTMX swap target) ═══ -->
+<div id="tab-content">
+  {% include "entries_table.html" %}
+</div>
+
+<!-- ═══ Add Entry Modal ═══ -->
+<div class="modal-overlay" id="modal-add-entry">
+  <div class="modal">
+    <form method="POST" action="{{ url_for('dashboard.entries_add') }}">
+      <div class="modal-header">
+        <div class="modal-title">+ Add Entry</div>
+        <button type="button" class="modal-close" onclick="closeModal('add-entry')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="add-site_name">Site name</label>
+          <input class="form-input" id="add-site_name" name="site_name" type="text"
+                 placeholder="e.g. GitHub, AWS Console" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="add-username">Username / Email</label>
+          <input class="form-input" id="add-username" name="username" type="text"
+                 placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="add-password">Password</label>
+          <input class="form-input" id="add-password" name="password" type="password"
+                 placeholder="••••••••" required />
+          <div class="form-hint">At least 8 characters, 1 uppercase, 1 digit</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="add-login_url">Login URL (optional)</label>
+          <input class="form-input" id="add-login_url" name="login_url" type="url"
+                 placeholder="https://github.com/login" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="add-notes">Notes (optional)</label>
+          <textarea class="form-textarea" id="add-notes" name="notes"
+                    placeholder="Any extra info..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('add-entry')">Cancel</button>
+        <button type="submit" class="btn-primary">Save Entry</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ Add API Key Modal ═══ -->
+<div class="modal-overlay" id="modal-add-apikey">
+  <div class="modal">
+    <form method="POST" action="{{ url_for('dashboard.api_keys_add') }}">
+      <div class="modal-header">
+        <div class="modal-title">+ Add API Key</div>
+        <button type="button" class="modal-close" onclick="closeModal('add-apikey')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="ak-name">Name</label>
+          <input class="form-input" id="ak-name" name="name" type="text"
+                 placeholder="e.g. OpenAI Production" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ak-service">Service</label>
+          <input class="form-input" id="ak-service" name="service" type="text"
+                 placeholder="e.g. OpenAI, AWS" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ak-api_key">API Key</label>
+          <input class="form-input" id="ak-api_key" name="api_key" type="password"
+                 placeholder="sk-..." required />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ak-notes">Notes (optional)</label>
+          <textarea class="form-textarea" id="ak-notes" name="notes"
+                    placeholder="Usage notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('add-apikey')">Cancel</button>
+        <button type="submit" class="btn-primary">Save API Key</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+</div>{# /page-enter #}
+
+<script>
+// ── Load entries on page load ──
+document.addEventListener('DOMContentLoaded', function() {
+  htmx.trigger('#tab-content', 'load');
+});
+</script>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.site_name if entry else "Not Found" }}{% endblock %}
+{% block content %}
+
+<div class="page-enter">
+
+<a href="{{ url_for('dashboard.dashboard_view') }}" class="btn-back">← Back to dashboard</a>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if entry %}
+<div class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-header-left">
+      <div class="detail-header-icon">{{ entry.site_name[:2].upper() }}</div>
+      <div>
+        <h2>{{ entry.site_name }}</h2>
+        {% if entry.login_url %}
+        <a href="{{ entry.login_url }}" target="_blank" class="detail-url">{{ entry.login_url }}</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="detail-actions">
+      <a href="{{ url_for('dashboard.entries_edit', site_name=entry.site_name) }}" class="detail-action-btn edit">
+        ✏️ Edit
+      </a>
+      <form method="POST" action="{{ url_for('dashboard.entries_delete', site_name=entry.site_name) }}"
+            class="detail-action-btn delete-form"
+            onsubmit="return confirm('Delete ' + {{ entry.site_name | tojson }} + '?')">
+        <button type="submit">🗑️ Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="detail-row">
+    <div class="detail-label">Username</div>
+    <div class="detail-value mono-inline">{{ entry.username }}</div>
+  </div>
+  <div class="detail-row">
+    <div class="detail-label">Password</div>
+    <div class="detail-value">
+      <span class="mono-inline" id="pw-display">••••••••••••</span>
+      <button class="btn-action" id="pw-reveal-btn" title="Show/Hide">👁</button>
+      <button class="btn-action copy" id="pw-copy-btn" title="Copy">📋</button>
+    </div>
+  </div>
+  {% if entry.notes %}
+  <div class="detail-row">
+    <div class="detail-label">Notes</div>
+    <div class="detail-value">{{ entry.notes }}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+</div>{# /page-enter #}
+
+<script>
+(function() {
+  'use strict';
+  {% if entry %}
+  var _pw = null;
+  var _pwShown = false;
+  var _pwUrl = {{ url_for('dashboard.entries_password', site_name=entry.site_name) | tojson }};
+
+  function _fetchPw() {
+    if (_pw !== null) return Promise.resolve(_pw);
+    return fetch(_pwUrl)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Failed to fetch password');
+        return r.json();
+      })
+      .then(function(d) { _pw = d.password; return _pw; });
+  }
+
+  document.getElementById('pw-reveal-btn').addEventListener('click', function() {
+    var el = document.getElementById('pw-display');
+    if (_pwShown) {
+      el.textContent = '••••••••••••';
+      _pwShown = false;
+      this.textContent = '👁';
+      return;
+    }
+    _fetchPw().then(function(pw) {
+      el.textContent = pw;
+      _pwShown = true;
+    }).catch(function() {
+      showToast('Failed to load password', 'error');
+    });
+  });
+
+  document.getElementById('pw-copy-btn').addEventListener('click', function() {
+    _fetchPw().then(function(pw) {
+      return navigator.clipboard.writeText(pw);
+    }).then(function() {
+      showToast('Copied', 'success');
+    }).catch(function() {
+      showToast('Failed to copy', 'error');
+    });
+  });
+  {% endif %}
+})();
+</script>
+{% endblock %}

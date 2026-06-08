@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ key.name if key else "Not Found" }}{% endblock %}
+{% block content %}
+
+<div class="page-enter">
+
+<a href="{{ url_for('dashboard.dashboard_view') }}" class="btn-back">← Back to dashboard</a>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if key %}
+<div class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-header-left">
+      <div class="detail-header-icon">🔑</div>
+      <div>
+        <h2>{{ key.name }}</h2>
+        <span class="detail-url" style="font-weight:400;color:var(--text-muted);">{{ key.service or "No service" }}</span>
+      </div>
+    </div>
+    <div class="detail-actions">
+      <a href="{{ url_for('dashboard.api_keys_edit', name=key.name) }}" class="detail-action-btn edit">
+        ✏️ Edit
+      </a>
+      <form method="POST" action="{{ url_for('dashboard.api_keys_delete', name=key.name) }}"
+            class="detail-action-btn delete-form"
+            onsubmit="return confirm('Delete API key ' + {{ key.name | tojson }} + '?')">
+        <button type="submit">🗑️ Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="detail-row">
+    <div class="detail-label">Service</div>
+    <div class="detail-value">{{ key.service or "—" }}</div>
+  </div>
+  <div class="detail-row">
+    <div class="detail-label">API Key</div>
+    <div class="detail-value">
+      <span class="mono-inline" id="ak-display">••••••••••••••••</span>
+      <button class="btn-action" id="ak-reveal-btn" title="Show/Hide">👁</button>
+      <button class="btn-action copy" id="ak-copy-btn" title="Copy">📋</button>
+    </div>
+  </div>
+  {% if key.notes %}
+  <div class="detail-row">
+    <div class="detail-label">Notes</div>
+    <div class="detail-value">{{ key.notes }}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+</div>{# /page-enter #}
+
+<script>
+(function() {
+  'use strict';
+  {% if key %}
+  var _ak = null;
+  var _akShown = false;
+  var _akUrl = {{ url_for('dashboard.api_keys_password', name=key.name) | tojson }};
+
+  function _fetchAk() {
+    if (_ak !== null) return Promise.resolve(_ak);
+    return fetch(_akUrl)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Failed to fetch API key');
+        return r.json();
+      })
+      .then(function(d) { _ak = d.api_key; return _ak; });
+  }
+
+  document.getElementById('ak-reveal-btn').addEventListener('click', function() {
+    var el = document.getElementById('ak-display');
+    if (_akShown) {
+      el.textContent = '••••••••••••••••';
+      _akShown = false;
+      this.textContent = '👁';
+      return;
+    }
+    _fetchAk().then(function(ak) {
+      el.textContent = ak;
+      _akShown = true;
+    }).catch(function() {
+      showToast('Failed to load API key', 'error');
+    });
+  });
+
+  document.getElementById('ak-copy-btn').addEventListener('click', function() {
+    _fetchAk().then(function(ak) {
+      return navigator.clipboard.writeText(ak);
+    }).then(function() {
+      showToast('API key copied', 'success');
+    }).catch(function() {
+      showToast('Failed to copy', 'error');
+    });
+  });
+  {% endif %}
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ key.name }}{% endblock %}
+{% block content %}
+
+<div class="page-enter">
+
+<a href="{{ url_for('dashboard.api_keys_detail', name=key.name) }}" class="btn-back">← Back to {{ key.name }}</a>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="detail-panel">
+  <div class="edit-title">✏️ Edit {{ key.name }}</div>
+
+  <form method="POST">
+    <div class="form-group">
+      <label class="form-label" for="service">Service</label>
+      <input class="form-input" id="service" name="service" type="text"
+             value="{{ key.service }}" placeholder="Leave blank to keep current" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="api_key">API Key</label>
+      <input class="form-input" id="api_key" name="api_key" type="password"
+             placeholder="Leave blank to keep current" />
+      <div class="form-hint">Leave blank to keep the current key unchanged</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="notes">Notes</label>
+      <textarea class="form-textarea" id="notes" name="notes"
+                placeholder="Leave blank to keep current">{{ key.notes }}</textarea>
+    </div>
+    <div class="form-footer">
+      <a href="{{ url_for('dashboard.api_keys_detail', name=key.name) }}" class="btn-secondary">Cancel</a>
+      <button type="submit" class="btn-primary">Save Changes</button>
+    </div>
+  </form>
+</div>
+
+</div>{# /page-enter #}
+{% endblock %}
