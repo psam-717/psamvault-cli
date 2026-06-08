@@ -1,6 +1,6 @@
 # psamvault
 
-A secure command-line password vault for the terminal.
+A secure command-line password vault for the terminal — **with a web dashboard**.
 
 Your credentials are **encrypted locally** before being sent to the server — the server never sees your plaintext passwords or your encryption key.
 
@@ -152,6 +152,34 @@ psamvault migrate
 ```
 
 Your vault data is preserved. After migrating, regenerate your recovery codes with `psamvault generate-codes`.
+
+---
+
+## Web Dashboard
+
+psamvault includes a **web dashboard** for browsing and managing your vault entries and API keys in a browser.
+
+```bash
+pv dashboard
+```
+
+Opens a local web server at `http://localhost:8500` running on [Waitress](https://docs.pylonsproject.org/projects/waitress/) (production-grade WSGI).
+
+### Features
+
+- **CLI-only authentication** — the dashboard authenticates through your existing CLI session. No manual login form. Run `pv login` in your terminal, then refresh the dashboard.
+- **Server-side sessions** — your VEK and tokens live on the filesystem (`~/.psamvault/flask_sessions/`), never in the browser cookie. The cookie is a random session ID only.
+- **On-demand password reveal** — passwords are fetched via `fetch()` on click and held in memory. They are **never embedded in the HTML source**, so inspecting the page or viewing cached source won't leak plaintext secrets.
+- **Auto-cleanup** — `pv dashboard` automatically kills any stale server process and clears cached bytecode before starting fresh, so you always see the latest code.
+
+### Login flow
+
+1. Open `http://localhost:8500`
+2. If you're logged in via CLI, the dashboard auto-authenticates
+3. If not, a CLI instruction screen appears — run `pv login` in your terminal, then click **Auto-Login**
+4. Manage entries: view, add, edit, delete — all with instant feedback via toast notifications
+
+> **Security:** The dashboard runs on `127.0.0.1:8500` only. It is not exposed to your network.
 
 ---
 
@@ -445,6 +473,7 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault export` | `psamvault export` |
 | `psamvault import` | `psamvault import` |
 | `psamvault uninstall` | `psamvault uninstall` |
+| `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
 
@@ -469,10 +498,11 @@ psamvault uninstall
 |---|---|
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
+| `~/.psamvault/flask_sessions/` | Server-side Flask session data (VEK, tokens) — permissions `0700` |
 
-All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain.
+All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain or in the server-side session directory.
 
-Both files are restricted to owner read/write only (`chmod 600`).
+Both `.json` and `.env` files are restricted to owner read/write only (`chmod 600`). The `flask_sessions/` directory is restricted to owner (`chmod 700`).
 
 ---
 
@@ -484,6 +514,7 @@ Both files are restricted to owner read/write only (`chmod 600`).
 - **AES-256-GCM** is used for all encryption (authenticated — detects tampering)
 - **PBKDF2-HMAC-SHA256** with 600,000 iterations for key derivation (NIST recommended minimum)
 - **Argon2id** is used to hash recovery codes server-side (memory-hard, brute-force resistant)
+- **Server-side sessions** — the dashboard stores your VEK and tokens on the filesystem, never in the browser cookie. The cookie is a random session ID only.
 
 ### OS keychain storage
 
@@ -499,6 +530,6 @@ All sensitive session and config values are stored in the OS keychain — never 
 | Encrypted VEK (server copy) | `psamvault / session.encrypted_vek` |
 | VEK IV | `psamvault / session.vek_iv` |
 
-On **macOS** this is the system Keychain. On **Windows** it is the Credential Manager (`%LOCALAPPDATA%\Microsoft\Credentials`). On **Linux** it is the Secret Service (GNOME Keyring or KWallet).
+---
 
-`~/.psamvault/session.json` contains only `{}` — an empty presence marker. `~/.psamvault/config.env` contains only the non-sensitive API URL. Both files are restricted to owner read/write only (`chmod 600`).
+*psamvault — your vault, your keys, your control.*
