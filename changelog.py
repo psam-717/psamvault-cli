@@ -12,6 +12,10 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.5.1": [
+        "Fixed: Dashboard token sync — always loads from OS keychain (CLI session), never uses stale Flask session tokens",
+        "Fixed: Dashboard now catches typer.Exit (SystemExit) gracefully — shows user-friendly toast instead of terminal error flood",
+    ],
     "0.5.0": [
         "New:   psamvault dashboard — web dashboard for managing vault entries and API keys",
         "       Flask + Waitress on localhost:8500, CLI-only authentication, auto-login from session",
