@@ -28,9 +28,17 @@ def create_app() -> Flask:
     )
 
     # ── Configuration ──────────────────────────────────────────────
-    # Regenerate the signing key each restart — session data is stored
-    # server-side so this only invalidates the session ID, not the VEK.
-    app.secret_key = secrets.token_hex(32)
+    # Persistent secret key stored at ~/.psamvault/flask_secret_key.
+    # Generated once on first run, re-read on subsequent starts so
+    # flask-session session IDs survive server restarts.
+    _secret_key_file = Path.home() / ".psamvault" / "flask_secret_key"
+    if _secret_key_file.exists():
+        app.secret_key = _secret_key_file.read_text(encoding="utf-8").strip()
+    else:
+        _secret_key_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        app.secret_key = secrets.token_hex(32)
+        _secret_key_file.write_text(app.secret_key, encoding="utf-8")
+        _secret_key_file.chmod(0o600)
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",

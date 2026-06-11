@@ -10,6 +10,7 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
 from session import load_session
 
@@ -44,7 +45,7 @@ def vault_help(ctx: typer.Context):
   generate     psamvault generate --save <site> --user <username>              
 """)
         
-FORBIDDEN_SITE_CHARS = set('\\/"\' <>|?*&#%')
+FORBIDDEN_SITE_CHARS = set('\\/"\'' " <>|?*&#%")
 
 def _validate_site_name(site: str) -> None:
     """Raise a user-friendly error if the site name contains forbidden characters."""
@@ -243,6 +244,53 @@ def site_list():
         typer.echo(f" {entry['site_name']:<35} {hint:<30} {updated}")
 
     typer.echo(f"\n {total} entr{'y' if total == 1 else 'ies'} in your vault.\n")
+
+
+def _search_credentials(vek: bytes, entries: list[dict], query: str) -> list[dict]:
+    """Bulk-fetch, decrypt, and filter site credentials by a search query.
+
+    Searches site_name, decrypted username, and decrypted notes (case-insensitive).
+    Does NOT search the password field. Skips entries that fail to decrypt.
+
+    Args:
+        vek:      32-byte Vault Encryption Key.
+        entries:  List of vault entry dicts (from export_vault()).
+        query:    Search query string.
+
+    Returns:
+        List of dicts with keys: site_name, username, password, notes, login_url.
+    """
+    query_lower = query.lower()
+    results: list[dict] = []
+
+    for entry in entries:
+        try:
+            decrypted = decrypt_credentials(
+                vek,
+                encrypted_blob=entry["encrypted_blob"],
+                iv=entry["iv"],
+            )
+        except InvalidTag:
+            continue
+
+        username = (decrypted.get("username") or "")
+        notes = (decrypted.get("notes") or "")
+        site_name = entry.get("site_name") or ""
+
+        if (
+            query_lower in site_name.lower()
+            or query_lower in username.lower()
+            or query_lower in notes.lower()
+        ):
+            results.append({
+                "site_name": site_name,
+                "username": username,
+                "password": decrypted.get("password") or "",
+                "notes": notes,
+                "login_url": entry.get("login_url", ""),
+            })
+
+    return results
 
 
 @app.command(name="list")
@@ -504,9 +552,90 @@ def generate(
             )
     
         typer.echo(f" Saved generated password for {save}.")
-    
-    
-    
-    
-    
-    
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search term — matches site name, username, and notes"),
+):
+    """Search your vault entries — decrypts and filters locally.
+
+    Searches across both site credentials and API keys. Matches are
+    case-insensitive and checked against site name, username/service,
+    and notes. Passwords and API key values are never searched.
+
+    \b
+    Examples:
+        psamvault search github
+        psamvault vault search 2FA
+        psamvault search "work email"
+    """
+    session, key = _get_session_and_key()
+
+    # Fetch all vault entries
+    site_results = []
+    with Spinner("Searching site credentials"):
+        try:
+            raw_sites = api_client.export_vault(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+            )
+            site_results = _search_credentials(key, raw_sites, query)
+        except typer.Exit:
+            raise
+        except Exception:
+            pass  # no sites — just show API key results
+
+    # Reload session in case tokens rotated
+    session = load_session()
+    key = bytes.fromhex(session["vek"])
+
+    # Fetch all API key entries
+    ak_results = []
+    with Spinner("Searching API keys"):
+        try:
+            raw_aks = api_client.export_api_keys(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+            )
+            ak_results = _search_api_keys(key, raw_aks, query)
+        except typer.Exit:
+            raise
+        except Exception:
+            pass
+
+    # Display results
+    total = len(site_results) + len(ak_results)
+    if total == 0:
+        typer.echo(f"\n No entries matching '{query}' found.")
+        typer.echo(" The search checks site names, usernames, and notes.")
+        typer.echo(" Try a different search term or use  psamvault list  to see all entries.\n")
+        raise typer.Exit()
+
+    typer.echo(f"\n Search results for '{query}' ({total} entr{'y' if total == 1 else 'ies'} found):\n")
+
+    # Site credentials
+    if site_results:
+        typer.echo(" SITE CREDENTIALS")
+        for entry in site_results:
+            typer.echo(f"\n  Site:      {entry['site_name']}")
+            typer.echo(f"  Username:  {entry['username']}")
+            typer.echo(f"  Password:  {entry['password']}")
+            if entry.get("notes"):
+                typer.echo(f"  Notes:     {entry['notes']}")
+            if entry.get("login_url"):
+                _url = entry["login_url"]
+                link = f"\033]8;;{_url}\033\\{_url}\033]8;;\033\\"
+                typer.echo(f"  Login URL: {link}")
+        typer.echo()
+
+    # API keys
+    if ak_results:
+        typer.echo(" API KEYS")
+        for entry in ak_results:
+            typer.echo(f"\n  Name:     {entry['name']}")
+            typer.echo(f"  Service:  {entry['service']}")
+            typer.echo(f"  Key:      {entry['api_key']}")
+            if entry.get("notes"):
+                typer.echo(f"  Notes:    {entry['notes']}")
+        typer.echo()

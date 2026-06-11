@@ -5,6 +5,18 @@ import typer
 from session import update_tokens
 
 
+class ApiError(Exception):
+    """Raised on API-level errors (non-2xx responses, session expiry).
+
+    Replaces bare ``typer.Exit`` (a ``SystemExit``) so non-CLI consumers
+    (dashboard, TUI) can catch it with a normal ``except Exception``
+    without the runtime terminating behaviour of ``SystemExit``.
+
+    The CLI's broad ``except Exception`` handlers already catch it and
+    re-raise as ``typer.Exit``, preserving the existing UX.
+    """
+
+
 def _base_url() -> str:
     return os.getenv("PSAMVAULT_API_URL", "https://psam-vault-backend.onrender.com")
 
@@ -38,35 +50,36 @@ def _handle_error(response: httpx.Response) -> None:
                 typer.echo("Error: Invalid request (422).", err=True)
         except Exception:
             typer.echo(f"Error: Invalid request (422): {response.text}", err=True)
-        raise typer.Exit(code=1)
+        raise ApiError("Bad request (422)")
 
     if response.status_code == 401:
         detail = response.json().get("detail", "")
         if detail == "Could not validate credentials":
-            # Access token expired (15-min TTL). Vault and API key commands
-            # auto-refresh, but other commands don't — guide the user to trigger a refresh.
-            typer.echo(
+            text = (
                 "\n Session timed out after inactivity."
-                "\n → Run  psamvault list  to refresh your session, then try again.\n",
-                err=True,
+                "\n -> Run  psamvault list  to refresh your session, then try again.\n"
             )
         else:
-            typer.echo(f" Error: {detail or 'Invalid credentials or session expired.'}", err=True)
-        raise typer.Exit(code=1)
- 
+            text = f" Error: {detail or 'Invalid credentials or session expired.'}"
+        typer.echo(text, err=True)
+        raise ApiError(text)
+
     if response.status_code == 404:
         detail = response.json().get("detail", "Entry not found.")
-        typer.echo(f"Error: {detail}", err=True)
-        raise typer.Exit(code=1)
- 
+        text = f"Error: {detail}"
+        typer.echo(text, err=True)
+        raise ApiError(text)
+
     if response.status_code == 409:
         detail = response.json().get("detail", "Conflict.")
-        typer.echo(f"Error: {detail}", err=True)
-        raise typer.Exit(code=1)
- 
+        text = f"Error: {detail}"
+        typer.echo(text, err=True)
+        raise ApiError(text)
+
     if not response.is_success:
-        typer.echo(f"Error {response.status_code}: {response.text}", err=True)
-        raise typer.Exit(code=1)
+        text = f"Error {response.status_code}: {response.text}"
+        typer.echo(text, err=True)
+        raise ApiError(text)
     
 
 def _refresh_and_retry(refresh_token: str, retry_fn):
@@ -82,8 +95,9 @@ def _refresh_and_retry(refresh_token: str, retry_fn):
             raise ValueError("Still unauthorised after token refresh")
         return result
     except Exception:
-        typer.echo("Session expired. Please run psamvault login again", err=True)
-        raise typer.Exit(code=1) # pylint: disable = raise-missing-from
+        msg = "Session expired. Please run psamvault login again"
+        typer.echo(msg, err=True)
+        raise ApiError(msg)
     
     
 
