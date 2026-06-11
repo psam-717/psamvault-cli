@@ -12,6 +12,12 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.5.3": [
+        "Fixed: ApiError(Exception) replaces typer.Exit(SystemExit) in api_client.py",
+        "       (typer.Exit patched https://github.com/fastapi/typer/issues/988)",
+        "Fixed: Flask server session survives restarts — persistent secret_key",
+        "       generated once at ~/.psamvault/flask_secret_key (0o600 permissions)",
+    ],
     "0.5.2": [
         "New:   psamvault search <query> — search vault entries locally",
         "       Searches site credentials and API keys by name, username, service, and notes",
