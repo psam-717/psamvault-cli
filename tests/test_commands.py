@@ -388,3 +388,20 @@ def test_search_api_keys_case_insensitive_notes():
     entries = [_make_ak_entry("key1", "Svc", "sk-val", "CONFIDENTIAL: Rotate monthly")]
     results = _search_api_keys(TEST_VEK, entries, "monthly")
     assert len(results) == 1
+
+
+# ── search CLI command integration ──────────────────────────────────────────────
+
+
+def test_search_command_registered():
+    """The search command should be registered on the main app."""
+    info = app.registered_commands
+    names = [c.name for c in info]
+    assert "search" in names
+
+
+def test_search_command_requires_query():
+    """Search without a query should fail with missing argument error."""
+    result = runner.invoke(app, ["search"])
+    assert result.exit_code != 0
+    assert "Missing argument" in result.output

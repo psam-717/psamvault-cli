@@ -143,7 +143,7 @@ def dashboard() -> None:
     serve(app, host="127.0.0.1", port=port)
 
 from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
-from command.vault_commands import add, delete, generate, get, list_entries, site_list, update
+from command.vault_commands import add, delete, generate, get, list_entries, site_list, update, search
 from command.recovery_commands import generate_codes, remaining_codes, recover
 from command.api_key_commands import ak_add, ak_get, ak_delete, ak_list, ak_update
 from command.browser_commands import open_site
@@ -161,6 +161,7 @@ app.command("generate")(generate)
 app.command("get")(get)
 app.command("list")(list_entries)
 app.command("site-list")(site_list)
+app.command("search")(search)
 app.command("update")(update)
 app.command("ak-list")(ak_list)
 app.command("ak-add")(ak_add)
