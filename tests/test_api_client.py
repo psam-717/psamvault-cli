@@ -3,7 +3,6 @@ Layer 3: HTTP client tests for api_client.py.
 Uses pytest-httpx to intercept httpx calls — no real network traffic.
 """
 import pytest
-import typer
 
 import api_client
 
@@ -76,7 +75,7 @@ def test_get_vault_entry_returns_none_on_persistent_401(httpx_mock, mock_session
 
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr("api_client.update_tokens", lambda a, r: None)
-        with pytest.raises((typer.Exit, SystemExit)):
+        with pytest.raises(api_client.ApiError):
             api_client.get_vault_entry(
                 access_token=mock_session["access_token"],
                 refresh_token=mock_session["refresh_token"],
@@ -91,7 +90,7 @@ def test_get_vault_entry_404_exits(httpx_mock, mock_session):
         status_code=404,
         json={"detail": "No entry found for 'notasite.com'"},
     )
-    with pytest.raises((typer.Exit, SystemExit)):
+    with pytest.raises(api_client.ApiError):
         api_client.get_vault_entry(
             access_token=mock_session["access_token"],
             refresh_token=mock_session["refresh_token"],
@@ -147,7 +146,7 @@ def test_handle_error_422_raises_exit(httpx_mock, mock_session):
             ]
         },
     )
-    with pytest.raises((typer.Exit, SystemExit)):
+    with pytest.raises(api_client.ApiError):
         api_client.get_vault_entry(
             access_token=mock_session["access_token"],
             refresh_token=mock_session["refresh_token"],
@@ -176,5 +175,5 @@ def test_refresh_access_token_401_raises(httpx_mock):
         status_code=401,
         json={"detail": "Refresh token is invalid or has expired"},
     )
-    with pytest.raises((typer.Exit, SystemExit)):
+    with pytest.raises(api_client.ApiError):
         api_client.refresh_access_token("expired_refresh_token")
