@@ -44,7 +44,7 @@ def vault_help(ctx: typer.Context):
   generate     psamvault generate --save <site> --user <username>              
 """)
         
-FORBIDDEN_SITE_CHARS = set('\\/"\' <>|?*&#%')
+FORBIDDEN_SITE_CHARS = set('\\/"\'' " <>|?*&#%")
 
 def _validate_site_name(site: str) -> None:
     """Raise a user-friendly error if the site name contains forbidden characters."""
@@ -243,6 +243,53 @@ def site_list():
         typer.echo(f" {entry['site_name']:<35} {hint:<30} {updated}")
 
     typer.echo(f"\n {total} entr{'y' if total == 1 else 'ies'} in your vault.\n")
+
+
+def _search_credentials(vek: bytes, entries: list[dict], query: str) -> list[dict]:
+    """Bulk-fetch, decrypt, and filter site credentials by a search query.
+
+    Searches site_name, decrypted username, and decrypted notes (case-insensitive).
+    Does NOT search the password field. Skips entries that fail to decrypt.
+
+    Args:
+        vek:      32-byte Vault Encryption Key.
+        entries:  List of vault entry dicts (from export_vault()).
+        query:    Search query string.
+
+    Returns:
+        List of dicts with keys: site_name, username, password, notes, login_url.
+    """
+    query_lower = query.lower()
+    results: list[dict] = []
+
+    for entry in entries:
+        try:
+            decrypted = decrypt_credentials(
+                vek,
+                encrypted_blob=entry["encrypted_blob"],
+                iv=entry["iv"],
+            )
+        except InvalidTag:
+            continue
+
+        username = (decrypted.get("username") or "")
+        notes = (decrypted.get("notes") or "")
+        site_name = entry.get("site_name") or ""
+
+        if (
+            query_lower in site_name.lower()
+            or query_lower in username.lower()
+            or query_lower in notes.lower()
+        ):
+            results.append({
+                "site_name": site_name,
+                "username": username,
+                "password": decrypted.get("password") or "",
+                "notes": notes,
+                "login_url": entry.get("login_url", ""),
+            })
+
+    return results
 
 
 @app.command(name="list")
@@ -504,9 +551,3 @@ def generate(
             )
     
         typer.echo(f" Saved generated password for {save}.")
-    
-    
-    
-    
-    
-    
