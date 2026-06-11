@@ -62,6 +62,56 @@ def _get_session_and_key() -> tuple[dict, bytes]:
     return session, key
 
 
+def _search_api_keys(vek: bytes, entries: list[dict], query: str) -> list[dict]:
+    """Decrypt and filter API key entries by a search query.
+
+    Searches entry name, decrypted service, and decrypted notes (case-insensitive).
+    Does NOT search the raw API key value. Skips entries that fail to decrypt
+    or have malformed IVs.
+
+    Args:
+        vek:      32-byte Vault Encryption Key.
+        entries:  List of API key entry dicts (from export_api_keys()).
+        query:    Search query string.
+
+    Returns:
+        List of dicts with keys: name, service, api_key, notes.
+    """
+    from crypto import decrypt_api_key
+    from cryptography.exceptions import InvalidTag
+
+    query_lower = query.lower()
+    results: list[dict] = []
+
+    for entry in entries:
+        try:
+            decrypted = decrypt_api_key(
+                vek,
+                encrypted_blob=entry["encrypted_blob"],
+                iv=entry["iv"],
+            )
+        except (InvalidTag, ValueError):
+            continue
+
+        name = entry.get("name") or ""
+        service = (decrypted.get("service") or "")
+        notes = (decrypted.get("notes") or "")
+
+        if (
+            query_lower in name.lower()
+            or query_lower in service.lower()
+            or query_lower in notes.lower()
+        ):
+            results.append({
+                "name": name,
+                "service": service,
+                "api_key": decrypted.get("api_key") or "",
+                "notes": notes,
+            })
+
+    return results
+
+
 @app.command(name="add")
 def ak_add(
     name: str = typer.Argument(..., help="A unique label for this key, e.g. xai-prod"),
