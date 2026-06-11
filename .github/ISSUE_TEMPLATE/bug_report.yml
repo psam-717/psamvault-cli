@@ -1,0 +1,65 @@
+name: Bug Report
+description: Report a bug or unexpected behaviour in psamvault
+labels: [bug]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! Please fill out the details below.
+
+  - type: input
+    id: version
+    attributes:
+      label: psamvault version
+      description: What version are you running? (`psamvault --version`)
+      placeholder: "e.g. 0.5.1"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Windows / macOS / Linux (include distro)
+      placeholder: "e.g. Windows 11, macOS 15.2, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+      placeholder: "When I run psamvault add ..., it ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or steps to trigger the bug.
+      placeholder: |
+        1. Run `psamvault add example.com --user test --pass test`
+        2. Run `psamvault get example.com`
+        3. See error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Copy-paste any error messages or stack traces.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I am running the latest version of psamvault
+          required: true
+        - label: I have searched existing issues and found nothing matching
+          required: true
