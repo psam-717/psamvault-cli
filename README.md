@@ -221,6 +221,20 @@ psamvault site-list
 
 Shows only site credential entries (same columns as above).
 
+### Search vault entries
+
+```bash
+psamvault search github
+psamvault search "work email"
+psamvault vault search 2FA
+```
+
+Searches across both **site credentials** and **API keys**. Matching entries are decrypted and filtered locally — passwords and API key values are never searched. Matches are case-insensitive and checked against:
+
+- **Site name** or **API key name**
+- **Username** or **service**
+- **Notes**
+
 ### Update a credential
 
 ```bash
