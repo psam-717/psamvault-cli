@@ -197,7 +197,7 @@ scan_and_protect(
 
 ### F6: `run_with_credential` — Arbitrary Command Credential Injection
 
-**Status:** 🔴 NOT STARTED — added to plan June 17, 2026
+**Status:** ✅ COMPLETE (June 17, 2026) — built and live-tested
 
 **Problem:** `use_credential` only covers **HTTP requests**. The real world needs agents to use credentials for tools like `twine upload`, `git push`, `docker login`, `npm publish`, `ssh deploy` — commands that don't speak HTTP. Currently the agent must decrypt the credential to use it, breaking the zero-knowledge principle.
 
@@ -568,8 +568,8 @@ We build in dependency order — each feature depends on the previous one being 
 || 10 | NemoClaw compatibility check + documentation | Step 9 | 2 hours | ✅ |
 || 11 | Write demo video script | Step 10 | 2 hours | ✅ |
 || 12 | Add project grouping to `scan_and_protect` and `list_api_keys` | Step 8 | 2 hours | ✅ |
-|| 13 | Build `run_with_credential` MCP tool (subprocess + env/stdin injection) | Step 2 (reuses crypto + api_client) | 6-8 hours | 🔴 |
-|| 14 | Write tests for `run_with_credential` | Step 13 | 3 hours | 🔴 |
+|| 13 | Build `run_with_credential` MCP tool (subprocess + env/stdin injection) | Step 2 (reuses crypto + api_client) | 6-8 hours | ✅ |
+|| 14 | Write tests for `run_with_credential` | Step 13 | 3 hours | ✅ |
 || 15 | Write standalone MCP skill for psamvault | All MCP tools stable | 6-8 hours | 🔴 |
 || 16 | Update CLI `ak-list` with grouped display + `--project` filter | Step 12 | 2 hours | ✅ |
 || 17 | Build `pv-dotenv` runtime SDK (Path A + Path B auth) | Step 12 (uses api_client) | 8-10 hours | ✅ |
