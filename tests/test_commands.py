@@ -8,8 +8,6 @@ import typer
 from unittest.mock import patch
 from typer.testing import CliRunner
 
-from main import app
-
 runner = CliRunner()
 
 
@@ -19,6 +17,9 @@ def suppress_background_tasks():
     Prevent the main callback from spawning update-check threads or
     reading the changelog / keychain on every invocation.
     """
+    from main import app as _app
+    global app
+    app = _app
     with patch("main.start_update_check"), \
          patch("main.check_and_show_upgrade_notice"), \
          patch("main.print_update_notice"):
@@ -405,3 +406,35 @@ def test_search_command_requires_query():
     result = runner.invoke(app, ["search"])
     assert result.exit_code != 0
     assert "Missing argument" in result.output
+
+
+# ── ak-get with non-existent key ──────────────────────────────────────────────────
+
+
+def test_ak_get_nonexistent_key_shows_friendly_error():
+    """ak-get on a name that doesn't exist shows a helpful message and suggests ak-list."""
+    import api_client
+    with patch("command.api_key_commands.load_session") as mock_load, \
+         patch("crypto.derive_master_password", return_value=bytes(range(32))), \
+         patch("api_client.get_api_key_entry", side_effect=api_client.ApiError):
+        mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
+        result = runner.invoke(app, ["ak-get", "nonexistent-key"])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+    assert "ak-list" in result.output
+
+
+# ── ak-update with non-existent key ────────────────────────────────────────────────
+
+
+def test_ak_update_nonexistent_key_shows_friendly_error():
+    """ak-update on a name that doesn't exist shows a helpful message and suggests ak-list."""
+    import api_client
+    with patch("command.api_key_commands.load_session") as mock_load, \
+         patch("crypto.derive_master_password", return_value=bytes(range(32))), \
+         patch("api_client.get_api_key_entry", side_effect=api_client.ApiError):
+        mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
+        result = runner.invoke(app, ["ak-update", "nonexistent-key", "--key", "sk-newval"])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+    assert "ak-list" in result.output
