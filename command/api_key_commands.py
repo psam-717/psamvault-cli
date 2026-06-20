@@ -180,14 +180,22 @@ def ak_get(
     _validate_entry_name(name)
  
     session, vek = _get_session_and_key()
- 
-    with Spinner(f"Fetching API key '{name}'"):
-        data = api_client.get_api_key_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            name=name,
+
+    try:
+        with Spinner(f"Fetching API key '{name}'"):
+            data = api_client.get_api_key_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                name=name,
+            )
+    except api_client.ApiError:
+        typer.echo(
+            f"\n ✗ API key '{name}' was not found in your vault.",
+            err=True,
         )
- 
+        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
+
     try:
         decrypted = decrypt_api_key(
             key=vek,
@@ -286,12 +294,20 @@ def ak_update(
  
     session, vek = _get_session_and_key()
 
-    with Spinner(f"Fetching current entry for '{name}'"):
-        current_data = api_client.get_api_key_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            name=name,
+    try:
+        with Spinner(f"Fetching current entry for '{name}'"):
+            current_data = api_client.get_api_key_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                name=name,
+            )
+    except api_client.ApiError:
+        typer.echo(
+            f"\n ✗ API key '{name}' was not found in your vault.",
+            err=True,
         )
+        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
     session = load_session()
