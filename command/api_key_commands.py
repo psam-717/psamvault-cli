@@ -180,14 +180,22 @@ def ak_get(
     _validate_entry_name(name)
  
     session, vek = _get_session_and_key()
- 
-    with Spinner(f"Fetching API key '{name}'"):
-        data = api_client.get_api_key_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            name=name,
+
+    try:
+        with Spinner(f"Fetching API key '{name}'"):
+            data = api_client.get_api_key_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                name=name,
+            )
+    except api_client.ApiError:
+        typer.echo(
+            f"\n ✗ API key '{name}' was not found in your vault.",
+            err=True,
         )
- 
+        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
+
     try:
         decrypted = decrypt_api_key(
             key=vek,
@@ -227,41 +235,97 @@ def ak_get(
 
 
 @app.command(name="list")
-def ak_list():
+def ak_list(
+    project_name: Optional[str] = typer.Option(
+        None, "--project", help="Filter by project name. Shows only keys stored under 'project/.env/KEY_NAME'."
+    ),
+):
     """
     List all stored API key entries.
- 
+
     Shows entry names and service hints only — does not decrypt any keys.
-    Use  psamvault ak-get <name>  to retrieve a specific key.
- 
+    Keys stored via scan_and_protect(project_name=...) are grouped under their
+    project name. Use --project <name> to filter by project.
+
     \b
     Examples:
         psamvault ak-list
+        psamvault ak-list --project twitter-bot
     """
     session = load_session()
- 
+
     with Spinner("Fetching your API keys"):
         data = api_client.list_api_key_entries(
             access_token=session["access_token"],
             refresh_token=session["refresh_token"],
         )
- 
+
     entries = data["entries"]
     total = data["total"]
- 
+
     if total == 0:
         typer.echo("No API keys stored. Use  psamvault ak-add  to store one.\n")
         return
- 
-    typer.echo(f"\n  {'NAME':<30} {'SERVICE':<25} {'UPDATED'}")
-    typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
- 
-    for entry in entries:
-        updated = entry["updated_at"][:10]
-        service = entry["service_hint"] or "-"
-        typer.echo(f"  {entry['name']:<30} {service:<25} {updated}")
- 
-    typer.echo(f"\n  {total} entr{'y' if total == 1 else 'ies'} found.\n")
+
+    # Build the items with project prefix parsing
+    items = []
+    for e in entries:
+        name = e["name"]
+        parts = name.split("/.env/")
+        is_project_key = len(parts) == 2
+
+        if project_name:
+            if not is_project_key or parts[0] != project_name:
+                continue
+
+        items.append({
+            "name": name,
+            "service_hint": e.get("service_hint", "-") or "-",
+            "updated": e.get("updated_at", "?")[:10],
+            "project": parts[0] if is_project_key else None,
+            "key_name": parts[1] if is_project_key else name,
+        })
+
+    if project_name:
+        # Filtered view — simple list
+        if not items:
+            typer.echo(f"No API keys found for project '{project_name}'.\n")
+            return
+        typer.echo(f"\n  Project: {project_name}")
+        typer.echo(f"  {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
+        typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
+        for item in items:
+            typer.echo(f"  {item['key_name']:<30} {item['service_hint']:<25} {item['updated']}")
+        typer.echo(f"\n  {len(items)} entr{'y' if len(items) == 1 else 'ies'} in project '{project_name}'.\n")
+        return
+
+    # Full view — grouped by project + standalone
+    projects: dict[str, list] = {}
+    standalone: list = []
+    for item in items:
+        if item["project"]:
+            projects.setdefault(item["project"], []).append(item)
+        else:
+            standalone.append(item)
+
+    typer.echo()
+    for proj_name, proj_items in sorted(projects.items()):
+        typer.echo(f"  Project: {proj_name}")
+        typer.echo(f"    {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
+        typer.echo(f"    {'-'*28} {'-'*25} {'-'*20}")
+        for item in proj_items:
+            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<25} {item['updated']}")
+        typer.echo()
+
+    if standalone:
+        typer.echo(f"  Standalone Keys")
+        typer.echo(f"    {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
+        typer.echo(f"    {'-'*28} {'-'*25} {'-'*20}")
+        for item in standalone:
+            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<25} {item['updated']}")
+        typer.echo()
+
+    typer.echo(f"  {len(items)} entr{'y' if len(items) == 1 else 'ies'} found.\n")
     
     
 @app.command(name="update")
@@ -286,12 +350,20 @@ def ak_update(
  
     session, vek = _get_session_and_key()
 
-    with Spinner(f"Fetching current entry for '{name}'"):
-        current_data = api_client.get_api_key_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            name=name,
+    try:
+        with Spinner(f"Fetching current entry for '{name}'"):
+            current_data = api_client.get_api_key_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                name=name,
+            )
+    except api_client.ApiError:
+        typer.echo(
+            f"\n ✗ API key '{name}' was not found in your vault.",
+            err=True,
         )
+        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
     session = load_session()
