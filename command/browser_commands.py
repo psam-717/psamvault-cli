@@ -18,8 +18,6 @@ _CAPTCHA_SELECTORS = [
     "iframe[src*='turnstile']",
     ".g-recaptcha",
     "#hcaptcha",
-    "[class*='captcha' i]",
-    "[id*='captcha' i]",
 ]
 
 STORAGE_DIR = Path.home() / ".psamvault" / "browser_sessions"
@@ -45,7 +43,7 @@ def browser_help(ctx: typer.Context):
 def _discover_login_url(page) -> str | None:
     """Find and click a sign-in/log-in link, return the resulting URL."""
     text_patterns = [
-        r"sign[\s\-]?in", r"log[\s\-]?in", r"^login$", r"^sign up$",
+        r"sign[\s\-]?in", r"log[\s\-]?in", r"^login$",
     ]
     css_fallbacks = [
         "[href*='login' i]", "[href*='signin' i]",
@@ -86,9 +84,16 @@ def _fill_field(locator, value: str) -> None:
 
 
 def _url_origin_path(url: str) -> str:
-    """Return scheme+host+path (no trailing slash, query, or fragment)."""
+    """Return scheme+host+path (no trailing slash, query, or fragment).
+    
+    Normalises `www.` prefix so that `https://www.kaggle.com` and
+    `https://kaggle.com` compare as equal.
+    """
     p = urlparse(url)
-    return f"{p.scheme}://{p.netloc}{p.path.rstrip('/')}"
+    netloc = p.netloc
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return f"{p.scheme}://{netloc}{p.path.rstrip('/')}"
 
 
 def _has_visible_captcha(page, t_ms: int = 1000) -> bool:
@@ -477,16 +482,29 @@ def _login_flow(
         submit_btn.click()
         _steps.append("submitted_form")
 
-        # Wait for URL change (SPA-friendly)
-        _ref_url = pre_submit_url.rstrip("/")
-        try:
-            page.wait_for_function(
-                "ref => window.location.href.replace(/\\/$/, '') !== ref",
-                arg=_ref_url, timeout=8000,
-            )
-            _steps.append("url_changed_after_submit")
-        except Exception:
-            pass
+        # Quick poll for URL change — most logins redirect in <500ms.
+        _url_changed_quick = False
+        for _ in range(8):  # 8 x 250ms = 2 seconds
+            time.sleep(0.25)
+            try:
+                if _url_origin_path(page.url) != _url_origin_path(pre_submit_url):
+                    _steps.append("url_changed_immediately")
+                    _url_changed_quick = True
+                    break
+            except Exception:
+                break
+
+        # Longer wait for slow / SPA logins
+        if not _url_changed_quick:
+            _ref_url = pre_submit_url.rstrip("/")
+            try:
+                page.wait_for_function(
+                    "ref => window.location.href.replace(/\\/$/, '') !== ref",
+                    arg=_ref_url, timeout=5000,
+                )
+                _steps.append("url_changed_after_submit")
+            except Exception:
+                pass
 
         try:
             page.wait_for_load_state("networkidle", timeout=5000)
@@ -538,11 +556,19 @@ def _login_flow(
                 break
             time.sleep(0.5)
 
-        login_succeeded = (
-            error_text is None
-            and (url_changed or form_fields_disappeared)
-            and not captcha_detected
-        )
+        # If the URL changed after submit, login succeeded even if a potential
+        # CAPTCHA was detected (e.g. Cloudflare Turnstile widget — harmless).
+        if url_changed:
+            login_succeeded = True
+            if captcha_detected:
+                captcha_detected = False
+                _steps.append("captcha_false_alarm_cleared")
+        else:
+            login_succeeded = (
+                error_text is None
+                and form_fields_disappeared
+                and not captcha_detected
+            )
 
         if login_succeeded:
             STORAGE_DIR.mkdir(parents=True, exist_ok=True)
