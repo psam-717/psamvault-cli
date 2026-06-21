@@ -4,7 +4,13 @@ import typer
 
 from session import set_last_seen_version
 from spinner import Spinner
-from update_check import get_installed_version, fetch_latest_version, version_tuple
+from update_check import (
+    get_installed_version,
+    fetch_latest_version,
+    version_tuple,
+    is_source_install,
+    _get_git_root,
+)
 
 app = typer.Typer(name="upgrade", help="Upgrade psamvault to the latest version")
 
@@ -12,12 +18,14 @@ app = typer.Typer(name="upgrade", help="Upgrade psamvault to the latest version"
 @app.callback(invoke_without_command=True)
 def upgrade(ctx: typer.Context):
     """
-    Upgrade psamvault to the latest version available on PyPI.
+    Upgrade psamvault to the latest version.
 
-    Uses pipx to perform the upgrade. If pipx is not available on your
-    system, instructions will be shown.
+    - Source install (git clone): runs `git pull` in the repo directory.
+    - PyPI install (pipx): runs `pipx upgrade psamvault`.
 
-    \b
+    Detects your install type automatically.
+
+    \\b
     Example:
         psamvault upgrade
     """
@@ -26,9 +34,8 @@ def upgrade(ctx: typer.Context):
 
 
 def _run_update() -> None:
-    """Core update logic — check PyPI, then run pipx upgrade."""
     installed = get_installed_version()
-    if not installed:
+    if not installed and not is_source_install():
         typer.echo(
             "  Could not detect installed version. Are you running from a source checkout?\n"
             "  Try:  pipx install -e .  or  pip install -e .",
@@ -36,7 +43,101 @@ def _run_update() -> None:
         )
         raise typer.Exit(code=1)
 
-    # Step 1: check PyPI for latest version
+    if is_source_install():
+        _upgrade_source()
+    else:
+        _upgrade_pypi()
+
+
+# ── Source track (git pull) ─────────────────────────────────────────────
+
+
+def _upgrade_source() -> None:
+    repo_root = _get_git_root()
+    if not repo_root:
+        typer.echo("  Error: could not locate git repository.\n", err=True)
+        raise typer.Exit(code=1)
+
+    with Spinner("Checking for updates"):
+        try:
+            # Fetch latest refs first
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            typer.echo(f"  Error: could not reach remote: {exc}\n", err=True)
+            raise typer.Exit(code=1)
+
+        # Count commits behind
+        behind_result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/main"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+    if behind_result.returncode != 0:
+        typer.echo("  Error: could not determine commit status.\n", err=True)
+        raise typer.Exit(code=1)
+
+    behind = int(behind_result.stdout.strip() or "0")
+
+    if behind == 0:
+        typer.echo(f"  psamvault is already up to date (v{get_installed_version() or '?'}).\n")
+        return
+
+    typer.echo(f"  You are {behind} commit(s) behind main.\n")
+
+    confirm = typer.confirm("  Proceed with upgrade?")
+    if not confirm:
+        typer.echo("  Cancelled.")
+        raise typer.Exit()
+
+    typer.echo("")
+    result = subprocess.run(
+        ["git", "pull", "--ff-only", "origin", "main"],
+        cwd=repo_root,
+        capture_output=False,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        typer.echo(f"\n  Error: git pull failed (exit code {result.returncode}).\n", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo("\n  psamvault upgraded successfully.\n")
+
+    # Re-install in case dependencies changed
+    typer.echo("  Re-installing package...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", "."],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    typer.echo("  Done. Run  psamvault changelog  to see what's new.\n")
+
+
+# ── PyPI track (pipx upgrade) ───────────────────────────────────────────
+
+
+def _upgrade_pypi() -> None:
+    installed = get_installed_version()
+    if not installed:
+        typer.echo(
+            "  Could not detect installed version.\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     with Spinner("Checking for updates"):
         latest = fetch_latest_version()
 
@@ -50,7 +151,6 @@ def _run_update() -> None:
 
     typer.echo(f"  Update available: v{installed} → v{latest}\n")
 
-    # Step 2: run pipx upgrade
     confirm = typer.confirm("  Proceed with upgrade?")
     if not confirm:
         typer.echo("  Cancelled.")
@@ -79,9 +179,6 @@ def _run_update() -> None:
         typer.echo(f"\n  Error: pipx upgrade failed (exit code {result.returncode}).\n", err=True)
         raise typer.Exit(code=1)
 
-    # Upgrade succeeded — update last_seen_version so the startup notice
-    # doesn't re-trigger until the NEXT upgrade.
     set_last_seen_version(latest)
-
     typer.echo(f"\n  psamvault upgraded to v{latest} successfully.\n")
     typer.echo("  Run  psamvault changelog  to see what's new.\n")
