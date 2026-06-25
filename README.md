@@ -363,7 +363,9 @@ psamvault ak-get openai-prod --copy   # copies key to clipboard, clears after 30
 psamvault ak-list
 ```
 
-Shows entry name, service hint, and last-updated date. Does not decrypt entries.
+Shows entry name, service hint, notes, and last-updated date. Standalone keys
+display a **NOTES** column (truncated to 30 chars). Project-grouped keys show
+name, pattern, and updated date. Does not decrypt entries.
 
 ### Update an API key entry
 
