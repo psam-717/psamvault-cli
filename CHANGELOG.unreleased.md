@@ -21,13 +21,6 @@
 
 - fix(commands): improve error message when API key not found
 - fix: update tests to expect ApiError instead of SystemExit
-- fix(api_client): send notes field in add and update API key requests
-- fix(ak-list): display notes column and pass notes on add/update
-
-## Changed
-
-- refactor(ak-list): standalone keys show NAME / SERVICE / NOTES / UPDATED columns; project-grouped keys show NAME / PATTERN / UPDATED
-- refactor(api_client): build request body incrementally instead of inline
 
 ## Tests
 
