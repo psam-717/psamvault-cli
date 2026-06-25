@@ -411,18 +411,22 @@ def add_api_key_entry(
     service_hint: str,
     encrypted_blob: str,
     iv: str,
+    notes: str | None = None,
 ) -> dict:
     """POST /apikeys - store a new encrypted API key entry"""
     def _call(token: str) -> dict:
+        body: dict[str, str] = {
+            "name": name,
+            "service_hint": service_hint,
+            "encrypted_blob": encrypted_blob,
+            "iv": iv,
+        }
+        if notes is not None:
+            body["notes"] = notes
         response = httpx.post(
             f"{_base_url()}/apikeys",
             headers=_auth_headers(token),
-            json={
-                "name": name,
-                "service_hint": service_hint,
-                "encrypted_blob": encrypted_blob,
-                "iv": iv
-            }
+            json=body,
         )
         if response.status_code == 401:
             return None
@@ -486,17 +490,21 @@ def update_api_key_entry(
     service_hint: str,
     encrypted_blob: str,
     iv: str,
+    notes: str | None = None,
 ) -> dict:
     """PUT /apikeys/{name} — update an existing API key entry."""
     def _call(token: str) -> dict:
+        body: dict[str, str] = {
+            "service_hint": service_hint,
+            "encrypted_blob": encrypted_blob,
+            "iv": iv,
+        }
+        if notes is not None:
+            body["notes"] = notes
         response = httpx.put(
             f"{_base_url()}/apikeys/{name}",
             headers=_auth_headers(token),
-            json={
-                "service_hint": service_hint,
-                "encrypted_blob": encrypted_blob,
-                "iv": iv,
-            },
+            json=body,
         )
         if response.status_code == 401:
             return None
