@@ -12,6 +12,16 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.5.5": [
+        "New:   Login URL detection for improved login flow",
+        "New:   Formatting table for project-based .env keys",
+        "New:   Dual-track update check with commit-based notices",
+        "New:   Auto-detect install type and run correct upgrade path",
+        "New:   run_with_credential MCP tool for credential injection",
+        "Fixed: api_client sends notes field on add/update API key requests",
+        "Fixed: ak-list displays NOTES column with 30-char truncation",
+        "Changed: Standalone keys show NAME / SERVICE / NOTES / UPDATED; project keys show NAME / PATTERN / UPDATED",
+    ],
     "0.5.3": [
         "Fixed: ApiError(Exception) replaces typer.Exit(SystemExit) in api_client.py",
         "       (typer.Exit patched https://github.com/fastapi/typer/issues/988)",
