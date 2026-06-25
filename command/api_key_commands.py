@@ -155,7 +155,8 @@ def ak_add(
             name=name,
             service_hint=service,
             encrypted_blob=encrypted_blob,
-            iv=iv
+            iv=iv,
+            notes=notes,
         )
     typer.echo(f" API key '{name}' saved successfully\n")
     
@@ -243,7 +244,7 @@ def ak_list(
     """
     List all stored API key entries.
 
-    Shows entry names and service hints only — does not decrypt any keys.
+    Shows entry names, service hints, and notes — does not decrypt any keys.
     Keys stored via scan_and_protect(project_name=...) are grouped under their
     project name. Use --project <name> to filter by project.
 
@@ -281,6 +282,7 @@ def ak_list(
         items.append({
             "name": name,
             "service_hint": e.get("service_hint", "-") or "-",
+            "notes": e.get("notes") or None,
             "updated": e.get("updated_at", "?")[:10],
             "project": parts[0] if is_project_key else None,
             "key_name": parts[1] if is_project_key else name,
@@ -292,10 +294,10 @@ def ak_list(
             typer.echo(f"No API keys found for project '{project_name}'.\n")
             return
         typer.echo(f"\n  Project: {project_name}")
-        typer.echo(f"  {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
-        typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
+        typer.echo(f"  {'NAME':<28} {'PATTERN':<25} {'UPDATED'}")
+        typer.echo(f"  {'-'*28} {'-'*25} {'-'*20}")
         for item in items:
-            typer.echo(f"  {item['key_name']:<30} {item['service_hint']:<25} {item['updated']}")
+            typer.echo(f"  {project_name:<28} {item['key_name']:<25} {item['updated']}")
         typer.echo(f"\n  {len(items)} entr{'y' if len(items) == 1 else 'ies'} in project '{project_name}'.\n")
         return
 
@@ -311,18 +313,19 @@ def ak_list(
     typer.echo()
     for proj_name, proj_items in sorted(projects.items()):
         typer.echo(f"  Project: {proj_name}")
-        typer.echo(f"    {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
+        typer.echo(f"    {'NAME':<28} {'PATTERN':<25} {'UPDATED'}")
         typer.echo(f"    {'-'*28} {'-'*25} {'-'*20}")
         for item in proj_items:
-            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<25} {item['updated']}")
+            typer.echo(f"    {proj_name:<28} {item['key_name']:<25} {item['updated']}")
         typer.echo()
 
     if standalone:
         typer.echo(f"  Standalone Keys")
-        typer.echo(f"    {'KEY NAME':<30} {'SERVICE':<25} {'UPDATED'}")
-        typer.echo(f"    {'-'*28} {'-'*25} {'-'*20}")
+        typer.echo(f"    {'NAME':<28} {'SERVICE':<22} {'NOTES':<30} {'UPDATED'}")
+        typer.echo(f"    {'-'*28} {'-'*22} {'-'*30} {'-'*20}")
         for item in standalone:
-            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<25} {item['updated']}")
+            notes_display = (item['notes'] or '')[:27] + '...' if item['notes'] and len(item['notes']) > 30 else (item['notes'] or '')
+            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<22} {notes_display:<30} {item['updated']}")
         typer.echo()
 
     typer.echo(f"  {len(items)} entr{'y' if len(items) == 1 else 'ies'} found.\n")
@@ -400,6 +403,7 @@ def ak_update(
             service_hint=updated_service,
             encrypted_blob=encrypted_blob,
             iv=iv,
+            notes=updated_notes,
         )
  
     typer.echo(f" API key '{name}' updated successfully\n")
