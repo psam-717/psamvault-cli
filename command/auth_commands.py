@@ -417,8 +417,11 @@ def whoami():
 
     session = load_session()
 
-    with Spinner("Fetching profile"):
-        result = api_client.me(session["access_token"])
+    try:
+        with Spinner("Fetching profile"):
+            result = api_client.me(session["access_token"])
+    except api_client.ApiError:
+        raise typer.Exit()
 
     typer.echo(
         f"\n Logged in as: {result['username']} ({result['email']})"
