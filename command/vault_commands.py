@@ -620,7 +620,7 @@ def search(
         for entry in site_results:
             typer.echo(f"\n  Site:      {entry['site_name']}")
             typer.echo(f"  Username:  {entry['username']}")
-            typer.echo(f"  Password:  {entry['password']}")
+            typer.echo(f"  Password:  ********")
             if entry.get("notes"):
                 typer.echo(f"  Notes:     {entry['notes']}")
             if entry.get("login_url"):
@@ -635,7 +635,7 @@ def search(
         for entry in ak_results:
             typer.echo(f"\n  Name:     {entry['name']}")
             typer.echo(f"  Service:  {entry['service']}")
-            typer.echo(f"  Key:      {entry['api_key']}")
+            typer.echo(f"  Key:      ********")
             if entry.get("notes"):
                 typer.echo(f"  Notes:    {entry['notes']}")
         typer.echo()
