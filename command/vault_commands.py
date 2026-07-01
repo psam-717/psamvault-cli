@@ -293,13 +293,62 @@ def _search_credentials(vek: bytes, entries: list[dict], query: str) -> list[dic
     return results
 
 
+def _search_notes(vek: bytes, entries: list[dict], query: str) -> list[dict]:
+    """Bulk-fetch, decrypt, and filter secure notes by a search query.
+
+    Searches title, decrypted content, and category (case-insensitive).
+    Skips entries that fail to decrypt.
+
+    Args:
+        vek:      32-byte Vault Encryption Key.
+        entries:  List of note entry dicts (from export_notes()).
+        query:    Search query string.
+
+    Returns:
+        List of dicts with keys: title, content, category.
+    """
+    from crypto import decrypt_note
+    from cryptography.exceptions import InvalidTag
+
+    query_lower = query.lower()
+    results: list[dict] = []
+
+    for entry in entries:
+        try:
+            decrypted = decrypt_note(
+                vek,
+                encrypted_blob=entry["encrypted_blob"],
+                iv=entry["iv"],
+            )
+        except (InvalidTag, ValueError):
+            continue
+
+        title = entry.get("title") or ""
+        content = decrypted.get("content") or ""
+        category = decrypted.get("category") or ""
+
+        if (
+            query_lower in title.lower()
+            or query_lower in content.lower()
+            or query_lower in category.lower()
+        ):
+            results.append({
+                "title": title,
+                "content": content,
+                "category": category,
+            })
+
+    return results
+
+
 @app.command(name="list")
 def list_entries():
     """
-    List all entries in your vault — site credentials and API keys.
+    List all entries in your vault — site credentials, API keys, and secure notes.
 
-    Shows a combined overview of both entry types without decrypting anything.
-    Use  psamvault site-list  for sites only, or  psamvault ak-list  for API keys only.
+    Shows a combined overview of all entry types without decrypting anything.
+    Use  psamvault site-list  for sites only,  psamvault ak-list  for API keys only,
+    or  psamvault note-list  for notes only.
 
     \b
     Example:
@@ -324,10 +373,21 @@ def list_entries():
             refresh_token=session["refresh_token"]
         )
 
+    # Reload session again
+    session = load_session()
+
+    with Spinner("Fetching your notes"):
+        note_data = api_client.list_note_entries(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"]
+        )
+
     site_entries = site_data["entries"]
     site_total = site_data["total"]
     ak_entries = ak_data["entries"]
     ak_total = ak_data["total"]
+    note_entries = note_data["entries"]
+    note_total = note_data["total"]
 
     # ── Site credentials ──────────────────────────────────────────────────────
     typer.echo(f"\n  SITE CREDENTIALS")
@@ -359,9 +419,24 @@ def list_entries():
             typer.echo(f"  {entry['name']:<30} {service:<25} {updated}")
         typer.echo(f"\n  {ak_total} API key entr{'y' if ak_total == 1 else 'ies'}.")
 
+    # ── Notes ───────────────────────────────────────────────────────────────────
+    typer.echo(f"\n  SECURE NOTES")
+    typer.echo(f"  {'─'*80}")
+
+    if note_total == 0:
+        typer.echo("  No notes stored. Use  psamvault note-add  to store one.")
+    else:
+        typer.echo(f"  {'TITLE':<35} {'CATEGORY':<20} {'UPDATED'}")
+        typer.echo(f"  {'-'*35} {'-'*20} {'-'*20}")
+        for entry in note_entries:
+            updated = entry["updated_at"][:10]
+            cat = entry.get("category") or "-"
+            typer.echo(f"  {entry['title']:<35} {cat:<20} {updated}")
+        typer.echo(f"\n  {note_total} note{'s' if note_total != 1 else ''} in your vault.")
+
     typer.echo()
-    
-    
+
+
 @app.command()
 def update(
     site: str = typer.Argument(..., help="Site name to update, e.g. github.com"),
@@ -604,8 +679,26 @@ def search(
         except Exception:
             pass
 
+    # Reload session again
+    session = load_session()
+    key = bytes.fromhex(session["vek"])
+
+    # Fetch all secure notes
+    note_results = []
+    with Spinner("Searching secure notes"):
+        try:
+            raw_notes = api_client.export_notes(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+            )
+            note_results = _search_notes(key, raw_notes, query)
+        except typer.Exit:
+            raise
+        except Exception:
+            pass
+
     # Display results
-    total = len(site_results) + len(ak_results)
+    total = len(site_results) + len(ak_results) + len(note_results)
     if total == 0:
         typer.echo(f"\n No entries matching '{query}' found.")
         typer.echo(" The search checks site names, usernames, and notes.")
@@ -620,7 +713,7 @@ def search(
         for entry in site_results:
             typer.echo(f"\n  Site:      {entry['site_name']}")
             typer.echo(f"  Username:  {entry['username']}")
-            typer.echo(f"  Password:  ********")
+            typer.echo(f"  Password:  {entry['password']}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:     {entry['notes']}")
             if entry.get("login_url"):
@@ -635,7 +728,17 @@ def search(
         for entry in ak_results:
             typer.echo(f"\n  Name:     {entry['name']}")
             typer.echo(f"  Service:  {entry['service']}")
-            typer.echo(f"  Key:      ********")
+            typer.echo(f"  Key:      {entry['api_key']}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:    {entry['notes']}")
+        typer.echo()
+
+    # Secure notes
+    if note_results:
+        typer.echo(" SECURE NOTES")
+        for entry in note_results:
+            typer.echo(f"\n  Title:    {entry['title']}")
+            if entry.get("category"):
+                typer.echo(f"  Category: {entry['category']}")
+            typer.echo(f"  Content:  {entry['content']}")
         typer.echo()

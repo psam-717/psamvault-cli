@@ -539,6 +539,164 @@ def delete_api_key_entry(
     return result
 
 
+# ── Note endpoints ────────────────────────────────────────────────────────────
+
+
+def add_note_entry(
+    access_token: str,
+    refresh_token: str,
+    title: str,
+    category: str | None,
+    encrypted_blob: str,
+    iv: str,
+) -> dict:
+    """POST /notes - store a new encrypted note entry."""
+    def _call(token: str) -> dict:
+        body: dict[str, str] = {
+            "title": title,
+            "encrypted_blob": encrypted_blob,
+            "iv": iv,
+        }
+        if category is not None:
+            body["category"] = category
+        response = httpx.post(
+            f"{_base_url()}/notes",
+            headers=_auth_headers(token),
+            json=body,
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def get_note_entry(
+    access_token: str,
+    refresh_token: str,
+    title: str,
+) -> dict:
+    """GET /notes/{title} — fetch a single encrypted note entry."""
+    def _call(token: str) -> dict:
+        response = httpx.get(
+            f"{_base_url()}/notes/{title}",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def list_note_entries(
+    access_token: str,
+    refresh_token: str,
+) -> dict:
+    """GET /notes — fetch all note entries as lightweight list items."""
+    def _call(token: str) -> dict:
+        response = httpx.get(
+            f"{_base_url()}/notes",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def update_note_entry(
+    access_token: str,
+    refresh_token: str,
+    title: str,
+    category: str | None = None,
+    encrypted_blob: str | None = None,
+    iv: str | None = None,
+    new_title: str | None = None,
+) -> dict:
+    """PUT /notes/{title} — update an existing note entry."""
+    def _call(token: str) -> dict:
+        body: dict[str, str] = {}
+        if category is not None:
+            body["category"] = category
+        if encrypted_blob is not None:
+            body["encrypted_blob"] = encrypted_blob
+        if iv is not None:
+            body["iv"] = iv
+        if new_title is not None:
+            body["title"] = new_title
+        response = httpx.put(
+            f"{_base_url()}/notes/{title}",
+            headers=_auth_headers(token),
+            json=body,
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def delete_note_entry(
+    access_token: str,
+    refresh_token: str,
+    title: str,
+) -> dict:
+    """DELETE /notes/{title} — permanently remove a note entry."""
+    def _call(token: str) -> dict:
+        response = httpx.delete(
+            f"{_base_url()}/notes/{title}",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def export_notes(
+    access_token: str,
+    refresh_token: str,
+) -> list[dict]:
+    """GET /notes/export/all — return all note entries with full encrypted blobs."""
+    def _call(token: str) -> list[dict]:
+        response = httpx.get(
+            f"{_base_url()}/notes/export/all",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
 # ── Export / Account deletion ──────────────────────────────────────────────────
 
 

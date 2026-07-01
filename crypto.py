@@ -388,6 +388,67 @@ def decrypt_api_key(
     return json.loads(plaintext.decode("utf-8"))
 
 
+def encrypt_note(
+    key: bytes,
+    content: str,
+    category: str = "",
+) -> tuple[str, str]:
+    """
+    Encrypt a secure note using AES-256-GCM.
+
+    Bundles content and optional category into a single JSON payload
+    before encrypting so the entire object is protected as one unit.
+
+    A fresh random IV is generated on every call.
+
+    Args:
+        key:      32-byte VEK from the session.
+        content:  Plaintext note content.
+        category: Optional category, e.g. "ssh", "wifi".
+
+    Returns:
+        (encrypted_blob_hex, iv_hex)
+    """
+    payload = json.dumps({
+        "content": content,
+        "category": category,
+    }).encode("utf-8")
+
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    encrypted_blob = aesgcm.encrypt(iv, payload, None)
+
+    return encrypted_blob.hex(), iv.hex()
+
+
+def decrypt_note(
+    key: bytes,
+    encrypted_blob: str,
+    iv: str,
+) -> dict:
+    """
+    Decrypt a secure note using AES-256-GCM.
+
+    Args:
+        key:            32-byte VEK from the session.
+        encrypted_blob: Hex-encoded ciphertext from the API response.
+        iv:             Hex-encoded IV from the API response.
+
+    Returns:
+        A dict with keys: content, category.
+
+    Raises:
+        cryptography.exceptions.InvalidTag: If decryption fails.
+    """
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(
+        bytes.fromhex(iv),
+        bytes.fromhex(encrypted_blob),
+        None
+    )
+    return json.loads(plaintext.decode("utf-8"))
+
+
 # ── Export / Import encryption ──────────────────────────────────────────────────
 
 

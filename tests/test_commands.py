@@ -391,6 +391,99 @@ def test_search_api_keys_case_insensitive_notes():
     assert len(results) == 1
 
 
+# ── _search_notes helper ──────────────────────────────────────────────────────
+
+TEST_VEK_NOTES = bytes(range(32))
+
+
+def _make_note_entry(title: str, content: str, category: str = "") -> dict:
+    """Helper: encrypt a note and build an entry dict matching export_notes() format."""
+    from crypto import encrypt_note
+    blob, iv = encrypt_note(TEST_VEK_NOTES, content, category)
+    return {
+        "title": title,
+        "encrypted_blob": blob,
+        "iv": iv,
+    }
+
+
+def test_search_notes_finds_by_title():
+    """Search matches note title case-insensitively."""
+    from command.vault_commands import _search_notes
+    entries = [_make_note_entry("my-ssh-key", "ssh-rsa AAAAB3...", "ssh")]
+    results = _search_notes(TEST_VEK_NOTES, entries, "my-ssh")
+    assert len(results) == 1
+    assert results[0]["title"] == "my-ssh-key"
+
+
+def test_search_notes_finds_by_content():
+    """Search matches decrypted note content case-insensitively."""
+    from command.vault_commands import _search_notes
+    entries = [_make_note_entry("wifi-pass", "WiFi: MyHome / password123", "wifi")]
+    results = _search_notes(TEST_VEK_NOTES, entries, "password123")
+    assert len(results) == 1
+    assert results[0]["title"] == "wifi-pass"
+
+
+def test_search_notes_finds_by_category():
+    """Search matches category case-insensitively."""
+    from command.vault_commands import _search_notes
+    entries = [_make_note_entry("github-token", "ghp_xxxx", "recovery")]
+    results = _search_notes(TEST_VEK_NOTES, entries, "recovery")
+    assert len(results) == 1
+
+
+def test_search_notes_no_matches():
+    """Search returns empty list when nothing matches."""
+    from command.vault_commands import _search_notes
+    entries = [_make_note_entry("my-key", "ssh key content", "ssh")]
+    results = _search_notes(TEST_VEK_NOTES, entries, "nonexistent")
+    assert results == []
+
+
+def test_search_notes_multiple_matches():
+    """Search returns all matching notes."""
+    from command.vault_commands import _search_notes
+    entries = [
+        _make_note_entry("github-pat", "ghp_abc123", "recovery"),
+        _make_note_entry("gitlab-pat", "glpat_def456", "recovery"),
+        _make_note_entry("my-ssh-key", "ssh-ed25519 ...", "ssh"),
+    ]
+    results = _search_notes(TEST_VEK_NOTES, entries, "recovery")
+    assert len(results) == 2
+
+
+def test_search_notes_empty_entries():
+    """Search with empty list returns empty."""
+    from command.vault_commands import _search_notes
+    results = _search_notes(TEST_VEK_NOTES, [], "anything")
+    assert results == []
+
+
+def test_search_notes_skips_corrupt_entries():
+    """Corrupt entries that fail to decrypt are silently skipped."""
+    from command.vault_commands import _search_notes
+    good = _make_note_entry("good-note", "valid content", "work")
+    bad = {
+        "title": "bad-note",
+        "encrypted_blob": "deadbeef" + "00" * 14,
+        "iv": "aa" * 12,
+    }
+    results = _search_notes(TEST_VEK_NOTES, [good, bad], "valid")
+    assert len(results) == 1
+    assert results[0]["title"] == "good-note"
+
+
+def test_search_notes_result_keys():
+    """Each result dict has the expected keys: title, content, category."""
+    from command.vault_commands import _search_notes
+    entries = [_make_note_entry("test-note", "some content", "docs")]
+    results = _search_notes(TEST_VEK_NOTES, entries, "content")
+    assert len(results) == 1
+    result = results[0]
+    assert set(result.keys()) == {"title", "content", "category"}
+
+
 # ── search CLI command integration ──────────────────────────────────────────────
 
 

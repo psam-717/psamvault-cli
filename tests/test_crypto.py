@@ -13,6 +13,8 @@ from crypto import (
     decrypt_credentials,
     encrypt_api_key,
     decrypt_api_key,
+    encrypt_note,
+    decrypt_note,
     encrypt_vek,
     decrypt_vek,
     wipe,
@@ -152,6 +154,64 @@ def test_encrypt_api_key_unique_ivs(vek):
     _, iv1 = encrypt_api_key(vek, "OpenAI", "key1")
     _, iv2 = encrypt_api_key(vek, "OpenAI", "key1")
     assert iv1 != iv2
+
+
+# ── encrypt_note / decrypt_note ───────────────────────────────────────────────
+
+def test_encrypt_decrypt_note_roundtrip(vek):
+    blob, iv = encrypt_note(vek, "ssh-rsa AAAAB3NzaC1yc2E...", "ssh")
+    result = decrypt_note(vek, blob, iv)
+    assert result["content"] == "ssh-rsa AAAAB3NzaC1yc2E..."
+    assert result["category"] == "ssh"
+
+
+def test_decrypt_note_empty_category_roundtrip(vek):
+    blob, iv = encrypt_note(vek, "Some text without a category")
+    result = decrypt_note(vek, blob, iv)
+    assert result["content"] == "Some text without a category"
+    assert result["category"] == ""
+
+
+def test_decrypt_note_raises_on_tampered_blob(vek):
+    blob, iv = encrypt_note(vek, "secret content", "wifi")
+    tampered = blob[:-2] + ("00" if blob[-2:] != "00" else "ff")
+    with pytest.raises(InvalidTag):
+        decrypt_note(vek, tampered, iv)
+
+
+def test_decrypt_note_raises_on_wrong_key(vek):
+    blob, iv = encrypt_note(vek, "content", "cat")
+    with pytest.raises(InvalidTag):
+        decrypt_note(bytes(32), blob, iv)
+
+
+def test_encrypt_note_produces_unique_ivs(vek):
+    _, iv1 = encrypt_note(vek, "same content", "cat")
+    _, iv2 = encrypt_note(vek, "same content", "cat")
+    assert iv1 != iv2
+
+
+def test_encrypt_note_iv_is_24_hex_chars(vek):
+    _, iv = encrypt_note(vek, "content", "cat")
+    assert len(iv) == 24
+    assert re.fullmatch(r"[0-9a-f]{24}", iv)
+
+
+def test_encrypt_note_long_content(vek):
+    """Encrypt and decrypt a large block of text (e.g. SSH key or config)."""
+    long_text = "line1\n" * 500
+    blob, iv = encrypt_note(vek, long_text, "config")
+    result = decrypt_note(vek, blob, iv)
+    assert result["content"] == long_text
+    assert result["category"] == "config"
+
+
+def test_encrypt_note_unicode(vek):
+    """Encrypt and decrypt unicode content safely."""
+    content = "Wi-Fi: Café ☕ 密码: 你好世界 🌍"
+    blob, iv = encrypt_note(vek, content, "wifi")
+    result = decrypt_note(vek, blob, iv)
+    assert result["content"] == content
 
 
 # ── encrypt_vek / decrypt_vek ─────────────────────────────────────────────────
