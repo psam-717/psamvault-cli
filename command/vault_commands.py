@@ -122,15 +122,23 @@ def add(
     )
 
     with Spinner(f"Saving credentials for {site}"):
-        api_client.add_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=site,
-            encrypted_blob=encrypted_blob,
-            iv=iv,
-            username_hint=user,
-            login_url=login_url,
-        )
+        try:
+            api_client.add_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=site,
+                encrypted_blob=encrypted_blob,
+                iv=iv,
+                username_hint=user,
+                login_url=login_url,
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ Entry for '{site}' already exists in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault update {site}  to modify it.", err=True)
+            raise typer.Exit(code=1)
 
     typer.echo(f" Credential for {site} saved successfully\n")
 
@@ -643,14 +651,22 @@ def generate(
         )
         
         with Spinner(f"Saving generated password for {save}"):
-            api_client.add_vault_entry(
-                access_token=session["access_token"],
-                refresh_token=session["refresh_token"],
-                site_name=save,
-                encrypted_blob=encrypted_blob,
-                iv=iv,
-                username_hint=user,
-            )
+            try:
+                api_client.add_vault_entry(
+                    access_token=session["access_token"],
+                    refresh_token=session["refresh_token"],
+                    site_name=save,
+                    encrypted_blob=encrypted_blob,
+                    iv=iv,
+                    username_hint=user,
+                )
+            except ApiError:
+                typer.echo(
+                    f"\n ✗ Entry for '{save}' already exists in your vault.",
+                    err=True,
+                )
+                typer.echo("   Use  psamvault update {save}  to modify it.", err=True)
+                raise typer.Exit(code=1)
     
         typer.echo(f" Saved generated password for {save}.")
 

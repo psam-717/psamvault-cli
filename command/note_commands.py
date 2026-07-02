@@ -92,14 +92,22 @@ def note_add(
     )
 
     with Spinner(f"Saving note '{title}'"):
-        api_client.add_note_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            title=title,
-            category=category,
-            encrypted_blob=encrypted_blob,
-            iv=iv,
-        )
+        try:
+            api_client.add_note_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                title=title,
+                category=category,
+                encrypted_blob=encrypted_blob,
+                iv=iv,
+            )
+        except api_client.ApiError:
+            typer.echo(
+                f"\n ✗ Note '{title}' already exists in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault note update  to modify it.", err=True)
+            raise typer.Exit(code=1)
 
     typer.echo(f" Note '{title}' saved successfully\n")
 
