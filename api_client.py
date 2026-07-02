@@ -67,7 +67,6 @@ def _handle_error(response: httpx.Response) -> None:
     if response.status_code == 404:
         detail = response.json().get("detail", "Entry not found.")
         text = f"Error: {detail}"
-        typer.echo(text, err=True)
         raise ApiError(text)
 
     if response.status_code == 409:
