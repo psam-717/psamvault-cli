@@ -10,6 +10,7 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+from api_client import ApiError
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
 from session import load_session
@@ -58,7 +59,8 @@ def _validate_site_name(site: str) -> None:
         unique = "".join(dict.fromkeys(found)) # deduplicate, preserve order
         typer.echo(
             f"Error: Site name contains invalid character(s): {' '.join(repr(c) for c in unique)}\n"
-            f"  Forbidden characters: \\ / \" ' < > | ? * & # %",
+            f"  Forbidden characters: \\ / \" ' < > | ? * & # %\n"
+            f"  Valid examples: github.com, my-site_1, email@gmail.com, my_app",
             err=True
         )
         raise typer.Exit(code=1)
@@ -120,15 +122,23 @@ def add(
     )
 
     with Spinner(f"Saving credentials for {site}"):
-        api_client.add_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=site,
-            encrypted_blob=encrypted_blob,
-            iv=iv,
-            username_hint=user,
-            login_url=login_url,
-        )
+        try:
+            api_client.add_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=site,
+                encrypted_blob=encrypted_blob,
+                iv=iv,
+                username_hint=user,
+                login_url=login_url,
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ Entry for '{site}' already exists in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault update {site}  to modify it.", err=True)
+            raise typer.Exit(code=1)
 
     typer.echo(f" Credential for {site} saved successfully\n")
 
@@ -158,11 +168,19 @@ def get(
     session, key = _get_session_and_key()
     
     with Spinner(f"Fetching credentials for {site}"):
-        data = api_client.get_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=site
-        )
+        try:
+            data = api_client.get_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=site
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)
 
     
     try:
@@ -470,11 +488,19 @@ def update(
     session, key = _get_session_and_key()
 
     with Spinner(f"Fetching current entry for {site}"):
-        current_data = api_client.get_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=site
-        )
+        try:
+            current_data = api_client.get_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=site
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
     session = load_session()
@@ -547,11 +573,19 @@ def delete(
     session = load_session()
     
     with Spinner(f"Deleting entry for {site}"):
-        api_client.delete_vault_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            site_name=site,
-        )    
+        try:
+            api_client.delete_vault_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                site_name=site,
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)    
     
     typer.echo(f" Entry for '{site}' deleted.\n")
     
@@ -617,14 +651,22 @@ def generate(
         )
         
         with Spinner(f"Saving generated password for {save}"):
-            api_client.add_vault_entry(
-                access_token=session["access_token"],
-                refresh_token=session["refresh_token"],
-                site_name=save,
-                encrypted_blob=encrypted_blob,
-                iv=iv,
-                username_hint=user,
-            )
+            try:
+                api_client.add_vault_entry(
+                    access_token=session["access_token"],
+                    refresh_token=session["refresh_token"],
+                    site_name=save,
+                    encrypted_blob=encrypted_blob,
+                    iv=iv,
+                    username_hint=user,
+                )
+            except ApiError:
+                typer.echo(
+                    f"\n ✗ Entry for '{save}' already exists in your vault.",
+                    err=True,
+                )
+                typer.echo("   Use  psamvault update {save}  to modify it.", err=True)
+                raise typer.Exit(code=1)
     
         typer.echo(f" Saved generated password for {save}.")
 

@@ -432,7 +432,7 @@ def entries_delete(site_name: str):
     return redirect(url_for("dashboard.dashboard_view"))
 
 
-@bp.route("/entries/<path:site_name>/password")
+@bp.route("/entries/<path:site_name>/password", methods=["POST"])
 def entries_password(site_name: str):
     """JSON endpoint — decrypt and return just the password for a single entry.
 
@@ -440,6 +440,9 @@ def entries_password(site_name: str):
     plaintext password is never embedded in the HTML source. The password
     is fetched via fetch() on explicit user action and held only in a JS
     closure variable, never in the DOM.
+
+    POST + no-store: secrets must not be served via GET (which browsers
+    cache to disk and retain in history) and must never be cached.
     """
     if not _is_authenticated():
         return {"error": "Not authenticated"}, 401
@@ -448,7 +451,8 @@ def entries_password(site_name: str):
     if not entry:
         return {"error": "Entry not found"}, 404
 
-    return {"password": entry["password"]}
+    resp = {"password": entry["password"]}
+    return resp, 200, {"Cache-Control": "no-store"}
 
 
 @bp.route("/entries/<path:site_name>")
@@ -593,12 +597,15 @@ def api_keys_delete(name: str):
     return redirect(url_for("dashboard.dashboard_view"))
 
 
-@bp.route("/api-keys/<path:name>/password")
+@bp.route("/api-keys/<path:name>/password", methods=["POST"])
 def api_keys_password(name: str):
     """JSON endpoint — decrypt and return just the API key value.
 
     Called on-demand by the detail page's reveal / copy buttons so the
     plaintext key is never embedded in the HTML source.
+
+    POST + no-store: secrets must not be served via GET (which browsers
+    cache to disk and retain in history) and must never be cached.
     """
     if not _is_authenticated():
         return {"error": "Not authenticated"}, 401
@@ -607,7 +614,8 @@ def api_keys_password(name: str):
     if not key:
         return {"error": "API key not found"}, 404
 
-    return {"api_key": key["api_key"]}
+    resp = {"api_key": key["api_key"]}
+    return resp, 200, {"Cache-Control": "no-store"}
 
 
 @bp.route("/api-keys/<path:name>")
