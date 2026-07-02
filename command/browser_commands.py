@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import typer
 
 import api_client
+from api_client import ApiError
 from crypto import decrypt_credentials
 from session import load_session
 
@@ -643,11 +644,19 @@ def open_site(
     vek = bytes.fromhex(session["vek"])
     _session = session
 
-    data = api_client.get_vault_entry(
-        access_token=session["access_token"],
-        refresh_token=session["refresh_token"],
-        site_name=site,
-    )
+    try:
+        data = api_client.get_vault_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            site_name=site,
+        )
+    except ApiError:
+        msg = f"Entry '{site}' not found."
+        if json_output:
+            typer.echo(json.dumps({"error": msg}))
+        else:
+            typer.echo(f" Error: {msg}", err=True)
+        raise typer.Exit(code=1)
 
     try:
         credentials = decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
@@ -748,11 +757,18 @@ def _run_daemon() -> None:
     _session = session
 
     def _fetch_and_decrypt(site_name: str) -> dict | None:
-        data = api_client.get_vault_entry(
-            access_token=_session["access_token"],
-            refresh_token=_session["refresh_token"],
-            site_name=site_name,
-        )
+        try:
+            data = api_client.get_vault_entry(
+                access_token=_session["access_token"],
+                refresh_token=_session["refresh_token"],
+                site_name=site_name,
+            )
+        except ApiError:
+            print(json.dumps({
+                "success": False,
+                "error": f"Entry '{site_name}' not found.",
+            }), flush=True)
+            return None
         try:
             return decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
         except InvalidTag:

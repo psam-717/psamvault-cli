@@ -8,6 +8,7 @@ import typer
 from cryptography.exceptions import InvalidTag
  
 import api_client
+from api_client import ApiError
 from crypto import decrypt_api_key, encrypt_api_key
 from session import load_session
  
@@ -149,15 +150,23 @@ def ak_add(
     )
     
     with Spinner(f"Saving API key '{name}'"):
-        api_client.add_api_key_entry(
-            access_token=session["access_token"],
-            refresh_token=session["refresh_token"],
-            name=name,
-            service_hint=service,
-            encrypted_blob=encrypted_blob,
-            iv=iv,
-            notes=notes,
-        )
+        try:
+            api_client.add_api_key_entry(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+                name=name,
+                service_hint=service,
+                encrypted_blob=encrypted_blob,
+                iv=iv,
+                notes=notes,
+            )
+        except ApiError:
+            typer.echo(
+                f"\n ✗ API key '{name}' already exists in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault api-key update  to modify it.", err=True)
+            raise typer.Exit(code=1)
     typer.echo(f" API key '{name}' saved successfully\n")
     
 

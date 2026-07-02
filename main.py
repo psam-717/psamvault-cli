@@ -14,6 +14,8 @@ from command.upgrade_command import app as update_app
 from command.uninstall_command import app as uninstall_app
 from command.import_command import app as import_app
 from command.export_command import app as export_app
+from command.note_commands import app as note_app
+from command.note_commands import note_add, note_get, note_list, note_delete, note_update
 
 from update_check import start_update_check, print_update_notice
 from changelog import check_and_show_upgrade_notice
@@ -33,7 +35,8 @@ app = typer.Typer(
         "  psamvault recovery   — account recovery (generate-codes, recover)\n"
         "  psamvault browser    — browser autofill (open)\n"
         "  psamvault changelog  — view version history\n"
-        "  psamvault upgrade    — upgrade psamvault in-place\n\n"
+        "  psamvault upgrade    — upgrade psamvault in-place\n"
+        "  psamvault note       — secure notes (note-add, note-list, ...)\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
@@ -80,6 +83,7 @@ app.add_typer(update_app, name="upgrade", help="Upgrade psamvault in-place")
 app.add_typer(uninstall_app, name="uninstall", help="Uninstall psamvault")
 app.add_typer(import_app, name="import", help="Import entries from other password managers")
 app.add_typer(export_app, name="export", help="Export vault entries to a JSON file")
+app.add_typer(note_app, name="note", help="Secure notes (note-add, note-list, note-get, note-update, note-delete)")
 
 # ── TUI — source kept in repo, command hidden from --help ──────────────
 # from tui.app import run_tui
@@ -147,6 +151,7 @@ from command.vault_commands import add, delete, generate, get, list_entries, sit
 from command.recovery_commands import generate_codes, remaining_codes, recover
 from command.api_key_commands import ak_add, ak_get, ak_delete, ak_list, ak_update
 from command.browser_commands import open_site
+from command.note_commands import note_add, note_get, note_list, note_delete, note_update
 
 app.command("migrate")(migrate)
 app.command("configure")(configure)
@@ -172,6 +177,11 @@ app.command("open")(open_site)
 app.command("generate-codes")(generate_codes)
 app.command("remaining-codes")(remaining_codes)
 app.command("recover")(recover)
+app.command("note-add")(note_add)
+app.command("note-get")(note_get)
+app.command("note-list")(note_list)
+app.command("note-delete")(note_delete)
+app.command("note-update")(note_update)
 
 if __name__ == "__main__":
     start_update_check()

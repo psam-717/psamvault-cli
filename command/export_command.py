@@ -12,6 +12,7 @@ import api_client
 from crypto import (
     decrypt_api_key,
     decrypt_credentials,
+    decrypt_note,
     export_encrypt,
 )
 from session import load_session, is_logged_in
@@ -123,10 +124,41 @@ def export_backup(
                 "notes": decrypted.get("notes", ""),
             })
 
-    # ── Summary ───────────────────────────────────────────────────────────
-    typer.echo(f"\n  Found: {len(credentials)} credential(s), {len(api_keys)} API key(s)\n")
+    # ── Fetch all secure note entries ────────────────────────────────────
+    notes = []
+    with Spinner("Fetching secure notes"):
+        try:
+            raw_notes = api_client.export_notes(
+                access_token=session["access_token"],
+                refresh_token=session["refresh_token"],
+            )
+        except typer.Exit:
+            raise
+        except Exception as e:
+            typer.echo(f"\\n  Warning: Could not fetch notes.\\n  {e}\\n", err=True)
+            raw_notes = []
 
-    if not credentials and not api_keys:
+    with Spinner("Decrypting secure notes"):
+        for entry in raw_notes:
+            try:
+                decrypted = decrypt_note(
+                    vek,
+                    encrypted_blob=entry["encrypted_blob"],
+                    iv=entry["iv"],
+                )
+            except Exception:
+                continue
+
+            notes.append({
+                "title": entry["title"],
+                "category": entry.get("category"),
+                "content": decrypted.get("content", ""),
+            })
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    typer.echo(f"\\n  Found: {len(credentials)} credential(s), {len(api_keys)} API key(s), {len(notes)} note(s)\\n")
+
+    if not credentials and not api_keys and not notes:
         typer.echo("  Nothing to export.\n")
         raise typer.Exit()
 
@@ -137,6 +169,7 @@ def export_backup(
         "plaintext": plaintext,
         "credentials": credentials,
         "api_keys": api_keys,
+        "notes": notes,
     }
 
     # ── Write the file ────────────────────────────────────────────────────

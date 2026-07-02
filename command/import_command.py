@@ -11,6 +11,7 @@ from crypto import (
     decrypt_api_key,
     encrypt_credentials,
     encrypt_api_key,
+    encrypt_note,
     export_decrypt,
 )
 from session import load_session, is_logged_in
@@ -195,13 +196,14 @@ def import_backup(
 
     credentials = export_data.get("credentials", [])
     api_keys = export_data.get("api_keys", [])
+    notes = export_data.get("notes", [])
 
-    if not credentials and not api_keys:
-        typer.echo("\n  The backup file contains no credentials or API keys.\n")
+    if not credentials and not api_keys and not notes:
+        typer.echo("\\n  The backup file contains no credentials, API keys, or notes.\\n")
         raise typer.Exit()
 
     typer.echo(
-        f"\n  Found: {len(credentials)} credential(s), {len(api_keys)} API key(s) to import.\n"
+        f"\\n  Found: {len(credentials)} credential(s), {len(api_keys)} API key(s), {len(notes)} note(s) to import.\\n"
     )
 
     proceed = typer.confirm(" Start import?")
@@ -272,23 +274,55 @@ def import_backup(
                 except Exception:
                     skipped_keys += 1
 
-    # ── Step 5: Summary ──────────────────────────────────────────────────
+    # ── Step 5: Import secure notes ──────────────────────────────────────
+    imported_notes = 0
+    skipped_notes = 0
+
+    if notes:
+        with Spinner("Importing secure notes"):
+            for note in notes:
+                try:
+                    encrypted_blob, iv = encrypt_note(
+                        vek,
+                        content=note["content"],
+                        category=note.get("category", ""),
+                    )
+
+                    api_client.add_note_entry(
+                        access_token=session["access_token"],
+                        refresh_token=session["refresh_token"],
+                        title=note["title"],
+                        category=note.get("category"),
+                        encrypted_blob=encrypted_blob,
+                        iv=iv,
+                    )
+                    imported_notes += 1
+                except typer.Exit:
+                    raise
+                except Exception:
+                    skipped_notes += 1
+
+    # ── Step 6: Summary ──────────────────────────────────────────────────
     parts = []
     if imported_creds:
         parts.append(f"{imported_creds} credential(s)")
     if imported_keys:
         parts.append(f"{imported_keys} API key(s)")
+    if imported_notes:
+        parts.append(f"{imported_notes} note(s)")
 
     summary = ", ".join(parts) if parts else "nothing"
 
     typer.echo(f"\n  ✓ Imported {summary}.\n")
 
-    if skipped_creds or skipped_keys:
+    if skipped_creds or skipped_keys or skipped_notes:
         warnings = []
         if skipped_creds:
             warnings.append(f"{skipped_creds} credential(s) skipped (may already exist)")
         if skipped_keys:
             warnings.append(f"{skipped_keys} API key(s) skipped (may already exist)")
+        if skipped_notes:
+            warnings.append(f"{skipped_notes} note(s) skipped (may already exist)")
         typer.echo(f"  ⚠  {', '.join(warnings)}.\n")
 
     typer.echo("  Run 'psamvault list' to verify your imported entries.\n")
