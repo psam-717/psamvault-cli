@@ -67,7 +67,7 @@
 
   function _fetchPw() {
     if (_pw !== null) return Promise.resolve(_pw);
-    return fetch(_pwUrl)
+    return fetch(_pwUrl, {method: 'POST'})
       .then(function(r) {
         if (!r.ok) throw new Error('Failed to fetch password');
         return r.json();
