@@ -65,7 +65,7 @@
 
   function _fetchAk() {
     if (_ak !== null) return Promise.resolve(_ak);
-    return fetch(_akUrl)
+    return fetch(_akUrl, {method: 'POST'})
       .then(function(r) {
         if (!r.ok) throw new Error('Failed to fetch API key');
         return r.json();
