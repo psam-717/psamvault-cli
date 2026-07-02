@@ -167,6 +167,11 @@ def get(
                 site_name=site
             )
         except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
             raise typer.Exit(code=1)
 
     
@@ -482,6 +487,11 @@ def update(
                 site_name=site
             )
         except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
             raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
@@ -562,6 +572,11 @@ def delete(
                 site_name=site,
             )
         except ApiError:
+            typer.echo(
+                f"\n ✗ Entry '{site}' was not found in your vault.",
+                err=True,
+            )
+            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
             raise typer.Exit(code=1)    
     
     typer.echo(f" Entry for '{site}' deleted.\n")
