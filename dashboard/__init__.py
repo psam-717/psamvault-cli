@@ -12,7 +12,16 @@ import secrets
 from pathlib import Path
 
 import flask_session
-from flask import Flask
+from flask import Flask, request
+
+# The dashboard is served on 127.0.0.1:8500 over plain HTTP. Only these
+# Host values are accepted; any other Host (e.g. an attacker domain that
+# DNS-rebinds to 127.0.0.1) is rejected with 403 before any route runs.
+_ALLOWED_HOSTS = {
+    "127.0.0.1:8500",
+    "localhost:8500",
+    "[::1]:8500",
+}
 
 
 def create_app() -> Flask:
@@ -61,5 +70,17 @@ def create_app() -> Flask:
     from dashboard.routes import bp
 
     app.register_blueprint(bp)
+
+    # ── Host header validation (DNS-rebinding mitigation) ──────────────
+    # The dashboard is localhost-only over HTTP. Reject any request whose
+    # Host header is not the expected 127.0.0.1/localhost/[::1]:8500 so a
+    # malicious website cannot DNS-rebind its hostname to 127.0.0.1 and
+    # impersonate the origin from the browser's perspective.
+    @app.before_request
+    def _enforce_localhost_host():
+        host = request.headers.get("Host", "")
+        if host not in _ALLOWED_HOSTS:
+            return "", 403
+        return None
 
     return app
