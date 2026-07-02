@@ -21,3 +21,6 @@
 - `add`: improved site name validation error — now includes valid name examples (e.g. `github.com`, `my-site_1`, `email@gmail.com`)
 - `add`: (vault/note/api-key) duplicate entry now shows clean ✗ message — catches `ApiError` (409 Conflict) and shows "already exists" with hint to use the update command
 - `_handle_error`: removed `typer.echo` from both 404 and 409 handlers — API layer raises `ApiError` without printing; all user-facing messages now owned by command layer
+- **dashboard**: added Host header validation (`_enforce_localhost_host`) — rejects requests with unexpected Host values to block DNS-rebinding attacks
+- **dashboard**: changed password/key reveal endpoints from GET to POST with `Cache-Control: no-store` — secrets no longer cached to disk or retained in browser history
+  - Updated JS `fetch()` calls in `entry_detail.html` and `api_key_detail.html` to use `{method: 'POST'}`
