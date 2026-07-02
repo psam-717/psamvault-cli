@@ -72,7 +72,6 @@ def _handle_error(response: httpx.Response) -> None:
     if response.status_code == 409:
         detail = response.json().get("detail", "Conflict.")
         text = f"Error: {detail}"
-        typer.echo(text, err=True)
         raise ApiError(text)
 
     if not response.is_success:
