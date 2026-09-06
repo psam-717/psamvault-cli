@@ -142,7 +142,7 @@ def uninstall() -> None:
         typer.echo("  Cancelled.\n")
         raise typer.Exit()
 
-    session = load_session()
+    session = api_client.ensure_session()
     vek = bytes.fromhex(session["vek"])
 
     export_path = _find_export_path()
