@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from pathlib import Path
@@ -159,6 +160,28 @@ def clear_session() -> None:
 def is_logged_in() -> bool:
     """Check whether a session file exists without raising an error"""
     return SESSION_FILE.exists()
+
+
+# ── Token expiry (proactive refresh) ─────────────────────────────────────────
+
+# Refresh the access token when it expires within this many seconds.
+REFRESH_THRESHOLD_SECONDS = 300
+
+
+def get_access_token_expiry(access_token: str) -> "float | None":
+    """Return the JWT's ``exp`` claim as unix-epoch seconds, or None.
+
+    Returns None when the token is not a readable JWT or carries no ``exp``
+    claim — callers then fall back to the existing lazy 401 refresh.
+    """
+    try:
+        payload_b64 = access_token.split(".")[1]
+        padding = "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + padding))
+        exp = payload.get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
 
 
 # ── Version state ─────────────────────────────────────────────────────────────

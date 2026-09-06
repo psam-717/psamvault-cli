@@ -1,4 +1,6 @@
 import os
+import time
+
 import httpx
 import typer
 
@@ -7,6 +9,7 @@ from errors import (  # noqa: F401  (ApiError re-exported for back-compat: dashb
     ConflictError,
     NetworkError,
     NotFoundError,
+    PsamVaultError,
     SessionExpiredError,
     ValidationError,
 )
@@ -124,6 +127,41 @@ def _refresh_and_retry(refresh_token: str, retry_fn):
             hint="Run  psamvault login  to sign in again",
         )
     return result
+
+
+def ensure_session() -> dict:
+    """Load the session, refreshing the access token if it is expired or
+    expiring within ``REFRESH_THRESHOLD_SECONDS``.
+
+    This is the CLI session gate: every authed command calls it instead of
+    ``load_session()`` so an expiring access token is renewed *before* the
+    first request (no 401 round-trip) and a dead refresh token produces one
+    clean message instead of a mid-command failure. Returns a session dict
+    carrying fresh tokens (persisted to the keychain).
+    """
+    from error_ui import print_error
+    from session import REFRESH_THRESHOLD_SECONDS, get_access_token_expiry, load_session
+
+    session = load_session()
+    exp = get_access_token_expiry(session.get("access_token", ""))
+    if exp is not None and exp <= time.time() + REFRESH_THRESHOLD_SECONDS:
+        try:
+            new_access, new_refresh = refresh_access_token(session["refresh_token"])
+        except SessionExpiredError:
+            print_error(
+                SessionExpiredError(
+                    "Your session has expired",
+                    hint="Run  psamvault login  to sign in again",
+                )
+            )
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
+            raise typer.Exit(code=1)
+        update_tokens(new_access, new_refresh)
+        session["access_token"] = new_access
+        session["refresh_token"] = new_refresh
+    return session
     
     
 
