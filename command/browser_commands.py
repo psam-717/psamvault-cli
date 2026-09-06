@@ -373,7 +373,7 @@ def _login_flow(
 
             if login_url and _session:
                 try:
-                    s = _session if _session.get("access_token") else load_session()
+                    s = _session if _session.get("access_token") else api_client.ensure_session()
                     api_client.update_vault_entry_url(
                         access_token=s["access_token"],
                         refresh_token=s["refresh_token"],
@@ -641,7 +641,7 @@ def open_site(
             typer.echo(msg)
 
     # ── Load session and decrypt ───────────────────────────────────────────
-    session = load_session()
+    session = api_client.ensure_session()
     vek = bytes.fromhex(session["vek"])
     _session = session
 
@@ -760,7 +760,7 @@ def _run_daemon() -> None:
     from cryptography.exceptions import InvalidTag
     import sys
 
-    session = load_session()
+    session = api_client.ensure_session()
     vek = bytes.fromhex(session["vek"])
     _session = session
 
