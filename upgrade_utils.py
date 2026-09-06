@@ -10,6 +10,7 @@ Hermes-style upgrade behaviour for source installs:
    before returning.
 """
 import datetime
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -161,3 +162,29 @@ def stash_and_pull(repo_root: Path) -> dict:
             }
 
     return {"ok": True, "stashed": stashed, "conflict": False, "message": ""}
+
+
+# ── pipx editable detection (PyPI track) ────────────────────────────────────
+
+
+def is_pipx_editable(package: str = "psamvault") -> bool:
+    """Return True when pipx reports the package as an editable/source install.
+
+    ``pipx upgrade`` cannot upgrade an editable install in place — it fails or
+    silently drops the source link. Detect first so the CLI can explain.
+    """
+    try:
+        r = subprocess.run(
+            ["pipx", "list", "--json"], capture_output=True, text=True, timeout=30
+        )
+        if r.returncode != 0:
+            return False
+        data = json.loads(r.stdout or "{}")
+        meta = data.get("venvs", {}).get(package, {}).get("metadata", {})
+        main_pkg = meta.get("main_package", {}) or {}
+        if main_pkg.get("editable"):
+            return True
+        package_or_url = str(main_pkg.get("package_or_url", ""))
+        return package_or_url.startswith(("file://", "git+file://"))
+    except Exception:
+        return False
