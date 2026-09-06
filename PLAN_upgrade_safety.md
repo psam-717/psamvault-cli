@@ -1,6 +1,6 @@
 # Upgrade Safety — Hermes-style local-change handling
 
-**Status:** 🟡 EXPLORING
+**Status:** 🟢 READY — implemented on feat/upgrade-safety (PR pending)
 
 **Proposed by:** User (psam)
 **Date:** 2026-09-06
@@ -83,12 +83,12 @@
 
 | Step | Task | Depends On | Status |
 |------|------|-----------|--------|
-| 1 | Snapshot helper: copy `~/.psamvault` state files (session marker, `last_seen_version`) to timestamped `~/.psamvault/backups/` (keep last 5) | — | 🔴 |
-| 2 | Dirty-tree detection: `git status --porcelain` + ahead/behind count | — | 🔴 |
-| 3 | Auto-stash → pull → auto-restore flow; on restore conflict, leave parked + print `git stash pop` instructions | 2 | 🔴 |
-| 4 | Post-pull: `pip install -e .` with return-code check + smoke-test (`psamvault --version`) + clear failure message | 3 | 🔴 |
-| 5 | pipx editable detection via `pipx list --json`; route/warn before `pipx upgrade` | — | 🔴 |
-| 6 | Tests for 1–5 (dirty tree, conflict park, offline, editable detect, smoke failure) | 1–5 | 🔴 |
+| 1 | ✅ Snapshot helper: copy `~/.psamvault` state files (session marker, `last_seen_version`) to timestamped `~/.psamvault/backups/` (keep last 5) | — | 🟢 |
+| 2 | ✅ Dirty-tree detection: `git status --porcelain` + ahead/behind count | — | 🟢 |
+| 3 | ✅ Auto-stash → pull → auto-restore flow; on restore conflict, leave parked + print `git stash pop` instructions | 2 | 🟢 |
+| 4 | ✅ Post-pull: `pip install -e .` with return-code check + smoke-test (`psamvault --version`) + clear failure message | 3 | 🟢 |
+| 5 | ✅ pipx editable detection via `pipx list --json`; route/warn before `pipx upgrade` | — | 🟢 |
+| 6 | ✅ Tests for 1–5 (dirty tree, conflict park, offline, editable detect, smoke failure) | 1–5 | 🟢 |
 
 ## Files Likely to Change
 
