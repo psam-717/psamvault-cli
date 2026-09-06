@@ -195,10 +195,11 @@ def _upgrade_pypi() -> None:
         raise typer.Exit()
 
     typer.echo("")
+    typer.echo(f"  Installing psamvault=={latest} from PyPI (pinned force install)...")
 
     try:
         result = subprocess.run(
-            ["pipx", "upgrade", "psamvault"],
+            ["pipx", "install", "--force", f"psamvault=={latest}"],
             capture_output=False,
             text=True,
             check=False,
@@ -208,13 +209,17 @@ def _upgrade_pypi() -> None:
             "  Error: pipx is not installed or not on your PATH.\n"
             "  To upgrade manually:\n"
             "    pip install --upgrade pipx\n"
-            "    pipx upgrade psamvault\n",
+            f"    pipx install --force psamvault=={latest}\n",
             err=True,
         )
         raise typer.Exit(code=1)
 
     if result.returncode != 0:
-        typer.echo(f"\n  Error: pipx upgrade failed (exit code {result.returncode}).\n", err=True)
+        typer.echo(
+            f"\n  Error: pipx install failed (exit code {result.returncode}).\n"
+            f"  Retry manually:  pipx install --force psamvault=={latest}\n",
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     set_last_seen_version(latest)
