@@ -2,7 +2,7 @@ import subprocess
 import sys
 import typer
 
-from session import set_last_seen_version
+from session import SESSION_DIR, set_last_seen_version
 from spinner import Spinner
 from update_check import (
     get_installed_version,
@@ -11,6 +11,7 @@ from update_check import (
     is_source_install,
     _get_git_root,
 )
+from upgrade_utils import git_repo_state, is_pipx_editable, snapshot_state, stash_and_pull
 
 app = typer.Typer(name="upgrade", help="Upgrade psamvault to the latest version")
 
@@ -68,30 +69,30 @@ def _upgrade_source() -> None:
                 text=True,
                 timeout=15,
             )
-        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        except (subprocess.TimeoutExpired, OSError) as exc:
             typer.echo(f"  Error: could not reach remote: {exc}\n", err=True)
             raise typer.Exit(code=1)
 
-        # Count commits behind
-        behind_result = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD..origin/main"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        state = git_repo_state(repo_root)
 
-    if behind_result.returncode != 0:
-        typer.echo("  Error: could not determine commit status.\n", err=True)
+    if not state["ok"]:
+        typer.echo("  Error: could not determine commit status (no origin/main?).\n", err=True)
         raise typer.Exit(code=1)
 
-    behind = int(behind_result.stdout.strip() or "0")
+    if state["ahead"] > 0:
+        typer.echo(
+            f"  You have {state['ahead']} local commit(s) not on origin/main.\n"
+            "  Upgrade keeps them but cannot fast-forward past them.\n"
+            "  Resolve first, e.g.:  git pull --rebase origin main\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
-    if behind == 0:
+    if state["behind"] == 0:
         typer.echo(f"  psamvault is already up to date (v{get_installed_version() or '?'}).\n")
         return
 
-    typer.echo(f"  You are {behind} commit(s) behind main.\n")
+    typer.echo(f"  You are {state['behind']} commit(s) behind main.\n")
 
     confirm = typer.confirm("  Proceed with upgrade?")
     if not confirm:
@@ -99,29 +100,55 @@ def _upgrade_source() -> None:
         raise typer.Exit()
 
     typer.echo("")
-    result = subprocess.run(
-        ["git", "pull", "--ff-only", "origin", "main"],
-        cwd=repo_root,
-        capture_output=False,
-        text=True,
-        check=False,
-    )
+    typer.echo("  Saving a pre-update snapshot of your psamvault state...")
+    backup = snapshot_state(source_dir=SESSION_DIR, backups_parent=SESSION_DIR / "backups")
+    if backup:
+        typer.echo(f"    → {backup.name}")
 
-    if result.returncode != 0:
-        typer.echo(f"\n  Error: git pull failed (exit code {result.returncode}).\n", err=True)
+    result = stash_and_pull(repo_root)
+    if not result["ok"]:
+        typer.echo(f"\n  Error: upgrade failed — {result['message']}\n", err=True)
         raise typer.Exit(code=1)
+
+    if result["stashed"] and result["conflict"]:
+        typer.echo(f"\n  ⚠ {result['message']}\n")
+    elif result["stashed"]:
+        typer.echo("  Local changes stashed and restored.")
 
     typer.echo("\n  psamvault upgraded successfully.\n")
 
-    # Re-install in case dependencies changed
+    # Re-install in case dependencies changed, then smoke-test the result.
     typer.echo("  Re-installing package...")
-    subprocess.run(
+    inst = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", "."],
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=False,
     )
+    if inst.returncode != 0:
+        typer.echo(
+            "  Error: dependency install failed — the code was pulled but the\n"
+            "  package may be inconsistent. Re-run  psamvault upgrade  to retry.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    smoke = subprocess.run(
+        [sys.executable, "-c", "import main"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if smoke.returncode != 0:
+        typer.echo(
+            "  Error: the updated code failed to import.\n"
+            "  Roll back with:  git reset --hard origin/main  &&  pip install -e .",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     typer.echo("  Done. Run  psamvault changelog  to see what's new.\n")
 
@@ -150,6 +177,17 @@ def _upgrade_pypi() -> None:
         return
 
     typer.echo(f"  Update available: v{installed} → v{latest}\n")
+
+    if is_pipx_editable("psamvault"):
+        typer.echo(
+            "  This psamvault install is editable/source-linked — pipx upgrade\n"
+            "  would break that link or fail.\n"
+            "  If you installed from a local checkout, run  psamvault upgrade  inside\n"
+            "  that checkout (source track), or reinstall from PyPI first:\n"
+            "    pipx reinstall psamvault\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     confirm = typer.confirm("  Proceed with upgrade?")
     if not confirm:
