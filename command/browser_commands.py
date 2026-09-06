@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 import typer
 
 import api_client
-from api_client import ApiError
 from crypto import decrypt_credentials
+from error_ui import print_error
+from errors import NotFoundError, PsamVaultError
 from session import load_session
 
 app = typer.Typer(name="browser", help="Browser automation commands")
@@ -650,12 +651,19 @@ def open_site(
             refresh_token=session["refresh_token"],
             site_name=site,
         )
-    except ApiError:
+    except NotFoundError:
         msg = f"Entry '{site}' not found."
         if json_output:
             typer.echo(json.dumps({"error": msg}))
         else:
-            typer.echo(f" Error: {msg}", err=True)
+            typer.echo(f"\n ✗ {msg}", err=True)
+            typer.echo(" → Use  psamvault list  to see your saved entries.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        if json_output:
+            typer.echo(json.dumps({"error": exc.message}))
+        else:
+            print_error(exc)
         raise typer.Exit(code=1)
 
     try:
@@ -763,10 +771,16 @@ def _run_daemon() -> None:
                 refresh_token=_session["refresh_token"],
                 site_name=site_name,
             )
-        except ApiError:
+        except NotFoundError:
             print(json.dumps({
                 "success": False,
                 "error": f"Entry '{site_name}' not found.",
+            }), flush=True)
+            return None
+        except PsamVaultError as exc:
+            print(json.dumps({
+                "success": False,
+                "error": exc.message,
             }), flush=True)
             return None
         try:

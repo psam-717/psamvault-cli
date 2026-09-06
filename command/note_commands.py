@@ -6,6 +6,8 @@ from cryptography.exceptions import InvalidTag
 
 import api_client
 from crypto import encrypt_note, decrypt_note
+from error_ui import print_error
+from errors import ConflictError, NotFoundError, PsamVaultError
 from session import load_session
 
 app = typer.Typer(
@@ -101,12 +103,15 @@ def note_add(
                 encrypted_blob=encrypted_blob,
                 iv=iv,
             )
-        except api_client.ApiError:
+        except ConflictError:
             typer.echo(
                 f"\n ✗ Note '{title}' already exists in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault note update  to modify it.", err=True)
+            typer.echo(" → Use  psamvault note update  to modify it.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     typer.echo(f" Note '{title}' saved successfully\n")
@@ -137,12 +142,15 @@ def note_get(
                 refresh_token=session["refresh_token"],
                 title=title,
             )
-    except api_client.ApiError:
+    except NotFoundError:
         typer.echo(
             f"\n ✗ Note '{title}' was not found in your vault.",
             err=True,
         )
-        typer.echo("   Use  psamvault note-list  to see your saved notes.", err=True)
+        typer.echo(" → Use  psamvault note-list  to see your saved notes.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     try:
@@ -246,11 +254,15 @@ def note_update(
                 refresh_token=session["refresh_token"],
                 title=title,
             )
-    except api_client.ApiError:
+    except NotFoundError:
         typer.echo(
             f"\n ✗ Note '{title}' was not found in your vault.",
             err=True,
         )
+        typer.echo(" → Use  psamvault note-list  to see your saved notes.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.

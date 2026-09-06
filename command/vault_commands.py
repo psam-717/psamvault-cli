@@ -10,9 +10,10 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
-from api_client import ApiError
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
+from error_ui import print_error
+from errors import ConflictError, NotFoundError, PsamVaultError
 from session import load_session
 
 app = typer.Typer(
@@ -132,12 +133,15 @@ def add(
                 username_hint=user,
                 login_url=login_url,
             )
-        except ApiError:
+        except ConflictError:
             typer.echo(
                 f"\n ✗ Entry for '{site}' already exists in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault update {site}  to modify it.", err=True)
+            typer.echo(" → Use  psamvault update {site}  to modify it.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     typer.echo(f" Credential for {site} saved successfully\n")
@@ -174,12 +178,15 @@ def get(
                 refresh_token=session["refresh_token"],
                 site_name=site
             )
-        except ApiError:
+        except NotFoundError:
             typer.echo(
                 f"\n ✗ Entry '{site}' was not found in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
+            typer.echo(" → Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     
@@ -494,12 +501,15 @@ def update(
                 refresh_token=session["refresh_token"],
                 site_name=site
             )
-        except ApiError:
+        except NotFoundError:
             typer.echo(
                 f"\n ✗ Entry '{site}' was not found in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
+            typer.echo(" → Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
@@ -579,13 +589,16 @@ def delete(
                 refresh_token=session["refresh_token"],
                 site_name=site,
             )
-        except ApiError:
+        except NotFoundError:
             typer.echo(
                 f"\n ✗ Entry '{site}' was not found in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault list  to see your saved entries.", err=True)
-            raise typer.Exit(code=1)    
+            typer.echo(" → Use  psamvault list  to see your saved entries.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
+            raise typer.Exit(code=1)
     
     typer.echo(f" Entry for '{site}' deleted.\n")
     
@@ -660,12 +673,15 @@ def generate(
                     iv=iv,
                     username_hint=user,
                 )
-            except ApiError:
+            except ConflictError:
                 typer.echo(
                     f"\n ✗ Entry for '{save}' already exists in your vault.",
                     err=True,
                 )
-                typer.echo("   Use  psamvault update {save}  to modify it.", err=True)
+                typer.echo(" → Use  psamvault update {save}  to modify it.", err=True)
+                raise typer.Exit(code=1)
+            except PsamVaultError as exc:
+                print_error(exc)
                 raise typer.Exit(code=1)
     
         typer.echo(f" Saved generated password for {save}.")
@@ -700,8 +716,9 @@ def search(
             site_results = _search_credentials(key, raw_sites, query)
         except typer.Exit:
             raise
-        except Exception:
-            pass  # no sites — just show API key results
+        except PsamVaultError as exc:
+            print_error(exc)
+            raise typer.Exit(code=1)
 
     # Reload session in case tokens rotated
     session = load_session()
@@ -718,8 +735,9 @@ def search(
             ak_results = _search_api_keys(key, raw_aks, query)
         except typer.Exit:
             raise
-        except Exception:
-            pass
+        except PsamVaultError as exc:
+            print_error(exc)
+            raise typer.Exit(code=1)
 
     # Reload session again
     session = load_session()
@@ -736,8 +754,9 @@ def search(
             note_results = _search_notes(key, raw_notes, query)
         except typer.Exit:
             raise
-        except Exception:
-            pass
+        except PsamVaultError as exc:
+            print_error(exc)
+            raise typer.Exit(code=1)
 
     # Display results
     total = len(site_results) + len(ak_results) + len(note_results)

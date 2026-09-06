@@ -4,6 +4,8 @@ import typer
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
 from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
+from error_ui import print_error
+from errors import PsamVaultError
 from session import clear_session, is_logged_in, load_session, save_session
 
 from spinner import Spinner
@@ -201,8 +203,8 @@ def signup():
             )
     except typer.Exit:
         raise
-    except Exception as e:
-        typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     typer.echo(f"\n Account created for {result['username']}.")
@@ -325,8 +327,8 @@ def migrate():
             api_client.migrate_password(username, old_password, master)
         except typer.Exit:
             raise
-        except Exception as e:
-            typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     typer.echo("  ✓ Account migrated.\n")
@@ -338,8 +340,8 @@ def migrate():
             result = api_client.login(username, master)
         except typer.Exit:
             raise
-        except Exception as e:
-            typer.echo(f"\n Error: Login after migration failed.\n{e}", err=True)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     login_key = derive_key(master, result["kdf_salt"])
@@ -420,8 +422,9 @@ def whoami():
     try:
         with Spinner("Fetching profile"):
             result = api_client.me(session["access_token"])
-    except api_client.ApiError:
-        raise typer.Exit()
+    except PsamVaultError as exc:
+        print_error(exc)
+        raise typer.Exit(code=1)
 
     typer.echo(
         f"\n Logged in as: {result['username']} ({result['email']})"

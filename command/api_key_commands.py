@@ -8,8 +8,9 @@ import typer
 from cryptography.exceptions import InvalidTag
  
 import api_client
-from api_client import ApiError
 from crypto import decrypt_api_key, encrypt_api_key
+from error_ui import print_error
+from errors import ConflictError, NotFoundError, PsamVaultError
 from session import load_session
  
 app = typer.Typer(
@@ -160,12 +161,15 @@ def ak_add(
                 iv=iv,
                 notes=notes,
             )
-        except ApiError:
+        except ConflictError:
             typer.echo(
                 f"\n ✗ API key '{name}' already exists in your vault.",
                 err=True,
             )
-            typer.echo("   Use  psamvault api-key update  to modify it.", err=True)
+            typer.echo(" → Use  psamvault ak-update  to modify it.", err=True)
+            raise typer.Exit(code=1)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
     typer.echo(f" API key '{name}' saved successfully\n")
     
@@ -198,12 +202,15 @@ def ak_get(
                 refresh_token=session["refresh_token"],
                 name=name,
             )
-    except api_client.ApiError:
+    except NotFoundError:
         typer.echo(
             f"\n ✗ API key '{name}' was not found in your vault.",
             err=True,
         )
-        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        typer.echo(" → Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     try:
@@ -369,12 +376,15 @@ def ak_update(
                 refresh_token=session["refresh_token"],
                 name=name,
             )
-    except api_client.ApiError:
+    except NotFoundError:
         typer.echo(
             f"\n ✗ API key '{name}' was not found in your vault.",
             err=True,
         )
-        typer.echo("   Use  psamvault ak-list  to see your saved API keys.", err=True)
+        typer.echo(" → Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     # Reload session — the fetch above may have rotated the tokens.
