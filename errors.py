@@ -56,7 +56,15 @@ class NetworkError(ApiError):
 
 
 class ValidationError(ApiError):
-    """The request failed server-side validation (HTTP 422)."""
+    """The request failed server-side validation (HTTP 422).
+
+    Attributes:
+        details: Optional bullet list of per-field messages from FastAPI.
+    """
+
+    def __init__(self, message: str, details: list[str] | None = None, hint: str | None = None):
+        super().__init__(message, hint=hint)
+        self.details = list(details or [])
 
 
 class ConflictError(ApiError):
