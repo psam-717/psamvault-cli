@@ -47,7 +47,7 @@ def export_backup(
         )
         raise typer.Exit(code=1)
 
-    session = load_session()
+    session = api_client.ensure_session()
     vek = bytes.fromhex(session["vek"])
 
     suffix = "-plaintext" if plaintext else ""
