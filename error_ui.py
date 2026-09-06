@@ -13,9 +13,24 @@ import typer
 
 from errors import PsamVaultError
 
+# Module-level switch set by the `--verbose` global CLI flag so command
+# functions do not each need a ctx parameter.
+_verbose_enabled = False
 
-def print_error(exc: PsamVaultError, verbose: bool = False) -> None:
-    """Render a PsamVaultError to stderr and exit non-zero."""
+
+def enable_verbose() -> None:
+    """Turn on verbose error detail for the rest of the process."""
+    global _verbose_enabled
+    _verbose_enabled = True
+
+
+def print_error(exc: PsamVaultError, verbose: bool | None = None) -> None:
+    """Render a PsamVaultError to stderr.
+
+    ``verbose=None`` falls back to the process-wide ``--verbose`` switch.
+    """
+    if verbose is None:
+        verbose = _verbose_enabled
     message = getattr(exc, "message", None) or str(exc)
     typer.echo(f"\n ✗ {message}", err=True)
 
