@@ -112,7 +112,9 @@ def _count_commits_behind(repo_root: pathlib.Path) -> Optional[int]:
         if result.returncode == 0:
             count = result.stdout.strip()
             return int(count) if count else 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        # OSError covers FileNotFoundError (POSIX) and NotADirectoryError
+        # (Windows raises it when cwd does not exist).
         pass
     return None
 
