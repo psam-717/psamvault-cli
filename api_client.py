@@ -2,7 +2,14 @@ import os
 import httpx
 import typer
 
-from errors import ApiError  # noqa: F401  (re-exported for back-compat: dashboard + old tests)
+from errors import (  # noqa: F401  (ApiError re-exported for back-compat: dashboard + old tests)
+    ApiError,
+    ConflictError,
+    NetworkError,
+    NotFoundError,
+    SessionExpiredError,
+    ValidationError,
+)
 from session import update_tokens
 
 
@@ -13,85 +20,117 @@ def _base_url() -> str:
 def _auth_headers(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
 
-def _handle_error(response: httpx.Response) -> None:
+
+def _request(method: str, url: str, **kwargs) -> httpx.Response:
+    """Run an HTTP request, translating transport failures into NetworkError.
+
+    The CLI prints errors at the command layer only — no raw httpx exceptions
+    and no echo here.
     """
-    Raise a clean typer error for non-2xx responses instead of letting
-    httpx bubble up a raw exception.
+    try:
+        return httpx.request(method, url, **kwargs)
+    except httpx.HTTPError as exc:
+        raise NetworkError(
+            "Could not reach the psamvault server",
+            hint="Check your internet connection and PSAMVAULT_API_URL",
+        ) from exc
+
+
+def _get(url: str, **kwargs) -> httpx.Response:
+    return _request("GET", url, **kwargs)
+
+
+def _post(url: str, **kwargs) -> httpx.Response:
+    return _request("POST", url, **kwargs)
+
+
+def _put(url: str, **kwargs) -> httpx.Response:
+    return _request("PUT", url, **kwargs)
+
+
+def _delete(url: str, **kwargs) -> httpx.Response:
+    return _request("DELETE", url, **kwargs)
+
+
+def _handle_error(response: httpx.Response) -> None:
+    """Raise a typed, user-facing error for non-2xx responses.
+
+    Errors are raised (never echoed) so the command layer is the single print
+    site — preventing double-printed messages and letting non-CLI consumers
+    (dashboard, TUI, MCP) catch the typed exception themselves.
     """
     if response.status_code == 422:
         # Pydantic validation error — extract the human-readable messages
         # from FastAPI's error list: [{"msg": "...", "loc": [...], ...}, ...]
+        details = []
         try:
-            errors = response.json().get("detail", [])
-            messages = []
-            for err in errors:
+            for err in response.json().get("detail", []):
                 msg = err.get("msg", "")
                 # FastAPI prefixes field_validator messages with "Value error, " — strip it
                 msg = msg.removeprefix("Value error, ")
                 if msg:
-                    messages.append(f"  • {msg}")
-            if messages:
-                typer.echo("\n Error: Validation failed:", err=True)
-                for m in messages:
-                    typer.echo(m, err=True)
-                typer.echo("", err=True)
-            else:
-                typer.echo("Error: Invalid request (422).", err=True)
+                    details.append(msg)
         except Exception:
-            typer.echo(f"Error: Invalid request (422): {response.text}", err=True)
-        raise ApiError("Bad request (422)")
+            details = []
+        raise ValidationError(
+            "Validation failed",
+            details=details,
+            hint="Fix the highlighted fields and try again",
+        )
 
     if response.status_code == 401:
-        detail = response.json().get("detail", "")
-        if detail == "Could not validate credentials":
-            text = (
-                "\n Session timed out after inactivity."
-                "\n -> Run  psamvault list  to refresh your session, then try again.\n"
-            )
-        else:
-            text = f" Error: {detail or 'Invalid credentials or session expired.'}"
-        typer.echo(text, err=True)
-        raise ApiError(text)
+        detail = response.json().get("detail", "") if response.content else ""
+        raise SessionExpiredError(
+            "Your session is invalid or has expired",
+            hint="Run  psamvault list  to refresh your session, then try again",
+        )
 
     if response.status_code == 404:
         detail = response.json().get("detail", "Entry not found.")
-        text = f"Error: {detail}"
-        raise ApiError(text)
+        raise NotFoundError(str(detail))
 
     if response.status_code == 409:
         detail = response.json().get("detail", "Conflict.")
-        text = f"Error: {detail}"
-        raise ApiError(text)
+        raise ConflictError(str(detail))
 
     if not response.is_success:
-        text = f"Error {response.status_code}: {response.text}"
-        typer.echo(text, err=True)
-        raise ApiError(text)
-    
+        err = ApiError(f"Server error ({response.status_code})", hint="Try again in a moment")
+        err.response_text = response.text[:500]  # technical detail for --verbose
+        raise err
+
 
 def _refresh_and_retry(refresh_token: str, retry_fn):
-    """
-    Attempt to refresh the access token then retry the original request.
-    Called automatically when a 401 is received mid-session.
+    """Refresh the access token then retry the original request.
+
+    Called automatically when a 401 is received mid-session. The refresh
+    token itself may be dead (expired/revoked) — that is reported as a
+    SessionExpiredError, never as a transport or "not found" failure.
     """
     try:
         new_access, new_refresh = refresh_access_token(refresh_token)
-        update_tokens(new_access, new_refresh)
-        result = retry_fn(new_access)
-        if result is None:
-            raise ValueError("Still unauthorised after token refresh")
-        return result
-    except Exception:
-        msg = "Session expired. Please run psamvault login again"
-        typer.echo(msg, err=True)
-        raise ApiError(msg)
+    except NetworkError:
+        raise  # server unreachable — not a session problem
+    except (ApiError, ValueError) as exc:
+        raise SessionExpiredError(
+            "Your session has expired",
+            hint="Run  psamvault login  to sign in again",
+        ) from exc
+
+    update_tokens(new_access, new_refresh)
+    result = retry_fn(new_access)
+    if result is None:
+        raise SessionExpiredError(
+            "Your session has expired",
+            hint="Run  psamvault login  to sign in again",
+        )
+    return result
     
     
 
 # Auth endpoints
 def signup(username: str, email: str, login_password: str, kdf_salt: str, encrypted_vek: str, vek_iv: str) -> dict:
     """POST /auth/signup"""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/signup",
         json={
             "username": username,
@@ -108,7 +147,7 @@ def signup(username: str, email: str, login_password: str, kdf_salt: str, encryp
 
 def login(username: str, login_password: str) -> dict:
     """POST /auth/login — returns access_token, refresh_token, kdf_salt."""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/login",
         json={
             "username": username,
@@ -121,7 +160,7 @@ def login(username: str, login_password: str) -> dict:
 
 def migrate_password(username: str, old_login_password: str, new_master_password: str) -> dict:
     """POST /auth/migrate — swap old password hash for new master-password hash."""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/migrate",
         json={
             "username": username,
@@ -135,7 +174,7 @@ def migrate_password(username: str, old_login_password: str, new_master_password
 
 def refresh_access_token(refresh_token: str) -> str:
     """POST /auth/refresh - returns a new access_token string"""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/refresh",
         json={"refresh_token": refresh_token}
     )
@@ -146,7 +185,7 @@ def refresh_access_token(refresh_token: str) -> str:
 
 def logout(access_token: str, refresh_token: str) -> None:
     """POST /auth/logout - revokes the refresh token on the server"""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/logout",
         headers=_auth_headers(access_token),
         json={"refresh_token": refresh_token}
@@ -156,7 +195,7 @@ def logout(access_token: str, refresh_token: str) -> None:
     
 def me(access_token: str) -> dict:
     """GET /auth/me - return the current user's profile"""
-    response = httpx.get(
+    response = _get(
         f"{_base_url()}/auth/me",
         headers=_auth_headers(access_token)
     )
@@ -178,7 +217,7 @@ def add_vault_entry(
 ) -> dict:
     """POST /vault - store a new encrypted entry"""
     def _call(token: str) -> dict:
-        response = httpx.post(
+        response = _post(
             f"{_base_url()}/vault",
             headers=_auth_headers(token),
             json={
@@ -207,7 +246,7 @@ def get_vault_entry(
 ) -> dict:
     """GET /vault/{site_name} — fetch a single encrypted entry."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token)
         )
@@ -228,7 +267,7 @@ def list_vault_entries(
 ) -> dict:
     """GET /vault — fetch all entries as lightweight list items."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/vault",
             headers=_auth_headers(token)
         )
@@ -254,7 +293,7 @@ def update_vault_entry(
 ) -> dict:
     """PUT /vault/{site_name} — update an existing encrypted entry"""
     def _call(token: str) -> dict:
-        response = httpx.put(
+        response = _put(
             f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token),
             json={
@@ -282,7 +321,7 @@ def update_vault_entry_url(
 ) -> dict:
     """PUT /vault/{site_name} — update only the login_url field."""
     def _call(token: str) -> dict:
-        response = httpx.put(
+        response = _put(
             f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token),
             json={"login_url": login_url},
@@ -305,7 +344,7 @@ def delete_vault_entry(
 ) -> dict:
     """DELETE /vault/{site_name} — permanently remove an entry."""
     def _call(token: str) -> dict:
-        response = httpx.delete(
+        response = _delete(
             f"{_base_url()}/vault/{site_name}",
             headers=_auth_headers(token)
         )
@@ -328,7 +367,7 @@ def generate_recovery_codes_api(
     
 ) -> dict:
     """POST /auth/recovery/generate — store a fresh set of recovery codes."""
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/recovery/generate",
         headers=_auth_headers(access_token),
         json={"codes": codes}
@@ -339,7 +378,7 @@ def generate_recovery_codes_api(
 
 def get_remaining_codes(access_token: str) -> dict:
     """GET /auth/recovery/remaining — check how many codes are left."""
-    response = httpx.get(
+    response = _get(
         f"{_base_url()}/auth/recovery/remaining",
         headers=_auth_headers(access_token)
     )
@@ -352,7 +391,7 @@ def recover_with_code(username: str, recovery_code: str) -> dict:
     POST /auth/recovery/recover — step 1 of recovery flow.
     Returns encrypted_master, iv, kdf_salt.
     """
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/recovery/recover",
         json={
             "username": username,
@@ -376,7 +415,7 @@ def reset_password_api(
     Only the used code is consumed — remaining codes stay valid.
     Returns remaining_codes count.
     """
-    response = httpx.post(
+    response = _post(
         f"{_base_url()}/auth/recovery/reset-password",
         json={
             "username": username,
@@ -410,7 +449,7 @@ def add_api_key_entry(
         }
         if notes is not None:
             body["notes"] = notes
-        response = httpx.post(
+        response = _post(
             f"{_base_url()}/apikeys",
             headers=_auth_headers(token),
             json=body,
@@ -433,7 +472,7 @@ def get_api_key_entry(
 ) -> dict:
     """GET /apikeys/{name} — fetch a single encrypted API key entry."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/apikeys/{name}",
             headers=_auth_headers(token)
         )
@@ -455,7 +494,7 @@ def list_api_key_entries(
 ) -> dict:
     """GET /apikeys — fetch all API key entries as lightweight list items."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/apikeys",
             headers=_auth_headers(token),
         )
@@ -488,7 +527,7 @@ def update_api_key_entry(
         }
         if notes is not None:
             body["notes"] = notes
-        response = httpx.put(
+        response = _put(
             f"{_base_url()}/apikeys/{name}",
             headers=_auth_headers(token),
             json=body,
@@ -511,7 +550,7 @@ def delete_api_key_entry(
 ) -> dict:
     """DELETE /apikeys/{name} — permanently remove an API key entry."""
     def _call(token: str) -> dict:
-        response = httpx.delete(
+        response = _delete(
             f"{_base_url()}/apikeys/{name}",
             headers=_auth_headers(token),
         )
@@ -546,7 +585,7 @@ def add_note_entry(
         }
         if category is not None:
             body["category"] = category
-        response = httpx.post(
+        response = _post(
             f"{_base_url()}/notes",
             headers=_auth_headers(token),
             json=body,
@@ -569,7 +608,7 @@ def get_note_entry(
 ) -> dict:
     """GET /notes/{title} — fetch a single encrypted note entry."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/notes/{title}",
             headers=_auth_headers(token),
         )
@@ -590,7 +629,7 @@ def list_note_entries(
 ) -> dict:
     """GET /notes — fetch all note entries as lightweight list items."""
     def _call(token: str) -> dict:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/notes",
             headers=_auth_headers(token),
         )
@@ -625,7 +664,7 @@ def update_note_entry(
             body["iv"] = iv
         if new_title is not None:
             body["title"] = new_title
-        response = httpx.put(
+        response = _put(
             f"{_base_url()}/notes/{title}",
             headers=_auth_headers(token),
             json=body,
@@ -648,7 +687,7 @@ def delete_note_entry(
 ) -> dict:
     """DELETE /notes/{title} — permanently remove a note entry."""
     def _call(token: str) -> dict:
-        response = httpx.delete(
+        response = _delete(
             f"{_base_url()}/notes/{title}",
             headers=_auth_headers(token),
         )
@@ -669,7 +708,7 @@ def export_notes(
 ) -> list[dict]:
     """GET /notes/export/all — return all note entries with full encrypted blobs."""
     def _call(token: str) -> list[dict]:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/notes/export/all",
             headers=_auth_headers(token),
         )
@@ -693,7 +732,7 @@ def export_vault(
 ) -> list[dict]:
     """GET /vault/export/all — return all vault entries with full encrypted blobs."""
     def _call(token: str) -> list[dict]:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/vault/export/all",
             headers=_auth_headers(token),
         )
@@ -714,7 +753,7 @@ def export_api_keys(
 ) -> list[dict]:
     """GET /apikeys/export/all — return all API key entries with full encrypted blobs."""
     def _call(token: str) -> list[dict]:
-        response = httpx.get(
+        response = _get(
             f"{_base_url()}/apikeys/export/all",
             headers=_auth_headers(token),
         )
@@ -735,7 +774,7 @@ def delete_account(
 ) -> dict:
     """DELETE /auth/account — permanently delete the user's account and all data."""
     def _call(token: str) -> dict:
-        response = httpx.delete(
+        response = _delete(
             f"{_base_url()}/auth/account",
             headers=_auth_headers(token),
         )
