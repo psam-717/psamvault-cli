@@ -31,3 +31,11 @@
 - `whoami` / recovery codes now refresh too
 - Dead refresh token → one clean `✗ Your session has expired → Run psamvault login` (typed, never misattributed)
 - Token lifetimes extended server-side: access 15m → **60m**, refresh 20d → **90d**, configurable via `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` (backend)
+
+### Safe upgrades (#43)
+
+- `upgrade` (source installs): local modifications are now **auto-stashed before pulling and restored after** — no more "git pull failed" on a dirty tree; a restore conflict parks the changes in a stash with instructions instead of losing them
+- `upgrade` takes a **pre-update snapshot** of `~/.psamvault` state into `~/.psamvault/backups/` (keeps the last 5) before touching anything
+- `upgrade` validates the result: dependency reinstall failure and a failed `import main` smoke test are reported clearly with a rollback hint (previously the pip step's result was ignored)
+- `upgrade` detects local commits ahead of main and explains how to resolve instead of failing cryptically
+- `upgrade` (pipx installs): editable/source-linked installs are detected before `pipx upgrade` and routed to the source track or a reinstall — no more silently broken editable links
