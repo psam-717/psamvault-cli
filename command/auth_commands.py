@@ -4,6 +4,8 @@ import typer
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
 from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
+from error_ui import print_error
+from errors import PsamVaultError
 from session import clear_session, is_logged_in, load_session, save_session
 
 from spinner import Spinner
@@ -420,8 +422,9 @@ def whoami():
     try:
         with Spinner("Fetching profile"):
             result = api_client.me(session["access_token"])
-    except api_client.ApiError:
-        raise typer.Exit()
+    except PsamVaultError as exc:
+        print_error(exc)
+        raise typer.Exit(code=1)
 
     typer.echo(
         f"\n Logged in as: {result['username']} ({result['email']})"
