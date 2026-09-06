@@ -24,3 +24,15 @@
 - **dashboard**: added Host header validation (`_enforce_localhost_host`) — rejects requests with unexpected Host values to block DNS-rebinding attacks
 - **dashboard**: changed password/key reveal endpoints from GET to POST with `Cache-Control: no-store` — secrets no longer cached to disk or retained in browser history
   - Updated JS `fetch()` calls in `entry_detail.html` and `api_key_detail.html` to use `{method: 'POST'}`
+
+### Typed errors (#38)
+
+- API layer now raises typed exceptions (`NotFoundError`, `SessionExpiredError`, `NetworkError`, `ValidationError`, `ConflictError`) — no origin-side printing; command layer owns all user-facing messages (single print site)
+- `ak-get` / `ak-update` / `ak-add` / vault / notes: a dead or expired session is **no longer misreported as "key not found"** — shows `✗ Your session has expired → Run psamvault login`; network failures show `✗ Could not reach the psamvault server → check your connection`
+- `browser open` / `browser daemon`: typed errors distinguish missing entry from session/network failure in both JSON and CLI output
+- `whoami`: prints the actual reason (session expired / server unreachable) instead of exiting silently
+- `search`: session/network failures are surfaced with a clean ✗ + hint instead of being silently swallowed
+- Unreachable server / timeout anywhere now yields a clean connectivity message instead of a raw `httpx` traceback (including during token refresh)
+- New global `--verbose` flag shows underlying error type/detail
+- signup / migrate / auto-login-after-migration error paths no longer print raw exception text
+- `update_check`: fixed Windows crash (`NotADirectoryError`) when the git repo path is invalid — update notice path degrades gracefully
