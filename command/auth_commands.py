@@ -203,8 +203,8 @@ def signup():
             )
     except typer.Exit:
         raise
-    except Exception as e:
-        typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
+    except PsamVaultError as exc:
+        print_error(exc)
         raise typer.Exit(code=1)
 
     typer.echo(f"\n Account created for {result['username']}.")
@@ -327,8 +327,8 @@ def migrate():
             api_client.migrate_password(username, old_password, master)
         except typer.Exit:
             raise
-        except Exception as e:
-            typer.echo(f"\n Error: Could not reach the server. Is it running?\n{e}", err=True)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     typer.echo("  ✓ Account migrated.\n")
@@ -340,8 +340,8 @@ def migrate():
             result = api_client.login(username, master)
         except typer.Exit:
             raise
-        except Exception as e:
-            typer.echo(f"\n Error: Login after migration failed.\n{e}", err=True)
+        except PsamVaultError as exc:
+            print_error(exc)
             raise typer.Exit(code=1)
 
     login_key = derive_key(master, result["kdf_salt"])
