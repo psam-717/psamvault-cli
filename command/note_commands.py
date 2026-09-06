@@ -56,7 +56,7 @@ def _validate_title(title: str) -> None:
 
 def _get_session_and_key() -> tuple[dict, bytes]:
     """Load the session and return the Vault Encryption Key."""
-    session = load_session()
+    session = api_client.ensure_session()
     key = bytes.fromhex(session["vek"])
     return session, key
 
@@ -188,7 +188,7 @@ def note_list():
     Examples:
         psamvault note-list
     """
-    session = load_session()
+    session = api_client.ensure_session()
 
     with Spinner("Fetching your notes"):
         data = api_client.list_note_entries(
@@ -342,7 +342,7 @@ def note_delete(
         raise typer.Exit()
 
     typer.echo("")
-    session = load_session()
+    session = api_client.ensure_session()
 
     with Spinner(f"Deleting note '{title}'"):
         api_client.delete_note_entry(

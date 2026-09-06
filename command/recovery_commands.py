@@ -111,7 +111,7 @@ def generate_codes():
         typer.echo(" You are not logged in. Run psamvault login first", err=True)
         raise typer.Exit(code=1)
     
-    session = load_session()
+    session = api_client.ensure_session()
     
     typer.echo(
         "\n  This will replace all your existing recovery codes."
@@ -177,7 +177,7 @@ def remaining_codes():
         typer.echo(" You are not logged in. Run psamvault login first.", err=True)
         raise typer.Exit(code=1)
     
-    session = load_session()
+    session = api_client.ensure_session()
     
     with Spinner("Checking recovery codes"):
         result = api_client.get_remaining_codes(session["access_token"])

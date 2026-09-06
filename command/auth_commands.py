@@ -387,7 +387,7 @@ def logout():
         raise typer.Exit()
 
     typer.echo("")
-    session = load_session()
+    session = api_client.ensure_session()
 
     try:
         with Spinner("Logging out"):
@@ -417,7 +417,7 @@ def whoami():
         typer.echo(" You are not logged in. Run psamvault login first")
         raise typer.Exit()
 
-    session = load_session()
+    session = api_client.ensure_session()
 
     try:
         with Spinner("Fetching profile"):

@@ -59,7 +59,7 @@ def _validate_entry_name(name: str) -> None:
     
     
 def _get_session_and_key() -> tuple[dict, bytes]:
-    session = load_session()
+    session = api_client.ensure_session()
     key = bytes.fromhex(session["vek"])
     return session, key
 
@@ -269,7 +269,7 @@ def ak_list(
         psamvault ak-list
         psamvault ak-list --project twitter-bot
     """
-    session = load_session()
+    session = api_client.ensure_session()
 
     with Spinner("Fetching your API keys"):
         data = api_client.list_api_key_entries(
@@ -451,7 +451,7 @@ def ak_delete(
         raise typer.Exit()
  
     typer.echo("")
-    session = load_session()
+    session = api_client.ensure_session()
  
     with Spinner(f"Deleting API key '{name}'"):
         api_client.delete_api_key_entry(

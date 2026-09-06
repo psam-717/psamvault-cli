@@ -73,7 +73,7 @@ def _get_session_and_key() -> tuple[dict, bytes]:
     The VEK is stored directly in the session after being decrypted at login —
     no key derivation needed here.
     """
-    session = load_session()
+    session = api_client.ensure_session()
     key = bytes.fromhex(session["vek"])
     return session, key
 
@@ -245,7 +245,7 @@ def site_list():
         psamvault site-list
         psamvault vault site-list
     """
-    session = load_session()
+    session = api_client.ensure_session()
 
     with Spinner("Fetching your vault"):
         data = api_client.list_vault_entries(
@@ -380,7 +380,7 @@ def list_entries():
         psamvault list
         psamvault vault list
     """
-    session = load_session()
+    session = api_client.ensure_session()
 
     with Spinner("Fetching your vault"):
         site_data = api_client.list_vault_entries(
@@ -580,7 +580,7 @@ def delete(
         raise typer.Exit()
     
     typer.echo("")
-    session = load_session()
+    session = api_client.ensure_session()
     
     with Spinner(f"Deleting entry for {site}"):
         try:

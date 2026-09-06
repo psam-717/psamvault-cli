@@ -90,25 +90,25 @@ def test_vault_help_lists_subcommands():
 # ── vault commands without a session ──────────────────────────────────────────
 
 def test_vault_add_without_session_exits_nonzero():
-    with patch("command.vault_commands.load_session", side_effect=typer.Exit(code=1)):
+    with patch("session.load_session", side_effect=typer.Exit(code=1)):
         result = runner.invoke(app, ["add", "github.com", "--user", "me@test.com", "--pass", "secret"])
     assert result.exit_code != 0
 
 
 def test_vault_get_without_session_exits_nonzero():
-    with patch("command.vault_commands.load_session", side_effect=typer.Exit(code=1)):
+    with patch("session.load_session", side_effect=typer.Exit(code=1)):
         result = runner.invoke(app, ["get", "github.com"])
     assert result.exit_code != 0
 
 
 def test_vault_list_without_session_exits_nonzero():
-    with patch("command.vault_commands.load_session", side_effect=typer.Exit(code=1)):
+    with patch("session.load_session", side_effect=typer.Exit(code=1)):
         result = runner.invoke(app, ["list"])
     assert result.exit_code != 0
 
 
 def test_vault_delete_without_session_exits_nonzero():
-    with patch("command.vault_commands.load_session", side_effect=typer.Exit(code=1)):
+    with patch("session.load_session", side_effect=typer.Exit(code=1)):
         result = runner.invoke(app, ["delete", "github.com"])
     assert result.exit_code != 0
 
@@ -508,7 +508,7 @@ def test_ak_get_nonexistent_key_shows_friendly_error():
     """ak-get on a name that doesn't exist shows a helpful message and suggests ak-list."""
     import api_client
     import errors
-    with patch("command.api_key_commands.load_session") as mock_load, \
+    with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
          patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")):
         mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
@@ -521,7 +521,7 @@ def test_ak_get_nonexistent_key_shows_friendly_error():
 def test_ak_get_session_expiry_is_not_reported_as_not_found():
     """A dead session during ak-get must NOT be misreported as 'key not found'."""
     import errors
-    with patch("command.api_key_commands.load_session") as mock_load, \
+    with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
          patch("api_client.get_api_key_entry",
                side_effect=errors.SessionExpiredError("Your session has expired", hint="Run psamvault login to sign in again")):
@@ -536,7 +536,7 @@ def test_ak_get_session_expiry_is_not_reported_as_not_found():
 def test_ak_get_network_error_is_not_reported_as_not_found():
     """A network failure during ak-get must be reported as connectivity, not 'not found'."""
     import errors
-    with patch("command.api_key_commands.load_session") as mock_load, \
+    with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
          patch("api_client.get_api_key_entry",
                side_effect=errors.NetworkError("Could not reach the psamvault server", hint="Check your internet connection")):
@@ -554,7 +554,7 @@ def test_ak_update_nonexistent_key_shows_friendly_error():
     """ak-update on a name that doesn't exist shows a helpful message and suggests ak-list."""
     import api_client
     import errors
-    with patch("command.api_key_commands.load_session") as mock_load, \
+    with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
          patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")):
         mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
