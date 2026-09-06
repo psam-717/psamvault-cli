@@ -67,9 +67,15 @@ def main(
         Optional[bool],
         typer.Option("--version", "-V", help="Show version and exit", callback=_version_callback),
     ] = None,
+    verbose: Annotated[
+        Optional[bool],
+        typer.Option("--verbose", "-v", help="Show underlying error details"),
+    ] = None,
 ) -> None:
     """psamvault — a secure password vault for the terminal."""
-    pass
+    if verbose:
+        import error_ui
+        error_ui.enable_verbose()
 
 
 # ── Include sub-command groups ──────────────────────────────────────────
