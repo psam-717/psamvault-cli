@@ -518,6 +518,35 @@ def test_ak_get_nonexistent_key_shows_friendly_error():
     assert "ak-list" in result.output
 
 
+def test_ak_get_session_expiry_is_not_reported_as_not_found():
+    """A dead session during ak-get must NOT be misreported as 'key not found'."""
+    import errors
+    with patch("command.api_key_commands.load_session") as mock_load, \
+         patch("crypto.derive_master_password", return_value=bytes(range(32))), \
+         patch("api_client.get_api_key_entry",
+               side_effect=errors.SessionExpiredError("Your session has expired", hint="Run psamvault login to sign in again")):
+        mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
+        result = runner.invoke(app, ["ak-get", "nonexistent-key"])
+    assert result.exit_code != 0
+    assert "not found" not in result.output.lower()
+    assert "session has expired" in result.output.lower()
+    assert "login" in result.output.lower()
+
+
+def test_ak_get_network_error_is_not_reported_as_not_found():
+    """A network failure during ak-get must be reported as connectivity, not 'not found'."""
+    import errors
+    with patch("command.api_key_commands.load_session") as mock_load, \
+         patch("crypto.derive_master_password", return_value=bytes(range(32))), \
+         patch("api_client.get_api_key_entry",
+               side_effect=errors.NetworkError("Could not reach the psamvault server", hint="Check your internet connection")):
+        mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
+        result = runner.invoke(app, ["ak-get", "nonexistent-key"])
+    assert result.exit_code != 0
+    assert "not found" not in result.output.lower()
+    assert "reach" in result.output.lower()
+
+
 # ── ak-update with non-existent key ────────────────────────────────────────────────
 
 
