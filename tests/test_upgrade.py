@@ -3,6 +3,7 @@ Integration tests for upgrade_utils: snapshot, git-state detection, and the
 Hermes-style stash -> pull -> restore flow, exercised against REAL temp git
 repos (no mocking of git itself).
 """
+import json
 import os
 import shutil
 import subprocess
@@ -169,3 +170,30 @@ def test_stash_and_pull_restores_on_pull_failure(repo_pair, tmp_path, git_env):
     # user's local edit was restored even though the upgrade failed
     assert (work / "file.txt").read_text() == "keep me\n"
     assert _git(work, "stash", "list").stdout.strip() == ""
+
+
+# ── pipx editable detection ─────────────────────────────────────────────────
+
+def _fake_pipx_run(payload: str, rc: int = 0):
+    def _run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, rc, payload, "")
+    return _run
+
+
+def test_is_pipx_editable_true_when_editable(monkeypatch):
+    payload = json.dumps({"venvs": {"psamvault": {"metadata": {"main_package": {
+        "editable": True, "package_or_url": "file:///src/psamvault-cli"}}}}})
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run(payload))
+    assert upgrade_utils.is_pipx_editable() is True
+
+
+def test_is_pipx_editable_false_for_pypi_install(monkeypatch):
+    payload = json.dumps({"venvs": {"psamvault": {"metadata": {"main_package": {
+        "editable": False, "package_or_url": "psamvault"}}}}})
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run(payload))
+    assert upgrade_utils.is_pipx_editable() is False
+
+
+def test_is_pipx_editable_false_when_pipx_missing(monkeypatch):
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run("", rc=127))
+    assert upgrade_utils.is_pipx_editable() is False
