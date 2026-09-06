@@ -24,3 +24,10 @@
 - **dashboard**: added Host header validation (`_enforce_localhost_host`) — rejects requests with unexpected Host values to block DNS-rebinding attacks
 - **dashboard**: changed password/key reveal endpoints from GET to POST with `Cache-Control: no-store` — secrets no longer cached to disk or retained in browser history
   - Updated JS `fetch()` calls in `entry_detail.html` and `api_key_detail.html` to use `{method: 'POST'}`
+
+### Proactive token refresh (#40)
+
+- Access tokens are refreshed **proactively**: every authed command checks JWT expiry and renews the session before the first request — no more mid-command "session expired" walls or the old `run psamvault list to refresh` workaround
+- `whoami` / recovery codes now refresh too
+- Dead refresh token → one clean `✗ Your session has expired → Run psamvault login` (typed, never misattributed)
+- Token lifetimes extended server-side: access 15m → **60m**, refresh 20d → **90d**, configurable via `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` (backend)
