@@ -2,19 +2,8 @@ import os
 import httpx
 import typer
 
+from errors import ApiError  # noqa: F401  (re-exported for back-compat: dashboard + old tests)
 from session import update_tokens
-
-
-class ApiError(Exception):
-    """Raised on API-level errors (non-2xx responses, session expiry).
-
-    Replaces bare ``typer.Exit`` (a ``SystemExit``) so non-CLI consumers
-    (dashboard, TUI) can catch it with a normal ``except Exception``
-    without the runtime terminating behaviour of ``SystemExit``.
-
-    The CLI's broad ``except Exception`` handlers already catch it and
-    re-raise as ``typer.Exit``, preserving the existing UX.
-    """
 
 
 def _base_url() -> str:
