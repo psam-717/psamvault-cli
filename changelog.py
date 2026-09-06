@@ -12,6 +12,20 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.5.6": [
+        "New:   Typed error handling — accurate messages for not-found, session-expired, network, validation and conflict failures",
+        "       ak-get / ak-update / ak-add no longer report session or network problems as 'key not found'",
+        "New:   Proactive token refresh — every authed command renews an expiring access token before its first request",
+        "       whoami and recovery codes refresh too; the 'run psamvault list' workaround is gone",
+        "New:   Safe upgrades — local modifications are auto-stashed, pulled over and restored (conflicts parked with instructions)",
+        "       pre-update snapshot of ~/.psamvault state; dependency reinstall + import smoke test; pipx editable-install detection",
+        "Changed: Server token lifetimes extended — access 60 min / refresh 90 days, env-configurable",
+        "Fixed: whoami exits with a clean reason on session/network errors instead of failing silently",
+        "Fixed: search no longer swallows session/network failures",
+        "Fixed: update_check Windows crash (NotADirectoryError) on an invalid git repo path",
+        "Fixed: raw exception text no longer leaks from signup/migrate/auto-login error paths",
+        "Tests:  170-test suite — per-failure-class mapping plus real-git upgrade integration tests",
+    ],
     "0.5.5": [
         "New:   Login URL detection for improved login flow",
         "New:   Formatting table for project-based .env keys",
