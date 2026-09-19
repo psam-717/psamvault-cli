@@ -449,7 +449,169 @@ def decrypt_note(
     return json.loads(plaintext.decode("utf-8"))
 
 
+# ── Backup passphrase wrap (recovery kit) ───────────────────────────────────────
+
+
+# A backup passphrase is a long-lived, reusable restore credential — it deserves a
+# higher floor than a login password.
+BACKUP_PASSPHRASE_MIN_LENGTH = 12
+
+# PBKDF2 cost for the wrapping key, matching the export passphrase derivation.
+BACKUP_KDF_ITERATIONS = 600_000
+
+KIT_KIND = "psamvault-key-envelope"
+KIT_FORMAT = 1
+
+
+def hash_passphrase(passphrase: str) -> str:
+    """Argon2id-hash a backup passphrase for server-side storage.
+
+    The server only needs this to *authenticate* a restore request. It never sees the
+    passphrase in a storing position and can never derive the wrapping key from this hash,
+    so the wrapped VEK it holds stays opaque to it.
+    """
+    return _ph.hash(passphrase)
+
+
+def wrap_vek_with_passphrase(
+    passphrase: str,
+    vek: bytes,
+    salt: bytes | None = None,
+    iterations: int = BACKUP_KDF_ITERATIONS,
+) -> tuple[str, str, str]:
+    """Wrap the Vault Encryption Key under a backup passphrase.
+
+    Args:
+        passphrase: The user-chosen backup passphrase (never stored, never transmitted).
+        vek:        The 32-byte Vault Encryption Key.
+        salt:       16-byte PBKDF2 salt; a fresh random one is generated when omitted.
+        iterations: PBKDF2 iteration count (recorded in the kit so a restore can match it).
+
+    Returns:
+        (wrapped_vek_hex, iv_hex, salt_hex)
+    """
+    salt = salt or os.urandom(16)
+    key = _derive_passphrase_key(passphrase, salt, iterations)
+    iv = os.urandom(12)
+    wrapped = AESGCM(key).encrypt(iv, vek, None)
+    return wrapped.hex(), iv.hex(), salt.hex()
+
+
+def unwrap_vek_with_passphrase(
+    passphrase: str,
+    wrapped_vek: str,
+    iv: str,
+    salt: str,
+    iterations: int = BACKUP_KDF_ITERATIONS,
+) -> bytes:
+    """Recover the VEK from a wrapped copy using the backup passphrase.
+
+    Raises:
+        cryptography.exceptions.InvalidTag: The passphrase is wrong or the data was tampered with.
+    """
+    key = _derive_passphrase_key(passphrase, bytes.fromhex(salt), iterations)
+    return AESGCM(key).decrypt(bytes.fromhex(iv), bytes.fromhex(wrapped_vek), None)
+
+
+def build_kit(
+    account: str,
+    wrapped_vek: str,
+    iv: str,
+    salt: str,
+    slot_id: str | None = None,
+    account_kdf_salt: str | None = None,
+    iterations: int = BACKUP_KDF_ITERATIONS,
+    created_at: datetime | None = None,
+) -> dict:
+    """Build the recovery-kit document (the portable half of a backup).
+
+    A kit carries key *material* only — no entry plaintext, no ciphertext, no pepper.
+    Anyone who finds the file still has to break PBKDF2-600k on the passphrase, and the
+    pepper is deliberately absent (a restore re-derives a fresh one on the new machine).
+
+    `account_kdf_salt` is included because a restore onto a fresh machine has to derive
+    the new login key *before* it has a session to ask the server for that salt. It is
+    not a secret — the login endpoint hands it to any client that authenticates.
+    """
+    return {
+        "kind": KIT_KIND,
+        "format": KIT_FORMAT,
+        "account": account,
+        "slot_id": slot_id,
+        "kdf": {
+            "algo": "pbkdf2-hmac-sha256",
+            "iterations": iterations,
+            "salt": salt,
+        },
+        "account_kdf_salt": account_kdf_salt,
+        "wrapped_vek": wrapped_vek,
+        "iv": iv,
+        "created_at": (created_at or datetime.utcnow()).isoformat() + "Z",
+    }
+
+
+def kit_to_json(kit: dict) -> str:
+    """Serialise a kit for writing to disk."""
+    return json.dumps(kit, indent=2)
+
+
+def parse_kit(text: str) -> dict:
+    """Parse and validate a recovery-kit file.
+
+    Raises:
+        ValueError: The file is not a kit, uses an unsupported format, or is malformed.
+    """
+    try:
+        kit = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("That file is not valid JSON.") from exc
+
+    if not isinstance(kit, dict) or kit.get("kind") != KIT_KIND:
+        raise ValueError("That file is not a psamvault recovery kit.")
+
+    if kit.get("format") != KIT_FORMAT:
+        raise ValueError(
+            f"Unsupported kit format {kit.get('format')!r} — this psamvault supports "
+            f"format {KIT_FORMAT}. Upgrade psamvault to use this kit."
+        )
+
+    kdf = kit.get("kdf") or {}
+    if kdf.get("algo") != "pbkdf2-hmac-sha256":
+        raise ValueError(f"Unsupported kit KDF {kdf.get('algo')!r}.")
+
+    for field in ("salt", "iv", "wrapped_vek"):
+        value = kdf.get("salt") if field == "salt" else kit.get(field)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"Kit is missing '{field}'.")
+        try:
+            bytes.fromhex(value)
+        except ValueError as exc:
+            raise ValueError(f"Kit field '{field}' is not valid hex.") from exc
+
+    if not kit.get("account"):
+        raise ValueError("Kit is missing the account name.")
+
+    return kit
+
+
 # ── Export / Import encryption ──────────────────────────────────────────────────
+
+
+def _derive_passphrase_key(
+    passphrase: str, salt: bytes, iterations: int = BACKUP_KDF_ITERATIONS
+) -> bytes:
+    """Derive a 32-byte AES key from a passphrase + salt.
+
+    Shared by the recovery kit (backup passphrase) and the export envelope (export
+    passphrase) so both use the same PBKDF2-HMAC-SHA256 strength.
+    """
+    return hashlib.pbkdf2_hmac(
+        hash_name="sha256",
+        password=passphrase.encode("utf-8"),
+        salt=salt,
+        iterations=iterations,
+        dklen=32,
+    )
 
 
 def _derive_export_key(passphrase: str, salt: bytes) -> bytes:
@@ -466,13 +628,7 @@ def _derive_export_key(passphrase: str, salt: bytes) -> bytes:
     Returns:
         A 32-byte AES-256 key.
     """
-    return hashlib.pbkdf2_hmac(
-        hash_name="sha256",
-        password=passphrase.encode("utf-8"),
-        salt=salt,
-        iterations=600_000,
-        dklen=32,
-    )
+    return _derive_passphrase_key(passphrase, salt, 600_000)
 
 
 def export_encrypt(data: dict, passphrase: str) -> str:
