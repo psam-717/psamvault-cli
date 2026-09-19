@@ -130,7 +130,6 @@ logs/
 # Local files/folders
 # =============================================================================
 SECURITY_PLAN.md
-plans
 .github\\skills
 .claude
 
