@@ -71,5 +71,14 @@ class ConflictError(ApiError):
     """The request conflicts with existing state (HTTP 409)."""
 
 
+class RateLimitedError(ApiError):
+    """Too many attempts in the server's rate-limit window (HTTP 429).
+
+    Recovery and backup-passphrase verification are deliberately capped (a wrong
+    passphrase is a brute-force target), so this is an expected outcome rather than
+    a server fault — the hint must say "wait", not "try again in a moment".
+    """
+
+
 class DecryptionError(PsamVaultError):
     """Local decryption failed (wrong key, corrupt blob, unexpected format)."""
