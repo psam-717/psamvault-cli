@@ -34,5 +34,11 @@
 
 ## Docs
 
+- docs(readme): a "Backup & recovery (new machine, wiped laptop)" section — create, verify,
+  status, rotate/revoke, `restore --from-kit`, per-OS kit paths, and a backup-vs-data-dump table
+- docs(readme): `export`/`import` are now described as a **data dump** rather than a "backup",
+  so the two artifacts are no longer confused
+- docs(security): key material and where it lives, what a kit file contains, why the restore
+  endpoints are authenticated on the passphrase hash, the threat model and the rotation limit
 - docs(plans): plans moved into `plans/{active,shipped,archive}` with a verified-status index
 - docs(plans): the backup and recovery plan records its live verification, the bugs it caught and its known limitations
