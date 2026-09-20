@@ -255,7 +255,8 @@ refresh tokens exactly like a password reset so a stolen session cannot outlive 
 - **CLI suite: 230 passed** (`python -m pytest tests -q`), up from 172 — 58 new tests across
   `test_crypto.py` (kit/wrap), `test_backup.py` (commands, wire shape, kit/dump separation) and
   `test_restore.py` (session-less restore).
-- **Live end-to-end: 36/36 checks, twice.** Scenario: fresh machine → signup → 3 sites + 1 API key →
+- **Live against PRODUCTION (2026-09-20): 37/37 checks.** After the backend PR merged (commit 9876022, Render auto-deployed), the same harness ran against https://psam-vault-backend.onrender.com: fresh machine -> signup -> 3 sites + 1 API key -> backup create -> destroy the machine -> configure -> restore -> list/get/ak-get returning the original plaintext -> rotate -> old kit refused. The throwaway account was deleted by the run's own cleanup, and an INDEPENDENT follow-up login as that account now fails, so nothing was left in the production database. The deployed migration was confirmed separately (a validate probe returns 200 for a nil slot id; a non-existent route returns 404).
+- **Live end-to-end, local backend: 36/36 checks, twice.** Scenario: fresh machine → signup → 3 sites + 1 API key →
   `backup create` → **destroy the machine** (`~/.psamvault` + credential store) → `configure` →
   `restore` → `list`/`get`/`ak-get` return the original plaintext → `rotate` → old kit refused. Real
   FastAPI backend, real Postgres 18, real PBKDF2-600k/AES-GCM/Argon2, real keyring calls, and two
@@ -298,8 +299,8 @@ refresh tokens exactly like a password reset so a stolen session cannot outlive 
   copied before a rotation still carries the key material; rotate removes the *server* copy, and the
   CLI refuses revoked slots while online. Revoking copied material properly needs VEK rotation plus
   re-encrypting every entry — a separate, heavier feature.
-- **All live proof ran against a local instance of the real backend**, not the Render deployment
-  (the backend PR is not merged yet). Re-run the harness against Render after it merges.
+- ~~All live proof ran against a local instance of the real backend, not the Render deployment~~
+  **RESOLVED 2026-09-20**: the production run completed 37/37 (see above).
 - A live `psamvault recover` (recovery-code path) was not executed; the suite covers it, live does not.
 
 ## Rejected Alternatives
