@@ -192,7 +192,7 @@ refresh tokens exactly like a password reset so a stolen session cannot outlive 
 | 4 | `backup create|verify|status` + CliRunner tests | 2,3 | 🟢 20 command tests; wire shape asserted (no passphrase/VEK in the request) |
 | 5 | `restore` end-to-end + tests (no session, fresh pepper, kit and server paths) | 4 | 🟢 11 restore tests incl. re-wrap proof, revoked kit, offline kit, proof failure |
 | 6 | `signup` passphrase step + login hint + rotate/revoke | 5 | 🟢 signup offers a backup (`--no-backup`; non-TTY prints a reminder); fresh-machine login hint live-verified |
-| 7 | Docs in both repos, changelog PR, live sandbox proof | 1-6 | 🟢 READMEs updated; E2E 36/36 twice; changelog PR opened alongside the code PR |
+| 7 | Docs in both repos, changelog PR, live sandbox proof | 1-6 | 🟢 README.md + SECURITY.md documented (see Docs below); E2E 36/36 local twice, 37/37 production; changelog PR opened alongside the code PR |
 
 ## Files Likely to Change
 
@@ -270,6 +270,21 @@ refresh tokens exactly like a password reset so a stolen session cannot outlive 
   Windows blocks on the **console** when stdin is a pipe — scripted prompts are impossible from a
   subprocess, so the driver invokes the CLI in-process (CliRunner). psam's live vault was never
   touched: the run used a sandbox `HOME` plus a file-backed keyring backend.
+
+### Docs (2026-09-20)
+
+The first cut of this PR shipped no user-facing documentation — the file list had neither
+`README.md` nor `SECURITY.md`, while this plan listed both under *Files Likely to Change*.
+A separate docs commit closes that gap:
+
+- **README.md** — a new "Backup & recovery (new machine, wiped laptop)" section (create,
+  verify, status, rotate/revoke, restore, the backup-vs-data-dump table, per-OS kit paths),
+  plus pointers from `configure`, `login`, `signup`, the recovery-codes section and the
+  command-group table. The `export`/`import` sections now say **data dump** rather than
+  "backup", because they had been using the same word for the other artifact.
+- **SECURITY.md** — the key-material table, what a backup contains and where each half
+  lives, why the restore endpoints are authenticated on the passphrase hash (and not an
+  unauthenticated password reset), an honest threat model, and the rotation limitation.
 
 ### Two bugs the live run caught (both fixed)
 
