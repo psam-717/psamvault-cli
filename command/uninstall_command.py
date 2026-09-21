@@ -96,6 +96,33 @@ def _clear_local_data() -> None:
         pass
 
 
+def _warn_if_account_deletion_is_unrecoverable(session: dict) -> None:
+    """Warn before the account (and every server-side key slot) is deleted.
+
+    Deleting the account destroys the ciphertext *and* the backup slots that wrap the
+    vault key. With no active slot, the export file is the only surviving copy of the
+    data and the vault key is gone — say that before the user confirms, not after.
+    """
+    try:
+        status = api_client.get_key_envelope_status(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+        )
+    except Exception:  # noqa: BLE001 - never block an uninstall on a status lookup
+        return
+
+    if status.get("active_slots", 0) > 0:
+        return
+
+    typer.echo(
+        "\n  ⚠  You have NO backup passphrase slot set up."
+        "\n     Deleting the account removes the encrypted entries AND the server-side"
+        "\n     copy of your vault key. The export file above would then be the only"
+        "\n     copy of your data."
+        "\n  → Cancel and run  psamvault backup create  first if that is not what you want.\n"
+    )
+
+
 @app.callback(invoke_without_command=True)
 def uninstall() -> None:
     """
@@ -247,6 +274,8 @@ def uninstall() -> None:
     typer.echo(f"  ✓ Backup saved to: {export_path}\n")
 
     # ── Step 6: Ask about server data ───────────────────────────────────
+    _warn_if_account_deletion_is_unrecoverable(session)
+
     delete_server = typer.confirm(
         " Delete your account and all data from the server?"
         "\n  (Your backup file will still work either way)"

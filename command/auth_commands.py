@@ -1,11 +1,12 @@
 import os
+import sys
 import typer
 
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
 from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
 from error_ui import print_error
-from errors import PsamVaultError
+from errors import NetworkError, PsamVaultError, SessionExpiredError
 from session import clear_session, is_logged_in, load_session, save_session
 
 from spinner import Spinner
@@ -130,7 +131,11 @@ def config_show():
 
 
 @app.command()
-def signup():
+def signup(
+    no_backup: bool = typer.Option(
+        False, "--no-backup", help="Skip the vault backup prompt (you can run 'psamvault backup create' later)"
+    ),
+):
     """
     Create a new psamvault account.
 
@@ -212,7 +217,95 @@ def signup():
         "\n  Important: your login password also protects your vault encryption."
         "\n  If you lose it, your vault cannot be recovered. Store it safely.\n"
     )
+    _offer_vault_backup(result["username"], master, no_backup)
     typer.echo("Run  'psamvault login'  to start using your vault.")
+
+
+def _offer_vault_backup(username: str, master: str, no_backup: bool) -> None:
+    """Offer a vault backup right after signup — the moment it is cheapest to do.
+
+    Interactively this prompts. In a script (no terminal) it prints the one-line
+    reminder instead, so an automated signup never blocks on a prompt.
+    """
+    if no_backup:
+        typer.echo(
+            "\n  ⚠  Vault backup skipped."
+            "\n     A lost machine then needs one of your recovery codes:"
+            "\n  → Run  psamvault backup create  when you are ready.\n"
+        )
+        return
+
+    if not sys.stdin.isatty():
+        typer.echo(
+            "\n  Next: run  psamvault login  then  psamvault backup create  so a lost"
+            "\n  machine does not lock you out of your vault.\n"
+        )
+        return
+
+    typer.echo(
+        "\n  A vault backup lets you recover your entries on a new machine."
+        "\n  Without one, a lost machine needs a recovery code.\n"
+    )
+    if not typer.confirm("  Set up a vault backup now?", default=True):
+        typer.echo("\n  Skipped. Run  psamvault backup create  later — before you need it.\n")
+        return
+
+    from command.backup_commands import _print_kit_advice, _prompt_passphrase, _write_kit
+    from crypto import build_kit, hash_passphrase, wrap_vek_with_passphrase
+
+    passphrase = _prompt_passphrase()
+
+    try:
+        with Spinner("Signing in to store the backup"):
+            login_result = api_client.login(username, master)
+    except Exception as exc:  # noqa: BLE001 - the account exists; never fail signup here
+        typer.echo(f"\n  ⚠  Could not set up the backup automatically ({exc}).", err=True)
+        typer.echo("  → Run  psamvault login  then  psamvault backup create\n", err=True)
+        return
+
+    save_session(
+        access_token=login_result["access_token"],
+        refresh_token=login_result["refresh_token"],
+        kdf_salt=login_result["kdf_salt"],
+        vek=decrypt_vek(
+            derive_key(master, login_result["kdf_salt"]),
+            login_result["encrypted_vek"],
+            login_result["vek_iv"],
+        ).hex(),
+        encrypted_vek=login_result["encrypted_vek"],
+        vek_iv=login_result["vek_iv"],
+    )
+
+    vek = bytes.fromhex(load_session()["vek"])
+    wrapped, iv, salt = wrap_vek_with_passphrase(passphrase, vek)
+
+    try:
+        with Spinner("Storing backup slot"):
+            created = api_client.create_key_envelope(
+                access_token=login_result["access_token"],
+                refresh_token=login_result["refresh_token"],
+                passphrase_hash=hash_passphrase(passphrase),
+                wrapped_vek=wrapped,
+                iv=iv,
+                kdf_salt=salt,
+            )
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"\n  ⚠  Could not store the backup slot ({exc}).", err=True)
+        typer.echo("  → Run  psamvault backup create\n", err=True)
+        return
+
+    kit = build_kit(
+        account=username,
+        wrapped_vek=wrapped,
+        iv=iv,
+        salt=salt,
+        slot_id=created["slot_id"],
+        account_kdf_salt=login_result["kdf_salt"],
+    )
+    path = _write_kit(kit, None)
+    typer.echo(f"  ✓ Backup slot stored (id {created['slot_id'][:8]}…)")
+    _print_kit_advice(path)
+    typer.echo(f"  You are signed in as {username}.")
 
 
 @app.command()
@@ -253,6 +346,27 @@ def login():
             result = api_client.login(username, master)
     except typer.Exit:
         raise
+    except NetworkError as exc:
+        typer.echo("\n  ✗ Could not reach the psamvault server.", err=True)
+        typer.echo(f"  → {exc.hint or 'Check your internet connection and PSAMVAULT_API_URL'}", err=True)
+        raise typer.Exit(code=1)
+    except SessionExpiredError:
+        # A 401 from /auth/login means the credentials did not match. On a fresh machine
+        # that has a *different* device pepper, the same password can never match — which
+        # is exactly the case `psamvault restore` exists for.
+        typer.echo("\n  ✗ Login failed: wrong username or password.", err=True)
+        typer.echo(
+            "  → On a NEW machine your login password alone is not enough (this device",
+            err=True,
+        )
+        typer.echo(
+            "     has its own key). If you backed up your vault, run:  psamvault restore\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
+        raise typer.Exit(code=1)
     except Exception as e:
         typer.echo(f"Error: Could not reach the server. Is it running?\n{e}", err=True)
         raise typer.Exit(code=1)

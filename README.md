@@ -37,6 +37,7 @@ HMAC-SHA256 + pepper  →  master password
 - **Pepper** — unique per device, stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Never sent to the server.
 - **VEK (Vault Encryption Key)** — a random 32-byte key generated at signup. Stored encrypted on the server; decrypted locally at login.
 - **kdf_salt** — stored on the server, tied to your account. Ensures two users with the same password get different keys.
+- **Backup passphrase** (optional) — wraps that same vault key a second time so a machine with no key material at all can get back in. See [Backup & recovery](#backup--recovery-new-machine-wiped-laptop).
 
 ---
 
@@ -100,7 +101,7 @@ psamvault configure
  Configuration saved.
 ```
 
-> ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper. Keep your recovery codes up to date so you can always regain vault access.
+> ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper, so your login password alone will not get you in there. Keep your recovery codes up to date, and set up a vault backup (`psamvault backup create`) — either one gets you back in on a new machine. See [Backup & recovery](#backup--recovery-new-machine-wiped-laptop).
 
 To review your current config:
 
@@ -123,6 +124,13 @@ Password requirements:
 - At least one uppercase letter
 - At least one digit
 
+Signup then offers to set up a vault backup — the cheapest moment to do it. Decline with `--no-backup`; a non-interactive signup prints a reminder instead of prompting.
+
+```bash
+psamvault signup              # offers a backup passphrase before it finishes
+psamvault signup --no-backup  # skip it; run 'psamvault backup create' later
+```
+
 ---
 
 ### 3. Log in
@@ -132,6 +140,8 @@ psamvault login
 ```
 
 Decrypts your VEK locally using your login password. All sensitive session data — tokens, VEK, and kdf_salt — are stored in the **OS keychain**, not on disk. A lightweight presence marker (`~/.psamvault/session.json`) lets psamvault detect that you are logged in without reading any secrets from disk. All vault commands use this session — you won't be prompted for your password again until the session expires.
+
+On a **new machine** your password alone is not enough: this device has its own pepper, so the login cannot derive the key that opens your vault, and `login` says so instead of blaming the network. Run `psamvault configure` and then `psamvault restore` — see [Backup & recovery](#backup--recovery-new-machine-wiped-laptop).
 
 ---
 
@@ -287,6 +297,8 @@ If no login URL is stored for the site, psamvault automatically scans the page f
 
 ## Recovery commands
 
+There are two independent ways back into an account: **recovery codes** (below) — eight one-time codes you generate while logged in — and a **vault backup** (`psamvault backup`), a passphrase-protected copy of the vault key that also works on a machine with no key material at all. See [Backup & recovery](#backup--recovery-new-machine-wiped-laptop). Set up both so no single sheet of paper, file or machine is your only way in.
+
 ### Generate recovery codes
 
 Run this while logged in to protect your account against a forgotten password.
@@ -310,6 +322,138 @@ psamvault recover
 ```
 
 Use one of your saved recovery codes to reset your login password without losing your vault data. The VEK is recovered and re-wrapped with your new login key — no vault re-encryption needed.
+
+---
+
+## Backup & recovery (new machine, wiped laptop)
+
+Your entries live on the server, encrypted under a key that never changes — so losing a machine
+loses the **key**, not the data. A backup here therefore backs up the *key*:
+
+```bash
+psamvault backup create     # choose a passphrase; stores a server slot + writes a kit file
+psamvault backup verify     # prove the backup actually restores THIS vault
+psamvault backup status     # what you have: slots, last verified, recovery codes left
+```
+
+A backup is two things, and losing either one alone is survivable:
+
+| Half | Where it lives | Covers |
+|---|---|---|
+| **Backup slot** | on the server (wrapped key + an Argon2id hash of your passphrase) | a lost, deleted or destroyed kit file |
+| **Kit file** | a file you keep off-device (`psamvault-key-<date>.json`) | losing server/account access, or a slipped passphrase |
+
+Losing **both** is not survivable. Note also that a kit still sitting on the machine you lose is
+not a backup — move it somewhere else (printed, a cloud drive, a password manager) and store the
+passphrase somewhere different again.
+
+### Create a backup
+
+```bash
+psamvault backup create
+psamvault backup create --out ./psamvault-key.json   # write the kit somewhere specific
+psamvault backup create --no-upload                  # kit only, keep no server-side copy
+```
+
+Prompts for a backup passphrase (minimum 12 characters, confirmed) and writes the kit to your
+Desktop, or to your home directory on a machine that has no `Desktop` folder:
+
+| OS | Default kit path |
+|---|---|
+| Windows | `%USERPROFILE%\Desktop\psamvault-key-<date>.json` |
+| macOS / Linux | `~/Desktop/psamvault-key-<date>.json`, or `~/psamvault-key-<date>.json` when there is no Desktop folder |
+
+The file is written owner-only (`0600`, best effort on Windows). It contains key material only —
+no entry plaintext, no ciphertext, and never the pepper or the passphrase.
+
+> The passphrase protects the wrapped vault key with PBKDF2-HMAC-SHA256 (600,000 iterations) and
+> AES-256-GCM. Anyone who finds both the kit file and the passphrase has your vault, so make the
+> passphrase long and keep the two apart.
+
+### Verify it now, not when you need it
+
+```bash
+psamvault backup verify
+psamvault backup verify --kit ~/Desktop/psamvault-key-2026-09-18.json
+```
+
+Unwraps the backup and compares the recovered key with the one this machine is using right now,
+byte for byte. An unverified backup is not a backup — run this while you still have the machine.
+
+### Check how recoverable you are
+
+```bash
+psamvault backup status
+```
+
+Lists your slots (id, kind, created, last verified, active/revoked) next to your remaining
+recovery codes, and warns when there is only one path back in.
+
+### Rotate or revoke
+
+```bash
+psamvault backup rotate                 # new passphrase; every other slot is revoked
+psamvault backup revoke <slot-id>       # retire a single slot
+```
+
+Which one you want depends on what you stopped trusting:
+
+| What happened | What to run |
+|---|---|
+| You want another backup, or a kit on a second machine | `psamvault backup create` — adds a slot and revokes nothing |
+| The **passphrase** was exposed or is weak, or someone you shared it with no longer needs access | `psamvault backup rotate` — new passphrase, every other slot revoked, new kit |
+| **One** kit file leaked and you know which one | `psamvault backup revoke <slot-id>`, using the id from `psamvault backup status` |
+| The **kit file** itself leaked — whoever holds it holds your key | neither, which is the limitation below |
+
+`rotate` never asks for the old passphrase (your session already holds the vault key), so it is
+also how you replace a passphrase you have forgotten.
+
+> **Known limitation:** rotation revokes the *server-side* copy, but the vault key itself never
+> changes — so a kit file you already copied still holds key material that works. Destroy the
+> copies you no longer trust. True revocation needs the key itself rotated and every entry
+> re-encrypted, which is not implemented yet.
+
+### Restore on a new machine
+
+Run this on the machine that has nothing:
+
+```bash
+psamvault configure      # once per machine — generates this device's pepper
+psamvault restore
+```
+
+It asks for your username, your backup passphrase and a new login password. Or restore straight
+from the kit file:
+
+```bash
+psamvault restore --from-kit ~/Desktop/psamvault-key-2026-09-18.json
+psamvault restore --from-kit ./psamvault-key.json --no-codes   # skip the recovery-code offer
+psamvault restore --force                                      # overwrite an existing session
+```
+
+What happens:
+
+1. Your passphrase unwraps the vault key — from the server slot, or from the kit file.
+2. The key is re-wrapped under a login key derived on **this** machine, and the server stores the
+   new wrap. The old password no longer opens the vault, and existing sessions are revoked.
+3. It **proves the restore by decrypting one of your real entries** — an HTTP 200 is not evidence.
+4. It offers a fresh set of 8 recovery codes, so a restored account never walks away with a
+   single way back in.
+
+Nothing is re-encrypted, re-uploaded or moved: the entries on the server are untouched. A kit
+whose slot was rotated away is refused while you are online (a courtesy check) and still used
+offline.
+
+### Backup vs. data dump — two different disasters
+
+| | `psamvault backup` (key escrow) | `psamvault export` (data dump) |
+|---|---|---|
+| What it is | a copy of the **key** to data that still exists on the server | a copy of **the data** itself |
+| Restores | *access* — new machine, wiped laptop, forgotten login password | the entries themselves |
+| Covers | lost/wiped machine, a second machine, a server you can still reach | server-side data loss, deleted account, provider exit, migration, handoff |
+| File | `psamvault-key-<date>.json` — key material only | `psamvault-backup-<date>.json` — encrypted entries |
+
+They cover non-overlapping failures, so keep both. Neither one replaces the other.
 
 ---
 
@@ -394,15 +538,17 @@ Revokes the refresh token on the server and deletes the local session file. Your
 
 ---
 
-## Export
+## Export (a data dump — not a key backup)
 
-Export all your vault entries and API keys to an encrypted backup file on the Desktop.
+Export all your vault entries and API keys to an encrypted file on the Desktop.
 
 ```bash
 psamvault export
 ```
 
-You will be prompted for a passphrase to encrypt the backup (e.g. `MyDogBarksAtMidnight!23`). The same passphrase is required to restore the backup later. The file is saved as `psamvault-backup-<date>.json` on your Desktop.
+This is a **data dump** — the file contains your entries. Use it if the server's data were ever lost, if you deleted your account, or if you are moving to another password manager. It is *not* the same as [`psamvault backup`](#backup--recovery-new-machine-wiped-laptop), which escrows the **key** to data that stays on the server. Different disasters, different artifacts: keep both.
+
+You will be prompted for a passphrase to encrypt the export (e.g. `MyDogBarksAtMidnight!23`). The same passphrase is required to import the file later. It is saved as `psamvault-backup-<date>.json` on your Desktop (`%USERPROFILE%\Desktop` on Windows).
 
 > Your vault is left **unchanged** — nothing is deleted.
 
@@ -418,7 +564,7 @@ Saves credentials as readable JSON without encryption. A warning is shown before
 
 ## Import
 
-Restore credentials from a backup file created with `psamvault export` or `psamvault uninstall`.
+Import credentials from an export file created with `psamvault export` or `psamvault uninstall` — the `psamvault-backup-<date>.json` data dump. This is not the `psamvault-key-<date>.json` kit file; that one belongs to [`psamvault restore`](#backup--recovery-new-machine-wiped-laptop).
 
 ```bash
 psamvault import
@@ -430,7 +576,7 @@ psamvault import ./psamvault-backup-2026-06-05_120000.json
 
 Supports both encrypted backups (prompts for passphrase) and plaintext backups (reads directly). If both types exist on the Desktop, encrypted backups are preferred.
 
-You must be logged in before importing — each credential is re-encrypted with your current VEK before being stored on the server.
+You must be logged in before importing — each credential is re-encrypted with your current VEK before being stored on the server. That is also why `import` is not a recovery path for a lost machine: use `psamvault restore` for that.
 
 ### Auto-detect after login
 
@@ -452,23 +598,27 @@ psamvault uninstall
 **What it does:**
 1. Fetches all vault entries and API keys from the server
 2. Decrypts them locally with your VEK
-3. Prompts for a passphrase and saves an encrypted backup to `~/Desktop/psamvault-backup-<date>.json`
+3. Prompts for a passphrase and saves an encrypted export to `~/Desktop/psamvault-backup-<date>.json`
 4. Optionally deletes your account and all data from the server
 5. Clears your local session, keychain entries, and config files
 
-### Reinstall + restore
+> If you have **no** backup slot, uninstall warns you before deleting the account: the export file would then be the only surviving copy of your data, and the vault key that decrypts it would be gone with the account.
 
-After uninstalling, to restore your data:
+### Reinstall + import your data
+
+If uninstall deleted your account, the entries are gone from the server, so you rebuild from the export file:
 
 ```bash
 pipx install psamvault
 psamvault configure
 psamvault signup       # creates a fresh account with a new VEK
-psamvault login        # auto-detects the backup on Desktop
+psamvault login        # auto-detects the export on the Desktop
 # → then import your credentials
 ```
 
-Or manually: `psamvault import`
+Or manually: `psamvault import ./psamvault-backup-2026-06-05_120000.json`
+
+That path is for a **deleted account**. If instead your *machine* was lost while the account still exists, do not sign up again: install, `configure`, then `psamvault restore` with your backup passphrase — see [Backup & recovery](#backup--recovery-new-machine-wiped-laptop).
 
 ---
 
@@ -489,6 +639,8 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault export` | `psamvault export` |
 | `psamvault import` | `psamvault import` |
 | `psamvault uninstall` | `psamvault uninstall` |
+| `psamvault backup create` | `psamvault backup create` |
+| `psamvault restore` | `psamvault backup restore` |
 | `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
@@ -503,6 +655,7 @@ psamvault changelog
 psamvault upgrade
 psamvault export
 psamvault import
+psamvault backup
 psamvault uninstall
 ```
 
@@ -516,7 +669,7 @@ psamvault uninstall
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
 | `~/.psamvault/flask_sessions/` | Server-side Flask session data (VEK, tokens) — permissions `0700` |
 
-All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain or in the server-side session directory.
+All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain or in the server-side session directory. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
 
 Both `.json` and `.env` files are restricted to owner read/write only (`chmod 600`). The `flask_sessions/` directory is restricted to owner (`chmod 700`).
 
@@ -529,7 +682,10 @@ Both `.json` and `.env` files are restricted to owner read/write only (`chmod 60
 - The server stores only **encrypted blobs** — it cannot decrypt your vault
 - **AES-256-GCM** is used for all encryption (authenticated — detects tampering)
 - **PBKDF2-HMAC-SHA256** with 600,000 iterations for key derivation (NIST recommended minimum)
-- **Argon2id** is used to hash recovery codes server-side (memory-hard, brute-force resistant)
+- **Argon2id** is used to hash recovery codes and backup passphrases server-side (memory-hard, brute-force resistant)
+- **Backup kit files** hold key material only — never the pepper, the passphrase, entry plaintext or ciphertext — and are written owner-only (`0600`)
+- **A backup passphrase** wraps your vault key with PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM; a restore re-wraps that key on the new machine rather than re-encrypting entries
+- **Restore is proof-checked** — it decrypts one of your real entries and reports honestly if it cannot
 - **Server-side sessions** — the dashboard stores your VEK and tokens on the filesystem, never in the browser cookie. The cookie is a random session ID only.
 
 ### OS keychain storage
@@ -545,6 +701,8 @@ All sensitive session and config values are stored in the OS keychain — never 
 | Vault Encryption Key | `psamvault / session.vek` |
 | Encrypted VEK (server copy) | `psamvault / session.encrypted_vek` |
 | VEK IV | `psamvault / session.vek_iv` |
+
+Key material, the backup threat model and the known limits of rotation are documented in [SECURITY.md](SECURITY.md).
 
 ---
 

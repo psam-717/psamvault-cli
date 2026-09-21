@@ -2,6 +2,7 @@
 Layer 1: Pure function tests for crypto.py.
 No mocking, no network, no keychain — just deterministic math.
 """
+import json
 import re
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -23,6 +24,16 @@ from crypto import (
     encrypt_master_with_code,
     decrypt_master_with_code,
     hash_recovery_code,
+    hash_passphrase,
+    wrap_vek_with_passphrase,
+    unwrap_vek_with_passphrase,
+    build_kit,
+    kit_to_json,
+    parse_kit,
+    KIT_FORMAT,
+    KIT_KIND,
+    BACKUP_KDF_ITERATIONS,
+    BACKUP_PASSPHRASE_MIN_LENGTH,
 )
 
 _PEPPER = "deadbeef" * 8  # 64-char hex pepper for deterministic tests
@@ -310,3 +321,124 @@ def test_hash_recovery_code_two_hashes_differ():
     h1 = hash_recovery_code("A1B2-C3D4-E5F6")
     h2 = hash_recovery_code("A1B2-C3D4-E5F6")
     assert h1 != h2
+
+
+# ── backup passphrase wrap + recovery kit ─────────────────────────────────────
+
+_VEK = bytes(range(32))
+_PASSPHRASE = "correct-horse-battery"
+
+
+def test_backup_constants_are_strong_enough():
+    assert BACKUP_KDF_ITERATIONS == 600_000
+    assert BACKUP_PASSPHRASE_MIN_LENGTH >= 12
+
+
+def test_wrap_and_unwrap_round_trip():
+    wrapped, iv, salt = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    assert unwrap_vek_with_passphrase(_PASSPHRASE, wrapped, iv, salt) == _VEK
+
+
+def test_unwrap_with_wrong_passphrase_raises():
+    wrapped, iv, salt = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    with pytest.raises(InvalidTag):
+        unwrap_vek_with_passphrase("wrong-horse-battery", wrapped, iv, salt)
+
+
+def test_wrap_never_reuses_iv_or_salt():
+    first = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    second = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    assert first[0] != second[0]  # ciphertext
+    assert first[1] != second[1]  # iv
+    assert first[2] != second[2]  # salt
+
+
+def test_tampered_wrapped_vek_is_rejected():
+    wrapped, iv, salt = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    tampered = ("00" if wrapped[0:2] != "00" else "01") + wrapped[2:]
+    with pytest.raises(InvalidTag):
+        unwrap_vek_with_passphrase(_PASSPHRASE, tampered, iv, salt)
+
+
+def test_wrap_honours_explicit_salt_and_iterations():
+    salt = b"\x01" * 16
+    wrapped, iv, _ = wrap_vek_with_passphrase(_PASSPHRASE, _VEK, salt=salt, iterations=1000)
+    assert unwrap_vek_with_passphrase(_PASSPHRASE, wrapped, iv, salt.hex(), iterations=1000) == _VEK
+
+
+def test_hash_passphrase_is_argon2_and_salted():
+    first = hash_passphrase("my-backup-passphrase")
+    second = hash_passphrase("my-backup-passphrase")
+    assert first.startswith("$argon2")
+    assert first != second
+
+
+def test_kit_round_trip_unwraps_and_carries_no_secrets():
+    wrapped, iv, salt = wrap_vek_with_passphrase(_PASSPHRASE, _VEK)
+    kit = build_kit(
+        account="psam",
+        wrapped_vek=wrapped,
+        iv=iv,
+        salt=salt,
+        slot_id="11111111-2222-3333-4444-555555555555",
+        account_kdf_salt="aa" * 32,
+    )
+    text = kit_to_json(kit)
+    parsed = parse_kit(text)
+
+    assert parsed["kind"] == KIT_KIND
+    assert parsed["format"] == KIT_FORMAT
+    assert parsed["account"] == "psam"
+    assert parsed["account_kdf_salt"] == "aa" * 32
+    recovered = unwrap_vek_with_passphrase(
+        _PASSPHRASE, parsed["wrapped_vek"], parsed["iv"], parsed["kdf"]["salt"]
+    )
+    assert recovered == _VEK
+
+    # A kit holds key material only: not the key, not the passphrase, not the pepper
+    assert _VEK.hex() not in text
+    assert _PASSPHRASE not in text
+    assert "PSAMVAULT_PEPPER" not in text
+    assert "pepper" not in text.lower()
+
+
+def test_parse_kit_rejects_non_kit_input():
+    for bad in ('{"hello": 1}', "not json at all", "[]", ""):
+        with pytest.raises(ValueError):
+            parse_kit(bad)
+
+
+def test_parse_kit_rejects_unsupported_format():
+    kit = build_kit(account="a", wrapped_vek="00" * 48, iv="00" * 12, salt="00" * 16)
+    kit["format"] = 99
+    with pytest.raises(ValueError):
+        parse_kit(json.dumps(kit))
+
+
+def test_parse_kit_rejects_bad_kdf():
+    kit = build_kit(account="a", wrapped_vek="00" * 48, iv="00" * 12, salt="00" * 16)
+    kit["kdf"]["algo"] = "rot13"
+    with pytest.raises(ValueError):
+        parse_kit(json.dumps(kit))
+
+
+def test_parse_kit_rejects_bad_hex():
+    kit = build_kit(account="a", wrapped_vek="zz" * 48, iv="00" * 12, salt="00" * 16)
+    with pytest.raises(ValueError):
+        parse_kit(json.dumps(kit))
+
+
+def test_parse_kit_requires_account_name():
+    kit = build_kit(account="", wrapped_vek="00" * 48, iv="00" * 12, salt="00" * 16)
+    with pytest.raises(ValueError):
+        parse_kit(json.dumps(kit))
+
+
+def test_export_envelope_still_uses_the_shared_kdf():
+    """The kit refactor must not change export/import behaviour."""
+    from crypto import export_decrypt, export_encrypt
+
+    envelope = export_encrypt({"credentials": [{"site_name": "x"}]}, "export-passphrase-1")
+    assert export_decrypt(envelope, "export-passphrase-1")["credentials"][0]["site_name"] == "x"
+    with pytest.raises(InvalidTag):
+        export_decrypt(envelope, "wrong-export-passphrase")

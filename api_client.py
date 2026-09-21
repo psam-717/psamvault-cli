@@ -10,6 +10,7 @@ from errors import (  # noqa: F401  (ApiError re-exported for back-compat: dashb
     NetworkError,
     NotFoundError,
     PsamVaultError,
+    RateLimitedError,
     SessionExpiredError,
     ValidationError,
 )
@@ -95,6 +96,14 @@ def _handle_error(response: httpx.Response) -> None:
     if response.status_code == 409:
         detail = response.json().get("detail", "Conflict.")
         raise ConflictError(str(detail))
+
+    if response.status_code == 429:
+        # Deliberate server-side cap (backup/restore attempts, recovery code checks).
+        # Saying "try again in a moment" here would be wrong — the window is minutes.
+        raise RateLimitedError(
+            "Too many attempts",
+            hint="Wait a few minutes before trying again",
+        )
 
     if not response.is_success:
         err = ApiError(f"Server error ({response.status_code})", hint="Try again in a moment")
@@ -804,6 +813,159 @@ def export_api_keys(
     if result is None:
         return _refresh_and_retry(refresh_token, _call)
     return result
+
+
+# ── Backup slots (vault key envelope) ──────────────────────────────────────────
+#
+# The wrapped VEK never travels in cleartext: the client wraps it with a backup
+# passphrase and sends only the wrapped bytes + an Argon2 hash of the passphrase.
+# `begin`/`restore` are the public half (a machine with no key material is not
+# logged in) and are rate-limited server-side.
+
+
+def create_key_envelope(
+    access_token: str,
+    refresh_token: str,
+    passphrase_hash: str,
+    wrapped_vek: str,
+    iv: str,
+    kdf_salt: str,
+    kind: str = "passphrase",
+) -> dict:
+    """POST /auth/key-envelope/create — store a backup slot."""
+    def _call(token: str) -> dict:
+        response = _post(
+            f"{_base_url()}/auth/key-envelope/create",
+            headers=_auth_headers(token),
+            json={
+                "kind": kind,
+                "passphrase_hash": passphrase_hash,
+                "wrapped_vek": wrapped_vek,
+                "iv": iv,
+                "kdf_salt": kdf_salt,
+            },
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def get_key_envelope_status(access_token: str, refresh_token: str) -> dict:
+    """GET /auth/key-envelope/status — list backup slots (never the key material)."""
+    def _call(token: str) -> dict:
+        response = _get(
+            f"{_base_url()}/auth/key-envelope/status",
+            headers=_auth_headers(token),
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def rotate_key_envelope(
+    access_token: str,
+    refresh_token: str,
+    passphrase_hash: str,
+    wrapped_vek: str,
+    iv: str,
+    kdf_salt: str,
+) -> dict:
+    """POST /auth/key-envelope/rotate — store a new slot, revoke the others."""
+    def _call(token: str) -> dict:
+        response = _post(
+            f"{_base_url()}/auth/key-envelope/rotate",
+            headers=_auth_headers(token),
+            json={
+                "kind": "passphrase",
+                "passphrase_hash": passphrase_hash,
+                "wrapped_vek": wrapped_vek,
+                "iv": iv,
+                "kdf_salt": kdf_salt,
+            },
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def revoke_key_envelope(access_token: str, refresh_token: str, slot_id: str) -> dict:
+    """POST /auth/key-envelope/revoke — retire a single backup slot."""
+    def _call(token: str) -> dict:
+        response = _post(
+            f"{_base_url()}/auth/key-envelope/revoke",
+            headers=_auth_headers(token),
+            json={"slot_id": slot_id},
+        )
+        if response.status_code == 401:
+            return None
+        _handle_error(response)
+        return response.json()
+
+    result = _call(access_token)
+    if result is None:
+        return _refresh_and_retry(refresh_token, _call)
+    return result
+
+
+def begin_key_envelope_restore(username: str, passphrase: str) -> dict:
+    """POST /auth/key-envelope/begin — verify the passphrase, receive the wrapped VEK."""
+    response = _post(
+        f"{_base_url()}/auth/key-envelope/begin",
+        json={"username": username, "passphrase": passphrase},
+    )
+    _handle_error(response)
+    return response.json()
+
+
+def restore_vault_key(
+    username: str,
+    passphrase: str,
+    new_login_password: str,
+    new_encrypted_vek: str,
+    new_vek_iv: str,
+    slot_id: str | None = None,
+) -> dict:
+    """POST /auth/key-envelope/restore — hand back the VEK wrapped under the new login key."""
+    body: dict[str, str] = {
+        "username": username,
+        "passphrase": passphrase,
+        "new_login_password": new_login_password,
+        "new_encrypted_vek": new_encrypted_vek,
+        "new_vek_iv": new_vek_iv,
+    }
+    if slot_id is not None:
+        body["slot_id"] = slot_id
+    response = _post(f"{_base_url()}/auth/key-envelope/restore", json=body)
+    _handle_error(response)
+    return response.json()
+
+
+def validate_key_envelope_slot(slot_id: str) -> dict:
+    """POST /auth/key-envelope/validate — is the slot named by a kit file still active?"""
+    response = _post(
+        f"{_base_url()}/auth/key-envelope/validate",
+        json={"slot_id": slot_id},
+    )
+    _handle_error(response)
+    return response.json()
 
 
 def delete_account(

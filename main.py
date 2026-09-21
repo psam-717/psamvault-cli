@@ -16,6 +16,8 @@ from command.import_command import app as import_app
 from command.export_command import app as export_app
 from command.note_commands import app as note_app
 from command.note_commands import note_add, note_get, note_list, note_delete, note_update
+from command.backup_commands import app as backup_app
+from command.restore_command import restore
 
 from update_check import start_update_check, print_update_notice
 from changelog import check_and_show_upgrade_notice
@@ -36,7 +38,9 @@ app = typer.Typer(
         "  psamvault browser    — browser autofill (open)\n"
         "  psamvault changelog  — view version history\n"
         "  psamvault upgrade    — upgrade psamvault in-place\n"
-        "  psamvault note       — secure notes (note-add, note-list, ...)\n\n"
+        "  psamvault note       — secure notes (note-add, note-list, ...)\n"
+        "  psamvault backup     — keep your vault recoverable (create, verify, status, rotate)\n"
+        "  psamvault restore    — regain access on a new machine from a backup\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
@@ -90,6 +94,7 @@ app.add_typer(uninstall_app, name="uninstall", help="Uninstall psamvault")
 app.add_typer(import_app, name="import", help="Import entries from other password managers")
 app.add_typer(export_app, name="export", help="Export vault entries to a JSON file")
 app.add_typer(note_app, name="note", help="Secure notes (note-add, note-list, note-get, note-update, note-delete)")
+app.add_typer(backup_app, name="backup", help="Back up your vault key and check your recoverability")
 
 # ── TUI — source kept in repo, command hidden from --help ──────────────
 # from tui.app import run_tui
@@ -188,6 +193,7 @@ app.command("note-get")(note_get)
 app.command("note-list")(note_list)
 app.command("note-delete")(note_delete)
 app.command("note-update")(note_update)
+app.command("restore")(restore)
 
 if __name__ == "__main__":
     start_update_check()

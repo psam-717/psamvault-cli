@@ -8,6 +8,40 @@
     3. Bump version and publish
 -->
 
+## Added
+
+- feat(backup): `psamvault backup create|verify|status|rotate|revoke` — back up your vault key under a passphrase, as a server-side slot plus a portable kit file you keep off-device
+- feat(restore): `psamvault restore` regains vault access on a new or wiped machine with no session at all
+- feat(auth): signup offers to set up a vault backup (`--no-backup` to skip)
+- feat(errors): HTTP 429 now raises a typed rate-limit error and tells you to wait, not to retry
+- feat(uninstall): warns when deleting your account would remove the last copy of your vault key
+
+## Fixed
+
+- fix(restore): a revoked kit file is now actually refused — a broad exception handler was swallowing the exit and continuing with the restore
+- fix(backup): `backup verify --kit` on a kit with no server-side copy printed a sliced placeholder (`slot kit-only…`); it now names the real slot id, or states that the kit has no server-side copy
+
 ## Changed
 
+- feat(auth): logging in on a new machine now explains the device-key mismatch and points at `psamvault restore`
+- chore(gitignore): `plans/` is no longer ignored, so plans are versioned
 - `upgrade` (pipx track): reinstalls from PyPI with a pinned force install (`pipx install --force psamvault==<version>`) instead of `pipx upgrade` — repairs URL/TestPyPI/editable install sources so future upgrades track the registry
+
+## Tests
+
+- test(backup): 20 command tests plus wire-shape assertions (the passphrase and the vault key never appear on the wire)
+- test(restore): 11 session-less restore tests, including the re-wrap proof and revoked/offline kits
+- test(crypto): kit wrap/unwrap, tamper and parse-failure coverage, and an assertion that a kit file contains no secret value
+
+## Docs
+
+- docs(readme): a "Backup & recovery (new machine, wiped laptop)" section — create, verify,
+  status, rotate/revoke, `restore --from-kit`, per-OS kit paths, a backup-vs-data-dump table, and
+  a trigger table for when to reach for create, rotate or revoke (another backup / passphrase
+  leaked / one kit leaked / the kit file itself leaked)
+- docs(readme): `export`/`import` are now described as a **data dump** rather than a "backup",
+  so the two artifacts are no longer confused
+- docs(security): key material and where it lives, what a kit file contains, why the restore
+  endpoints are authenticated on the passphrase hash, the threat model and the rotation limit
+- docs(plans): plans moved into `plans/{active,shipped,archive}` with a verified-status index
+- docs(plans): the backup and recovery plan records its live verification, the bugs it caught and its known limitations
