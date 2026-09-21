@@ -71,6 +71,38 @@ def test_snapshot_copies_state_files_and_prunes(tmp_path):
     assert len(backups) == 5
 
 
+def test_snapshots_never_share_a_directory_when_the_clock_does_not_advance(tmp_path, monkeypatch):
+    """Windows' clock granularity is ~15 ms, so back-to-back snapshots can get one stamp.
+
+    Freezing the stamp makes that deterministic: the second snapshot must still be a
+    separate directory instead of silently merging into the first.
+    """
+    monkeypatch.setattr(upgrade_utils, "_utc_stamp", lambda: "20260921T010000-000000")
+    src = tmp_path / "state"
+    src.mkdir()
+    (src / "session.json").write_text("{}")
+
+    first = upgrade_utils.snapshot_state(source_dir=src, backups_parent=tmp_path / "bk")
+    second = upgrade_utils.snapshot_state(source_dir=src, backups_parent=tmp_path / "bk")
+
+    assert first != second
+    assert first.is_dir() and second.is_dir()
+    assert len(list((tmp_path / "bk").glob("backup-*"))) == 2
+
+
+def test_snapshot_prune_keeps_five_when_the_clock_does_not_advance(tmp_path, monkeypatch):
+    """Seven snapshots under one frozen stamp must still prune to five, not fewer."""
+    monkeypatch.setattr(upgrade_utils, "_utc_stamp", lambda: "20260921T010000-000000")
+    src = tmp_path / "state"
+    src.mkdir()
+    (src / "last_seen_version").write_text("0.5.5")
+
+    for _ in range(7):
+        upgrade_utils.snapshot_state(source_dir=src, backups_parent=tmp_path / "bk")
+
+    assert len(list((tmp_path / "bk").glob("backup-*"))) == 5
+
+
 def test_snapshot_returns_none_when_nothing_to_copy(tmp_path):
     src = tmp_path / "empty"
     src.mkdir()
