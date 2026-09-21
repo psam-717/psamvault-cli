@@ -87,8 +87,9 @@ an old session cannot outlive the rotation.
 - **Rotating a backup passphrase does not invalidate a kit file that was already copied.** The VEK
   never changes, so a copy taken before a rotation still carries usable key material. Rotation
   revokes the *server* slot, and the CLI refuses a revoked slot while online; destroying the copies
-  you no longer trust is on you. Real revocation requires rotating the VEK and re-encrypting every
-  entry, which is not implemented.
+  you no longer trust is on you. (`psamvault backup rotate` is the right command when it is the
+  passphrase that leaked; nothing today disarms a kit file that was copied before it.) Real
+  revocation requires rotating the VEK and re-encrypting every entry, which is not implemented.
 - A kit file is not a data backup. If the server's data were lost, the kit would restore access to
   nothing — keep a `psamvault export` dump as well.
 
