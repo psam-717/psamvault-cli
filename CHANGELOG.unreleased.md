@@ -19,6 +19,7 @@
 ## Fixed
 
 - fix(restore): a revoked kit file is now actually refused — a broad exception handler was swallowing the exit and continuing with the restore
+- fix(backup): `backup verify --kit` on a kit with no server-side copy printed a sliced placeholder (`slot kit-only…`); it now names the real slot id, or states that the kit has no server-side copy
 
 ## Changed
 
