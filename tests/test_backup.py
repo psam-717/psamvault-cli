@@ -298,6 +298,58 @@ def test_verify_from_a_kit_file_with_wrong_passphrase(httpx_mock, tmp_path):
     assert "does not open this kit" in result.output
 
 
+def test_verify_from_a_kit_file_names_the_slot_it_belongs_to(httpx_mock, tmp_path):
+    """The success line must name the real slot id, not a placeholder string."""
+    wrapped, iv, salt = wrap_vek_with_passphrase(PASSPHRASE, VEK)
+    kit_path = tmp_path / "kit.json"
+    kit_path.write_text(
+        json.dumps({
+            "kind": "psamvault-key-envelope",
+            "format": 1,
+            "account": "psam",
+            "slot_id": SLOT_ID,
+            "kdf": {"algo": "pbkdf2-hmac-sha256", "iterations": 600_000, "salt": salt},
+            "account_kdf_salt": SESSION["kdf_salt"],
+            "wrapped_vek": wrapped,
+            "iv": iv,
+        }),
+        encoding="utf-8",
+    )
+
+    result = _invoke(["backup", "verify", "--kit", str(kit_path)], input=f"{PASSPHRASE}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"(slot {SLOT_ID[:8]}…)" in result.output
+    assert "kit-onl" not in result.output
+
+
+def test_verify_from_a_kit_without_a_server_slot_says_so(httpx_mock, tmp_path):
+    """A --no-upload kit has no slot id; the line must say that instead of slicing a label."""
+    wrapped, iv, salt = wrap_vek_with_passphrase(PASSPHRASE, VEK)
+    kit_path = tmp_path / "kit-only.json"
+    kit_path.write_text(
+        json.dumps({
+            "kind": "psamvault-key-envelope",
+            "format": 1,
+            "account": "psam",
+            "slot_id": None,
+            "kdf": {"algo": "pbkdf2-hmac-sha256", "iterations": 600_000, "salt": salt},
+            "account_kdf_salt": SESSION["kdf_salt"],
+            "wrapped_vek": wrapped,
+            "iv": iv,
+        }),
+        encoding="utf-8",
+    )
+
+    result = _invoke(["backup", "verify", "--kit", str(kit_path)], input=f"{PASSPHRASE}\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Verified" in result.output
+    assert "no server-side copy" in result.output
+    assert "kit-onl" not in result.output
+    assert not httpx_mock.get_requests()
+
+
 def test_verify_rejects_a_file_that_is_not_a_kit(tmp_path):
     not_a_kit = tmp_path / "notes.json"
     not_a_kit.write_text('{"hello": "world"}', encoding="utf-8")
