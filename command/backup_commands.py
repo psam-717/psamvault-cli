@@ -211,7 +211,8 @@ def backup_verify(
 
     typer.echo("\n  Verify vault backup\n")
 
-    if kit is not None:
+    from_kit = kit is not None
+    if from_kit:
         try:
             parsed = parse_kit(Path(kit).read_text(encoding="utf-8"))
         except OSError as exc:
@@ -238,7 +239,7 @@ def backup_verify(
                 err=True,
             )
             raise typer.Exit(code=1)
-        slot_label = parsed.get("slot_id") or "kit-only backup"
+        slot_label = parsed.get("slot_id")
     else:
         passphrase = typer.prompt("  Backup passphrase", hide_input=True)
         account = _account_name(session)
@@ -275,7 +276,13 @@ def backup_verify(
         )
         raise typer.Exit(code=1)
 
-    typer.echo(f"  ✓ Verified — this backup restores your vault (slot {slot_label[:8]}…)\n")
+    if slot_label:
+        source = "this kit" if from_kit else "this backup"
+        typer.echo(f"  ✓ Verified — {source} restores your vault (slot {slot_label[:8]}…)\n")
+    else:
+        typer.echo(
+            "  ✓ Verified — this kit restores your vault (no server-side copy)\n"
+        )
 
 
 @app.command(name="status")
