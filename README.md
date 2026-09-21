@@ -396,6 +396,18 @@ psamvault backup rotate                 # new passphrase; every other slot is re
 psamvault backup revoke <slot-id>       # retire a single slot
 ```
 
+Which one you want depends on what you stopped trusting:
+
+| What happened | What to run |
+|---|---|
+| You want another backup, or a kit on a second machine | `psamvault backup create` — adds a slot and revokes nothing |
+| The **passphrase** was exposed or is weak, or someone you shared it with no longer needs access | `psamvault backup rotate` — new passphrase, every other slot revoked, new kit |
+| **One** kit file leaked and you know which one | `psamvault backup revoke <slot-id>`, using the id from `psamvault backup status` |
+| The **kit file** itself leaked — whoever holds it holds your key | neither, which is the limitation below |
+
+`rotate` never asks for the old passphrase (your session already holds the vault key), so it is
+also how you replace a passphrase you have forgotten.
+
 > **Known limitation:** rotation revokes the *server-side* copy, but the vault key itself never
 > changes — so a kit file you already copied still holds key material that works. Destroy the
 > copies you no longer trust. True revocation needs the key itself rotated and every entry
