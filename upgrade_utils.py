@@ -40,6 +40,24 @@ def _utc_stamp() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S-%f")
 
 
+def _next_snapshot_dir(backups_parent: Path) -> Path:
+    """A snapshot directory that cannot collide with an existing one.
+
+    The stamp is microsecond-precise, but Windows' clock granularity is ~15 ms, so
+    back-to-back snapshots (or a retried upgrade) can be handed the same value and
+    would otherwise merge into one directory, silently losing a snapshot. A counter
+    suffix keeps every snapshot separate; the stamp still sorts first, so pruning
+    order is unchanged.
+    """
+    stamp = _utc_stamp()
+    candidate = backups_parent / f"backup-{stamp}"
+    suffix = 0
+    while candidate.exists():
+        suffix += 1
+        candidate = backups_parent / f"backup-{stamp}-{suffix}"
+    return candidate
+
+
 # ── Pre-update snapshot ─────────────────────────────────────────────────────
 
 
@@ -54,7 +72,7 @@ def snapshot_state(source_dir: Path, backups_parent: Path, keep: int = KEEP_SNAP
         return None
 
     backups_parent.mkdir(parents=True, exist_ok=True)
-    backup = backups_parent / f"backup-{_utc_stamp()}"
+    backup = _next_snapshot_dir(backups_parent)
     backup.mkdir(parents=True, exist_ok=True)
     for name in existing:
         shutil.copy2(source_dir / name, backup / name)
