@@ -1,9 +1,11 @@
 from config import load_config
 load_config()
 import importlib.metadata
+import os
 from typing import Annotated, Optional
 import typer
 
+from command.approve_command import approve as approve_cmd
 from command.auth_commands import app as auth_app
 from command.vault_commands import app as vault_app
 from command.recovery_commands import app as recovery_app
@@ -40,7 +42,8 @@ app = typer.Typer(
         "  psamvault upgrade    — upgrade psamvault in-place\n"
         "  psamvault note       — secure notes (note-add, note-list, ...)\n"
         "  psamvault backup     — keep your vault recoverable (create, verify, status, rotate)\n"
-        "  psamvault restore    — regain access on a new machine from a backup\n\n"
+        "  psamvault restore    — regain access on a new machine from a backup\n"
+        "  psamvault approve    — let an agent reveal ONE secret once (needs a real terminal)\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
@@ -75,11 +78,23 @@ def main(
         Optional[bool],
         typer.Option("--verbose", "-v", help="Show underlying error details"),
     ] = None,
+    agent: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--agent",
+            help="Declare this process an agent caller: the reveal guardrail refuses secrets (get/ak-get/note-get/export --plaintext)",
+        ),
+    ] = None,
 ) -> None:
     """psamvault — a secure password vault for the terminal."""
     if verbose:
         import error_ui
         error_ui.enable_verbose()
+    if agent:
+        # One code path for both ways of declaring an agent: the env var the
+        # MCP server exports into its subprocesses, and this flag. Set before
+        # any command body runs, so the guardrail sees it everywhere.
+        os.environ["PSAMVAULT_AGENT"] = "1"
 
 
 # ── Include sub-command groups ──────────────────────────────────────────
@@ -194,6 +209,7 @@ app.command("note-list")(note_list)
 app.command("note-delete")(note_delete)
 app.command("note-update")(note_update)
 app.command("restore")(restore)
+app.command("approve")(approve_cmd)
 
 if __name__ == "__main__":
     start_update_check()
