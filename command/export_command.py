@@ -9,12 +9,15 @@ from typing import Optional
 import typer
 
 import api_client
+import reveal_gate
 from crypto import (
     decrypt_api_key,
     decrypt_credentials,
     decrypt_note,
     export_encrypt,
 )
+from error_ui import exit_error
+from errors import RevealBlockedError
 from session import load_session, is_logged_in
 from spinner import Spinner
 
@@ -49,6 +52,17 @@ def export_backup(
 
     session = api_client.ensure_session()
     vek = bytes.fromhex(session["vek"])
+
+    if plaintext:
+        # A plaintext dump is a whole-vault reveal, so it is refused in an agent
+        # context — and no approval token can cover it: an entry token that
+        # unlocked every secret would make the guardrail decorative. Checked
+        # before the fetch, because nothing should be read out of the vault for
+        # a dump we are going to refuse.
+        try:
+            reveal_gate.require_reveal(action="export --plaintext", whole_vault=True)
+        except RevealBlockedError as exc:
+            exit_error(exc)
 
     suffix = "-plaintext" if plaintext else ""
     backup_path = _DESKTOP / f"psamvault-backup{suffix}-{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.json"
@@ -177,12 +191,17 @@ def export_backup(
 
     if plaintext:
         # ── Plaintext mode ────────────────────────────────────────────────
+        # A human's own consent, naming exactly how many secrets this exposes —
+        # the plan's rule: an entry token must not become a master key, so this
+        # dump gets its own count-naming confirmation instead.
+        exposed = len(credentials) + len(api_keys) + len(notes)
         typer.echo(
-            "  ⚠  WARNING: Plaintext mode selected."
-            "\n      Your site passwords and API keys will be stored"
-            "\n      as readable text on your Desktop."
-            "\n      Anyone with access to this computer can read them."
-            "\n      Only use this for testing or temporary backups.\n"
+            f"  ⚠  WARNING: Plaintext mode selected."
+            f"\n      {exposed} secret(s) will be written as readable text:"
+            f"\n        {len(credentials)} site password(s), "
+            f"{len(api_keys)} API key(s), {len(notes)} note(s)."
+            f"\n      Anyone with access to this computer can read them."
+            f"\n      Only use this for testing or temporary backups.\n"
         )
         proceed = typer.confirm("  Continue with plaintext export?")
         if not proceed:
