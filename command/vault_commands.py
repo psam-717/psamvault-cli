@@ -10,10 +10,11 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+import reveal_gate
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
-from error_ui import print_error
-from errors import ConflictError, NotFoundError, PsamVaultError
+from error_ui import exit_error, print_error
+from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
 from session import load_session
 
 app = typer.Typer(
@@ -203,6 +204,14 @@ def get(
         )
         raise typer.Exit(code=1) # pylint: disable=raise-missing-from
     
+    # The reveal gate sits at the emit point (after the fetch and the decrypt),
+    # so a failed lookup never consumes an approval token. It covers --copy too:
+    # the clipboard is a reveal.
+    try:
+        reveal_gate.require_reveal(action="get", entry=site)
+    except RevealBlockedError as exc:
+        exit_error(exc)
+
     typer.echo(f"\n  Site:      {site}")
     typer.echo(f"  Username:  {credentials['username']}")
 
