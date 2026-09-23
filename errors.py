@@ -82,3 +82,25 @@ class RateLimitedError(ApiError):
 
 class DecryptionError(PsamVaultError):
     """Local decryption failed (wrong key, corrupt blob, unexpected format)."""
+
+
+class RevealBlockedError(PsamVaultError):
+    """A secret-emitting command was refused in this context.
+
+    Raised by the reveal gate (``reveal_gate.py``) when the caller is an agent,
+    or when a strict policy refuses a non-terminal caller. The refusal is not a
+    failure of the command — it is the guardrail working — so the message names
+    the capability alternatives:
+
+        ✗ psamvault get is blocked in this context (agent terminal detected)
+           • psamvault approve github.com --for-agent --ttl 120  (human terminal only)
+           • use_credential — inject the secret without revealing it
+        → Ask the human to run it, or use a capability instead
+
+    Attributes:
+        details: Bullet lines rendered under the message (capability choices).
+    """
+
+    def __init__(self, message: str, details: list[str] | None = None, hint: str | None = None):
+        super().__init__(message, hint=hint)
+        self.details = list(details or [])
