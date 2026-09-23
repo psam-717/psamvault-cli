@@ -22,8 +22,8 @@ tables below. Plans are committed with their feature's PR, not on their own.
 
 | Plan | Feature | Domain | State | Next step |
 |---|---|---|---|---|
-| [PLAN_backup_recovery.md](active/PLAN_backup_recovery.md) | Backup & restore: Vault Key Envelope (server slot + portable kit file), `psamvault backup *`, session-less `psamvault restore` | cryptography / recovery | decisions locked, no code | Backend envelope table + `crypto` wrap/unwrap → `backup create/verify/status` → `restore` (build order steps 1-7) |
-| [PLAN_agent_safe_vault.md](active/PLAN_agent_safe_vault.md) | Reveal guardrail (caller classification, policy, TTY-only approval tokens, audit log) + credential-blind ingress (claim codes, loopback form, `--from-file`) + use-side policy/leases | agent security | decisions locked, no code | Step 1 is the env/TTY marker probe under Hermes/Claude Code/Codex/Goose; steps 1-5 (guardrail) and 6-8 (blind ingress) ship independently |
+| [PLAN_agent_safe_vault.md](active/PLAN_agent_safe_vault.md) | Reveal guardrail (caller classification, policy, TTY-only approval tokens, audit log) + credential-blind ingress (claim codes, loopback form, `--from-file`) + use-side policy/leases | agent security | **wave 1 (the reveal guardrail) merged in PR #54** — steps 6-9 not started | Wave 2 = steps 6-8 (blind ingress: claim codes, `--from-file`/`--from-env`, use-side policy); step 9 = delete the backend `/vault/proxy` (410) behind a Render deploy |
+| [PLAN_vek_rotation.md](active/PLAN_vek_rotation.md) | Vault key rotation — re-wrap the VEK under a new passphrase so a leaked kit file stops working (`rotate-key`) | cryptography / recovery | decisions locked, no code | Build order in the plan; reuses the envelope machinery shipped for backup (#49) |
 
 ## shipped/ — implemented
 
@@ -36,6 +36,7 @@ tables below. Plans are committed with their feature's PR, not on their own.
 | [PLAN_commit_based_updates.md](shipped/PLAN_commit_based_updates.md) | Dual-track update check with commit-based notices for source installs | release / upgrade | merge `de13899` (`feat/commit-based-updates`); `update_check._count_commits_behind` + `_commit_update_notice` present |
 | [SDK_PLAN.md](shipped/SDK_PLAN.md) | `pv-dotenv` runtime SDK — resolves `psamvault:` placeholders so `.env` files hold no secrets | SDK / distributables | shipped as a separate repo/package: `pv-dotenv 0.1.0` on PyPI (verified with `pip index versions pv-dotenv`) |
 | [SKILL_PLAN.md](shipped/SKILL_PLAN.md) | Standalone MCP skill teaching agents to use psamvault-mcp correctly | agent integration | delivered in the `psamvault-mcp` repo: `SKILL.md`, `mcp_server/agent_guide.py`, MCP prompts |
+| [PLAN_backup_recovery.md](shipped/PLAN_backup_recovery.md) | Backup & restore: Vault Key Envelope (server slot + portable kit file), `psamvault backup *`, session-less `psamvault restore` | cryptography / recovery | PR #49 (`backup create/verify/status/rotate/revoke` + `restore`), #51 (snapshot-dir collision on a coarse clock), backend PR #24 (key-envelope endpoints); `crypto.wrap_vek_with_passphrase` / `unwrap_vek_with_passphrase` / `build_kit` + `command/backup_commands.py`, `command/restore_command.py` present |
 
 ## archive/
 
