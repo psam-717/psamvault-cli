@@ -90,19 +90,43 @@ def test_the_agent_terminal_environment_is_an_agent(monkeypatch):
     assert verdict.signals == ["marker:TERMINAL_ENV=local"]
 
 
-# ── Signal 3: CI ──────────────────────────────────────────────────────────
+# ── Signal 3: CI — recorded, not an agent ─────────────────────────────────
 
 
-def test_ci_is_an_agent(monkeypatch):
+def test_ci_alone_is_unattended_not_an_agent(monkeypatch):
+    """CI=true says no human is watching — not that a program is driving.
+
+    Grading it as an agent would refuse secrets in every CI pipeline (GitHub
+    Actions sets CI=true unconditionally) while catching no agent that its own
+    markers or its ancestry would not already catch.
+    """
+    monkeypatch.setattr(caller, "tty_present", lambda: False)
+    verdict = caller.classify({"CI": "true"})
+    assert verdict.verdict == "uncertain"
+    assert verdict.signals == ["env:CI"]
+
+
+def test_ci_with_a_terminal_is_human_but_still_recorded(monkeypatch):
     monkeypatch.setattr(caller, "tty_present", lambda: True)
     verdict = caller.classify({"CI": "true"})
-    assert verdict.verdict == "agent"
+    assert verdict.verdict == "human"
     assert verdict.signals == ["env:CI"]
+
+
+def test_ci_does_not_mask_an_agent_marker(monkeypatch):
+    """An agent running inside CI is still caught — the markers win."""
+    monkeypatch.setattr(caller, "tty_present", lambda: False)
+    verdict = caller.classify({"CI": "true", "AI_AGENT": "hermes-agent"})
+    assert verdict.verdict == "agent"
+    assert "marker:AI_AGENT=hermes-agent" in verdict.signals
+    assert "env:CI" in verdict.signals
 
 
 def test_ci_false_is_not_an_agent(monkeypatch):
     monkeypatch.setattr(caller, "tty_present", lambda: True)
-    assert caller.classify({"CI": "false"}).verdict == "human"
+    verdict = caller.classify({"CI": "false"})
+    assert verdict.verdict == "human"
+    assert verdict.signals == []
 
 
 # ── TTY: never a blocking signal ──────────────────────────────────────────
