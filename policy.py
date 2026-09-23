@@ -13,9 +13,9 @@ fresh machine is protected with no setup and nothing to configure:
 The three modes, and what each does to a caller:
 
 * ``human-only`` (default) — an ``agent`` caller is refused; an ``uncertain``
-  caller (a bare pipe, a script, a CI-less non-TTY) is allowed and audited.
-  This stops the real case (an agent's shell) without breaking existing pipes
-  or every ``CliRunner`` test in the suite.
+  caller (a bare pipe, a script, a CI job, any CI-less non-TTY) is allowed and
+  audited. This stops the real case (an agent's shell) without breaking existing
+  pipes, CI pipelines or every ``CliRunner`` test in the suite.
 * ``strict`` — ``agent`` *and* ``uncertain`` are refused. Opt-in, for anyone
   who wants "no TTY, no secret".
 * ``open`` — everything is allowed, still audited. The escape hatch for a
