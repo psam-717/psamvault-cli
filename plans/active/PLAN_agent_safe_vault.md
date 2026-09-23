@@ -30,7 +30,7 @@ revealed.
 keychain can reach any secret: read Windows Credential Manager, `import crypto` and decrypt directly,
 or install a pristine copy of the CLI. What this work buys is:
 
-- well-behaved agents (Hermes, Claude Code, Codex, Goose, OpenCode, CI) get a hard *structural* stop,
+- well-behaved agents (Hermes, Claude Code, Codex, Goose, OpenCode) get a hard *structural* stop,
   not a prompt-level suggestion;
 - accidents and prompt-injection-driven reveals become loud and auditable;
 - the correct alternative (a capability, not a value) is always one message away;
@@ -106,7 +106,7 @@ All resolved — see **Decisions Made**. Rejected alternatives at the end.
 |---|---|---|
 | Guardrail default strictness | **Deny in agent context + TTY-only single-use approval token** | Stops the real case (an agent's shell) without making a human's own terminal annoying; scripts on the same machine keep working via the `uncertain` path below |
 | Classification of a bare non-TTY caller | `uncertain` by default → **allowed with an audit note**; `strict` policy mode denies it instead | A blanket "no TTY ⇒ deny" would break every existing pipe and **every existing CliRunner test** (`CliRunner` has no TTY). Blocking must key on *positive agent signals*, with strictness available opt-in |
-| Agent signals | Explicit `PSAMVAULT_AGENT=1` / `--agent` first, then a frozen marker list probed in step 1, then `CI=true` | Deterministic and testable; no fragile heuristics like "parent process looks like python" in the default path |
+| Agent signals | Explicit `PSAMVAULT_AGENT=1` / `--agent` first, then a frozen marker list probed in step 1, then the parent-process ancestry. **Amended 2026-09-23:** `CI=true` is recorded in the audit row (`env:CI`) but is no longer graded as an agent — unattended is not driven, and grading it as one would refuse secrets in every CI pipeline while catching no agent the markers or ancestry would not already catch | Deterministic and testable; no fragile heuristics like "parent process looks like python" in the default path |
 | MCP children | `run_with_credential` exports `PSAMVAULT_AGENT=1` into the subprocess env | Any CLI the agent runs through the vault is classified correctly with no guessing |
 | Approval token | Minted only in a real interactive TTY, single-use, TTL (default 120s), stored in the OS keychain, consumed on first successful reveal | Reuses the keychain as the tamper-resistant store; a token that survives one reveal cannot be replayed |
 | Policy file | `~/.psamvault/policy.json`, `0600`, absent = safe defaults | One readable file, JSON like the rest of the tooling; no new format to learn |
@@ -128,7 +128,7 @@ All resolved — see **Decisions Made**. Rejected alternatives at the end.
 | Layer | Module | Behaviour |
 |---|---|---|
 | L1 Reveal gate | `reveal_gate.py` (new) | One function `require_reveal(action, entry)` that every secret-emitting path calls before printing or copying |
-| L2 Caller classification | `caller.py` (new) | Returns `human`, `uncertain`, or `agent`; one patchable entry point so tests control it exactly. Ladder: (1) explicit `--agent` / `PSAMVAULT_AGENT`, (2) known host markers incl. `AI_AGENT=hermes-agent`, (3) `CI=true`, (4) **parent-process ancestry** — consulted only when 1–3 are silent *and* a reveal is pending |
+| L2 Caller classification | `caller.py` (new) | Returns `human`, `uncertain`, or `agent`; one patchable entry point so tests control it exactly. Ladder: (1) explicit `--agent` / `PSAMVAULT_AGENT`, (2) known host markers incl. `AI_AGENT=hermes-agent`, (3) **parent-process ancestry** — consulted only when 1–2 are silent *and* a reveal is pending. `CI=true` is recorded as unattended (`env:CI` in the audit row), never graded as an agent |
 | L3 Policy | `policy.py` (new) + `~/.psamvault/policy.json` | `{"reveal": "human-only" \| "strict" \| "open", "allow_entries": [...], "approval_ttl_seconds": 120, "audit": true}` |
 | L4 Approval token | `session.py` (+`approval.<id>` keychain rows) | `psamvault approve <entry> --for-agent [--ttl N]`, TTY + interactive confirm required |
 | L5 Refusal | `error_ui.py` `print_error` | Refusal always names the capability alternatives (`use_credential`, `run_with_credential`, `browser_login`, `approve`) |
@@ -341,7 +341,7 @@ Live evidence, in the agent's own shell against the real vault:
 |---|---|
 | Warn-only reveal guard (log and still print) | Fails the actual requirement — an agent that reads the warning has already read the secret |
 | Always require interactive confirmation, even in a human terminal | Punishes the primary user for the agent's risk; the approval token already covers the handoff case |
-| Blanket "no TTY ⇒ deny" | Breaks pipes, CI, and the whole existing test suite for a signal that is not evidence of an agent |
+| Blanket "no TTY ⇒ deny" | Breaks pipes, CI, and the whole existing test suite for a signal that is not evidence of an agent. **Applied to `CI=true` itself on 2026-09-23:** it is recorded, not graded as an agent — this table's argument, turned on a signal that had been graded as one |
 | Parent-process fingerprinting as the default mechanism | Brittle across platforms and shells; kept out of the default path |
 | Build the OS-user split now | Correct boundary, large cost, and it conflicts with how Hermes currently runs as the user; documented as the escalation path |
 | Server-side pending-claim table | The filler is the same OS user on the same machine; a local file avoids a migration and keeps the claim off the server |
