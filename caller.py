@@ -32,8 +32,11 @@ Two rules keep this honest:
   TTY, no agent markers. ``AI_AGENT``, ``HERMES_AGENT`` and the Claude Code
   markers were checked directly. The two ``TERMINAL_*`` entries were added from
   measured agent-side evidence (they are present in the agent's shell, next to
-  ``AI_AGENT``), and are still pending the same direct check in the user's pane
-  — if that check finds them there too, they come out again. Hermes' other
+  ``AI_AGENT``) and were cleared for the pane without a manual check: the
+  desktop app sets ``TERMINAL_CWD`` in exactly one place, the backend spawn env
+  (never a pane), and the live process tree shows the pane is an *ancestor* of
+  that backend — so it cannot inherit what the app hands to a child below it.
+  Hermes' other
   internals (``_HERMES_GATEWAY``, ``HERMES_DESKTOP``) are deliberately NOT in
   the list: a false block of the human's own terminal is the one failure this
   design must not have.
