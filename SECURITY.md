@@ -80,7 +80,52 @@ an old session cannot outlive the rotation.
 - A backup protects against *losing* a machine, not against a *compromised* one. Code running as
   you can read the OS keychain, the session state, and anything the CLI prints.
 - `psamvault export --plaintext`, `psamvault get`, `ak-get` and `note-get` print secrets in
-  cleartext. Treat shell history, process listings and terminal scrollback as untrusted.
+  cleartext. Treat shell history, process listings and terminal scrollback as untrusted. These
+  are the commands the reveal guardrail below refuses in an agent context.
+
+### The reveal guardrail — who may print a secret
+
+Four commands emit secrets: `get`, `ak-get`, `note-get` and `export --plaintext` (plus `--copy`
+on any of them). Each one now classifies its caller first and refuses when the caller is a
+program. The design is deliberately layered, because each layer was measured to fail on its own:
+
+- **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets), or the MCP server
+  exporting it into a subprocess. Deterministic, and the only layer an integration controls.
+- **Host markers** — the identity a known runtime leaves in the environment: Hermes
+  (`AI_AGENT`, `HERMES_AGENT`, and its terminal's `TERMINAL_CWD`/`TERMINAL_ENV`) and Claude Code
+  (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`). Measured on a real agent shell, not assumed.
+- **CI** — `CI=true` means no human is watching.
+- **Ancestry** — the parent-process chain (Toolhelp32 on Windows, `/proc` on POSIX). Consulted
+  only when the first three are silent and a reveal is pending, so ordinary commands pay nothing.
+  It matches the ancestor's executable *path* (`...\hermes-agent\venv\...`) or a distinctly-named
+  agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
+  match the desktop app's own install prefix, which would block the user's own terminal pane.
+
+**What it stops.** A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
+running `psamvault get` gets exit code 1 and a message naming the capability alternatives
+(`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
+(`psamvault approve <entry> --for-agent`). Every decision, allow or deny, appends a row to
+`~/.psamvault/audit.jsonl` naming the caller, the matched signal and the outcome. An agent cannot
+approve itself: `approve` requires a real terminal (both stdin and stdout on a TTY), and an
+approval covers exactly one entry for exactly one reveal.
+
+**What it does not stop, and why that is acceptable.** This is a guardrail, not a security
+boundary. Concretely, measured on Windows 2026-09-23:
+
+- An agent that strips its markers *and* routes the invocation through a re-parenting stub
+  (`env -i … psamvault get x` over MSYS `env.exe`) defeats both the marker list and the ancestry
+  walk: Cygwin's fork points the child's Windows parent at a stub that exits immediately, so the
+  chain ends there. The same scrub performed in-shell (`unset AI_AGENT …`) is still refused via
+  ancestry, and a scrub that leaves `TERMINAL_*` in place is refused by the markers.
+- An agent with the user's credentials can read the OS keychain and decrypt the vault directly,
+  install a pristine copy of the CLI, edit or delete `policy.json` (a permissive `"reveal": "open"`
+  disables the guardrail), or truncate the audit trail. The trail is evidence about well-behaved
+  callers, not tamper-proof logging.
+- Writing a policy file it owns makes the *policy* layer cooperative, not enforced.
+
+The actual boundary is running the agent as a **different OS user** with no access to the user's
+keychain and no read on `~/.psamvault`. That is the recommended hardening for anyone who needs a
+real boundary; it costs the ability to share a session between the human and the agent.
 
 ## Known limitations
 
