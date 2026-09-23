@@ -147,6 +147,9 @@ def clear_session() -> None:
     """
     Delete all session data from the keychain and remove the presence marker.
     The tokens and VEK are wiped immediately.
+
+    Pending approval tokens go with it: an approval that outlived the session it
+    was minted for would be a standing reveal.
     """
     for key in _SESSION_KEYS:
         try:
@@ -155,6 +158,7 @@ def clear_session() -> None:
             pass
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()
+    clear_approvals()
 
 
 def is_logged_in() -> bool:
@@ -182,6 +186,146 @@ def get_access_token_expiry(access_token: str) -> "float | None":
         return float(exp) if exp is not None else None
     except Exception:
         return None
+
+
+# ── Approval tokens (reveal guardrail) ────────────────────────────────────────
+#
+# `psamvault approve <entry> --for-agent` mints one of these from a real
+# terminal; the reveal gate consumes it on the next reveal of that entry. Rows
+# live in the same keychain service as the session, so a token cannot outlive a
+# logout and no new store (or new file format) is introduced.
+#
+# A row holds only {entry, created_at, expires_at, single_use} — no secret. The
+# index row lists the live token ids, because the OS keychain has no "list
+# entries" API; it is pruned on every read.
+
+_APPROVAL_INDEX_KEY = "approval.index"
+_APPROVAL_PREFIX = "approval."
+APPROVAL_TOKEN_BYTES = 8  # 16 hex chars — matches a terminal-wide handover
+
+
+def _approval_index() -> list[str]:
+    raw = keyring.get_password(_SERVICE, _APPROVAL_INDEX_KEY)
+    if not raw:
+        return []
+    try:
+        ids = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [str(i) for i in ids] if isinstance(ids, list) else []
+
+
+def _save_approval_index(ids: list[str]) -> None:
+    if ids:
+        keyring.set_password(_SERVICE, _APPROVAL_INDEX_KEY, json.dumps(ids))
+        return
+    try:
+        keyring.delete_password(_SERVICE, _APPROVAL_INDEX_KEY)
+    except keyring.errors.PasswordDeleteError:
+        pass
+
+
+def _read_approval(token_id: str) -> "dict | None":
+    raw = keyring.get_password(_SERVICE, _APPROVAL_PREFIX + token_id)
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _drop_approval(token_id: str) -> None:
+    try:
+        keyring.delete_password(_SERVICE, _APPROVAL_PREFIX + token_id)
+    except keyring.errors.PasswordDeleteError:
+        pass
+
+
+def _live(token_id: str, now: float) -> "dict | None":
+    """Payload for a token that has not expired, or None (expired rows are pruned)."""
+    payload = _read_approval(token_id)
+    if payload is None:
+        return None
+    try:
+        expires_at = float(payload.get("expires_at", 0))
+    except (TypeError, ValueError):
+        expires_at = 0
+    if expires_at <= now:
+        _drop_approval(token_id)
+        return None
+    payload["token_id"] = token_id
+    return payload
+
+
+def mint_approval(entry: str, ttl_seconds: int, *, now: "float | None" = None) -> dict:
+    """Mint a single-use approval for ``entry``. Returns the row (with token_id)."""
+    import secrets
+    import time
+
+    created = time.time() if now is None else now
+    token_id = secrets.token_hex(APPROVAL_TOKEN_BYTES)
+    payload = {
+        "entry": entry,
+        "created_at": created,
+        "expires_at": created + float(ttl_seconds),
+        "single_use": True,
+    }
+    keyring.set_password(_SERVICE, _APPROVAL_PREFIX + token_id, json.dumps(payload))
+    _save_approval_index(_approval_index() + [token_id])
+    payload["token_id"] = token_id
+    return payload
+
+
+def live_approval_for(entry: str, *, now: "float | None" = None) -> "dict | None":
+    """First unexpired approval covering ``entry`` (case-insensitive), or None.
+
+    Also prunes expired rows from the index as a side effect — an approval that
+    timed out is not merely ignored, it is gone.
+    """
+    import time
+
+    moment = time.time() if now is None else now
+    wanted = (entry or "").strip().casefold()
+    live_ids: list[str] = []
+    found: dict | None = None
+    for token_id in _approval_index():
+        payload = _live(token_id, moment)
+        if payload is None:
+            continue
+        live_ids.append(token_id)
+        if found is None and str(payload.get("entry", "")).strip().casefold() == wanted:
+            found = payload
+    _save_approval_index(live_ids)
+    return found
+
+
+def consume_approval(token_id: str) -> None:
+    """Delete a token after a successful reveal — single use, enforced."""
+    _drop_approval(token_id)
+    _save_approval_index([i for i in _approval_index() if i != token_id])
+
+
+def list_approvals(*, now: "float | None" = None) -> list[dict]:
+    """Every live approval (used by tests and the audit-facing surfaces)."""
+    import time
+
+    moment = time.time() if now is None else now
+    live: list[dict] = []
+    for token_id in _approval_index():
+        payload = _live(token_id, moment)
+        if payload is not None:
+            live.append(payload)
+    _save_approval_index([p["token_id"] for p in live])
+    return live
+
+
+def clear_approvals() -> None:
+    """Drop every approval — called on logout so a token never outlives a session."""
+    for token_id in _approval_index():
+        _drop_approval(token_id)
+    _save_approval_index([])
 
 
 # ── Version state ─────────────────────────────────────────────────────────────

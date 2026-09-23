@@ -8,9 +8,10 @@ import typer
 from cryptography.exceptions import InvalidTag
  
 import api_client
+import reveal_gate
 from crypto import decrypt_api_key, encrypt_api_key
-from error_ui import print_error
-from errors import ConflictError, NotFoundError, PsamVaultError
+from error_ui import exit_error, print_error
+from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
 from session import load_session
  
 app = typer.Typer(
@@ -226,6 +227,11 @@ def ak_get(
         )
         raise typer.Exit(code=1)  # pylint: disable=raise-missing-from
  
+    try:
+        reveal_gate.require_reveal(action="ak-get", entry=name)
+    except RevealBlockedError as exc:
+        exit_error(exc)
+
     typer.echo(f"\n  Name:     {name}")
     typer.echo(f"  Service:  {decrypted['service']}")
  

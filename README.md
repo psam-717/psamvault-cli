@@ -622,6 +622,78 @@ That path is for a **deleted account**. If instead your *machine* was lost while
 
 ---
 
+## Agents and the reveal guardrail
+
+An agent with a shell can run `psamvault get` and read your password — a rule in
+a document does not stop it. So the four commands that print a secret now ask
+*who is calling* first, and refuse when the caller is a program.
+
+| Situation | What happens |
+|---|---|
+| You run `psamvault get github.com` in your own terminal | Prints the password. Nothing changes. |
+| Hermes, Claude Code, Codex, Goose or OpenCode runs it | Refused, exit code 1, with the capability alternatives printed. One audit row records it. |
+| A script of yours pipes it (`psamvault get x \| cat`) | Allowed, with an audit note — a plain pipe is not evidence of an agent. Set `"reveal": "strict"` to refuse these too. |
+| The agent needs the secret to finish a job | Use the MCP capabilities: `use_credential`, `run_with_credential` or `browser_login` — they inject the secret without ever revealing it. |
+| The agent genuinely needs the value printed once | You run `psamvault approve` in your own terminal (below). |
+| You were blocked but you *are* a human | Read `~/.psamvault/audit.jsonl` — the deny row names the exact signal that matched. |
+| You want the guardrail out of the way on this machine | `~/.psamvault/policy.json` with `"reveal": "open"`. |
+
+Gated: `get`, `ak-get`, `note-get`, `export --plaintext`, and `--copy` on any of
+them (the clipboard is just as readable). Never gated: `list`, `site-list`,
+`ak-list`, `note-list`, `whoami`, `check_credential_exists` — an agent must
+always be able to see *what* exists.
+
+### Hand an agent one secret, once
+
+```bash
+# you, in your own terminal — names the entry, the window, and asks once
+psamvault approve github.com --for-agent
+psamvault approve openai-prod --for-agent --ttl 60
+
+# the agent's next reveal of that ONE entry
+psamvault get github.com
+```
+
+The next reveal of that entry succeeds **once**; a second attempt is refused. The
+approval covers nothing else — not another entry, and never a whole-vault dump.
+`approve` requires a real terminal (both stdin and stdout), so an agent cannot
+approve itself out of a refusal, and `--for-agent` is required so the intent to
+hand a secret to a *program* is typed rather than assumed. `psamvault logout`
+drops every pending approval.
+
+### Policy: three modes
+
+`~/.psamvault/policy.json` — absent means the safe default, so a fresh machine is
+protected with nothing to configure. The same file works on Windows, macOS and
+Linux; the permission warning (`chmod 600`) is POSIX-only, since Windows reports
+one mode for every file and uses your user ACL instead.
+
+| `"reveal"` | An agent (markers, ancestry) | A bare pipe or script | |
+|---|---|---|---|
+| `"human-only"` *(default)* | refused | allowed + audited | stops the real case without breaking your pipes |
+| `"strict"` | refused | refused | "no terminal, no secret" — you opt in |
+| `"open"` | allowed + audited | allowed + audited | everything works; the trail still records it |
+
+```json
+{ "reveal": "human-only", "allow_entries": ["github.com"], "approval_ttl_seconds": 120, "audit": true }
+```
+
+`allow_entries` is a per-entry allowlist for agents — useful when a long-running
+job needs one specific secret. A malformed policy file falls back to the safe
+defaults with a warning rather than crashing the CLI.
+
+### What it does not stop
+
+This is a guardrail, not a boundary. An agent that already has your shell *and*
+your keychain can read the credential straight out of Windows Credential Manager,
+decrypt the vault itself, or install a pristine copy of the CLI. What it buys is
+a hard structural stop for well-behaved agents, a loud audit trail for accidents,
+and a capability always one message away. The actual boundary is running the
+agent as a different OS user with no access to your keychain — see
+[`SECURITY.md`](SECURITY.md).
+
+---
+
 ## Command groups
 
 All commands are available at the root level and also under grouped sub-commands:
@@ -641,6 +713,7 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault uninstall` | `psamvault uninstall` |
 | `psamvault backup create` | `psamvault backup create` |
 | `psamvault restore` | `psamvault backup restore` |
+| `psamvault approve` | `psamvault approve` |
 | `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
@@ -657,6 +730,7 @@ psamvault export
 psamvault import
 psamvault backup
 psamvault uninstall
+psamvault approve --help
 ```
 
 ---
@@ -668,6 +742,8 @@ psamvault uninstall
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
 | `~/.psamvault/flask_sessions/` | Server-side Flask session data (VEK, tokens) — permissions `0700` |
+| `~/.psamvault/policy.json` | Reveal policy — `human-only` (default), `strict` or `open`. Absent means the safe default |
+| `~/.psamvault/audit.jsonl` | Every reveal decision: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
 
 All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain or in the server-side session directory. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
 

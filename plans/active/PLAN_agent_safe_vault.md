@@ -1,6 +1,9 @@
 # Agent-Safe Vault — reveal guardrails and credential-blind writes
 
-**Status:** 🟢 READY — decisions locked, no code written yet
+**Status:** 🟢 WAVE 1 BUILT (2026-09-23) — steps 1-5 implemented on
+`feat/agent-safe-vault-guardrail` (PR open): classifier, ancestry, policy, audit, gate,
+`approve` command, `--agent` flag, all four reveal paths gated, 97 new tests.
+Steps 6-9 (blind ingress, loopback form, use-side hardening, proxy removal) not started.
 
 **Proposed by:** User (psam)
 **Date:** 2026-09-18
@@ -116,7 +119,7 @@ All resolved — see **Decisions Made**. Rejected alternatives at the end.
 | Use-side controls | Per-entry policy (`allow_hosts`, `allow_commands`, `allow_inject`) **now**; `lease` **deferred** | Policy stops the dangerous case (exfiltration to a disallowed host) at zero workflow cost. A lease only restrains *timing* while adding a state machine and mid-task failures — and it cannot serve unattended cron agents at all, because minting needs a TTY (reopen trigger recorded in Open Questions) |
 | Backend proxy credential path | **Delete it (option A), shipped as `410 Gone`** with an "upgrade psamvault-mcp ≥ 0.4.0" hint; keep `GET /vault/proxy/check/{site_name}` | Decided 2026-09-18 after the pre-deletion checks (see Key Points 7): no live caller, no cross-repo consumer, nothing to break except pinned MCP ≤0.3.0 installs, which get a legible error instead of a silent failure. The zero-knowledge claim stays literally true and the hosted-agent case (option B) is not a user psamvault currently serves |
 | Hermes' own self-identification | **Counts as an agent** — `AI_AGENT=hermes-agent` / `HERMES_AGENT=true` go into the frozen marker list | Decided 2026-09-18 after measuring both sides: the agent's shell carries them, the user's in-app terminal pane (PowerShell, real TTY) does not — so blocking the agent costs the user nothing |
-| Signal strength | **Marker list + parent-process ancestry** | Decided 2026-09-18. Marker-only was *verified* bypassable (`env -u AI_AGENT …` scrub + self-allocated `winpty` PTY); ancestry is evaluated independently of the environment, so it holds against the env-stripping dodge. The OS-user split remains documented as the only actual boundary |
+| Signal strength | **Marker list + parent-process ancestry** | Decided 2026-09-18. Marker-only was *verified* bypassable (`env -u AI_AGENT …` scrub + self-allocated `winpty` PTY); ancestry is evaluated independently of the environment, so it holds against the env-stripping dodge. **Amended 2026-09-23 after live measurement:** ancestry survives an in-shell `unset` but goes blind across an MSYS `env.exe` hop (Cygwin fork stub). So the Hermes terminal markers (`TERMINAL_CWD`, `TERMINAL_ENV`) were added to the frozen list, and the pair — not either alone — is the design. The OS-user split remains documented as the only actual boundary | Decided 2026-09-18. Marker-only was *verified* bypassable (`env -u AI_AGENT …` scrub + self-allocated `winpty` PTY); ancestry is evaluated independently of the environment, so it holds against the env-stripping dodge. The OS-user split remains documented as the only actual boundary |
 
 ## Design
 
@@ -239,12 +242,12 @@ psamvault ak-add stripe-test --service Stripe --from-file ./.env --from-key STRI
 
 | Step | Work | Depends on | Status |
 |---|---|---|---|
-| 1 | **Marker probe**: freeze the list in `caller.py` with a test per marker. **Hermes half DONE 2026-09-18** (Key Points 8) — agent shell: `AI_AGENT`/`HERMES_AGENT` present, no TTY, stdin `/dev/null`; user's in-app pane: PowerShell, real TTY, **no** markers. Remaining: Claude Code / Codex / Goose / OpenCode / a plain pipe | — | 🟡 |
-| 2 | `caller.py` + `policy.py` + tests (no behaviour change yet — classification only, logged) | 1 | 🔴 |
-| 2b | `ancestry.py` — parent-chain walk (`ctypes` Toolhelp32 on Windows, `/proc` on POSIX) + path matching, wired in as ladder signal 4; tests drive a fake chain (no real process tree needed) | 2 | 🔴 |
-| 3 | `reveal_gate.py`, `audit.py`, gate the four reveal paths, gate `--copy`; keep policy default non-breaking so the existing suite stays green | 2 | 🔴 |
-| 4 | `approve` command + token lifecycle (expiry, single use, replay) | 3 | 🔴 |
-| 5 | `--agent` flag + `PSAMVAULT_AGENT` handling + MCP env export; verify the ladder end to end — marker-stripped + PTY invocation is still refused, human pane is still allowed | 4 | 🔴 |
+| 1 | **Marker probe — DONE 2026-09-23.** Measured live: Hermes agent shell `AI_AGENT=hermes-agent` + `HERMES_AGENT=true` + the terminal tool's `TERMINAL_CWD`/`TERMINAL_ENV`; Claude Code (launched with the Hermes markers stripped, so the measurement is clean) `AI_AGENT=claude-code_2-1-278_agent` + `CLAUDECODE=1` + `CLAUDE_CODE_ENTRYPOINT=sdk-cli`, and its CLI is `~/.local/bin/claude.exe`. Both shells: stdin on a TTY, **stdout piped** — so TTY presence is not a human signal either. Codex / Goose / OpenCode / aider are not installed on this machine: they rely on `PSAMVAULT_AGENT`/`--agent` plus the frozen basename list, and stay 🟡 until measured. Probe JSONs: `probe_hermes.json`, `probe_claude.json` (hermes cache scratch) | — | 🟢 |
+| 2 | `caller.py` + `policy.py` + tests | 1 | 🟢 |
+| 2b | `ancestry.py` — Toolhelp32 walk on Windows, `/proc` on POSIX, path + distinct-basename matching, injected probe so tests drive a fake chain. **Measured limit:** an MSYS `env.exe` hop re-parents the child to a Cygwin fork stub, which ends the Windows chain — that is why the marker list had to grow (`TERMINAL_*`), see Implementation Notes | 2 | 🟢 |
+| 3 | `reveal_gate.py`, `audit.py`, gate the four reveal paths (`get`, `ak-get`, `note-get`, `export --plaintext`) + `--copy`; gate sits at the emit point so a failed fetch never burns a token; existing suite green | 2 | 🟢 |
+| 4 | `approve` command + token lifecycle (`--for-agent` required, TTY required, single use, TTL clamp, expiry pruned, dropped on logout) | 3 | 🟢 |
+| 5 | `--agent` flag + `PSAMVAULT_AGENT` handling + ladder verified live. **MCP env export is a separate repo** (`psamvault-mcp` `cmd_runner.py`) — follow-up PR | 4 | 🟢 CLI / 🟡 MCP |
 | 6 | Blind ingress: pending store, claim code, `--claim`, `--from-file`/`--from-env`, block `--key` in agent context | 5 | 🔴 |
 | 7 | Loopback claim form | 6 | 🔴 |
 | 8 | Use-side per-entry policy + wider redaction (CLI + MCP) — **no lease** (deferred) | 6 | 🔴 |
@@ -255,40 +258,68 @@ Steps 1-5 (guardrail) and 6-8 (blind ingress) are independently shippable; 9 can
 
 ## Acceptance Criteria
 
-- [ ] Under Hermes (real session, not a simulation), `psamvault get <site>` through the agent's
+**Wave 1 (steps 1-5) — status 2026-09-23.** Proven items carry the evidence; the
+wave-2 items are untouched by this work and stay open.
+
+- [x] Under Hermes (real session, not a simulation), `psamvault get postgresql` through the agent's
       terminal tool is refused with the guidance message, exit code 1, and one audit row naming the
-      matched signal. Same for `ak-get`, `note-get`, `export --plaintext`, and `get --copy`.
-- [ ] In the same session, `psamvault list`, `site-list`, `ak-list`, `whoami` still work — discovery
-      is never blocked.
-- [ ] An invocation that strips its own markers and self-allocates a PTY
-      (`env -u AI_AGENT -u HERMES_AGENT …` + `winpty`) is **still refused**, with `ancestry` named as the
-      matched signal in the audit row.
-- [ ] Ancestry adds no measurable cost to ordinary commands: a test patches the ancestry probe and
-      asserts it is called only when signals 1–3 are silent and a reveal is pending.
-- [ ] `psamvault approve <site>` in a real terminal mints a token; the agent's next `get` succeeds
-      **once**; a second `get` is blocked; an expired token is blocked.
-- [ ] A plain pipe from the user's own shell (`psamvault get x | cat`) still works under the default
-      policy and is logged as `uncertain`; the same command under `"reveal": "strict"` is refused.
-- [ ] The full existing CLI suite passes unchanged with the default policy (no test relies on a TTY).
-- [ ] `psamvault ak-add github-prod --service GitHub` in agent context prints only a claim code; an
-      automated test asserts the secret value appears nowhere in the agent-visible output, the
-      process argv, or the pending file.
+      matched signal. **Proven live:** row `get postgresql | caller=agent |
+      signals=[marker:AI_AGENT=hermes-agent, marker:HERMES_AGENT] | deny`. The same call site covers
+      `ak-get`, `note-get`, `--copy`, and `export --plaintext` (covered by tests, plus a live
+      `ak-get pypi` refusal).
+- [x] In the same session, `site-list` still works and returns entries — discovery is never blocked.
+      **Proven live** (5 entries listed in the agent's own shell) and pinned by a test.
+- [x] **REVISED — the original criterion was not achievable as written.** `env -u AI_AGENT -u
+      HERMES_AGENT …` + a self-allocated PTY is refused, but *by the marker layer, not by ancestry*:
+      MSYS `env.exe` re-parents its child to a Cygwin fork stub, so the ppid walk ends at that hop.
+      What is proven instead, both live: (a) an in-shell scrub (`unset AI_AGENT HERMES_AGENT …`)
+      is refused with `ancestry:hermes-agent\\venv` named as the matched signal; (b) the `env -u`
+      scrub that leaves `TERMINAL_*` set is refused with `marker:TERMINAL_CWD` named. The residual
+      defeat — `env -i` *through* a re-parenting stub — is documented in `SECURITY.md` as work for
+      the OS-user split, not papered over.
+- [x] Ancestry adds no measurable cost to ordinary commands: a test patches the ancestry probe and
+      asserts it is called only when signals 1-3 are silent and a reveal is pending.
+- [~] `psamvault approve <entry> --for-agent` mints a one-time token from a real terminal, the
+      agent's next `get` succeeds **once**, a second is blocked, an expired token is blocked — all
+      covered by tests. The mint itself cannot be demonstrated from this (agent) shell **by design**:
+      live run refuses with "approve needs a real terminal", which is the property being asserted.
+      A human-terminal mint needs psam's own terminal (see Open Questions).
+- [x] A bare pipe from the user's own shell (`psamvault get x | cat`) still works under the default
+      policy and is logged as `uncertain` (live audit row: `uncertain | signals=[] | allow`);
+      `"reveal": "strict"` refuses it (test).
+- [x] The full existing CLI suite passes unchanged with the default policy — 331 passed (234
+      pre-existing + 97 new); no test relies on a TTY.
+- [ ] `psamvault ak-add github-prod --service GitHub` in agent context prints only a claim code —
+      **wave 2, not built.**
 - [ ] The claim code completes from a second terminal, in the loopback web form, and via
-      `--from-file`; each path stores an entry that `ak-get` (human terminal) decrypts correctly.
-- [ ] Pending claims expire after 15 minutes and are never listed as stored entries.
-- [ ] `run_with_credential` output redacts the raw value, its base64 and URL-encoded forms, its first
-      8 characters, and the username under `basic_auth` — each with a test.
-- [ ] An entry outside `allow_hosts` is refused by `use_credential`, with a clear message and an audit
-      row.
-- [ ] Per-entry policy is enforced in **both** `use_credential` and `run_with_credential`, and no
-      lease-gated code path exists in this wave (`psamvault --help` lists no `lease` command).
-- [ ] `POST /vault/proxy` no longer accepts or transmits a plaintext credential field: it returns
-      `410 Gone` with an upgrade hint (verified by a real call), while `GET /vault/proxy/check/{site}`
-      still powers the live `check_credential_exists` tool, and MCP use paths still work live against
-      a real provider.
-- [ ] `SECURITY.md` states plainly what this guardrail does and does not stop (keychain access,
-      reinstalling the CLI, writing a permissive `policy.json`, reading `~/.psamvault/pending/`), and
-      documents the OS-user separation as the actual boundary.
+      `--from-file` — **wave 2, not built.**
+- [ ] Pending claims expire after 15 minutes — **wave 2, not built.**
+- [ ] `run_with_credential` output redacts raw/base64/URL-encoded/first-8/username — **wave 2.**
+- [ ] An entry outside `allow_hosts` is refused by `use_credential` — **wave 2.**
+- [ ] Per-entry policy enforced in both use paths, no lease — **wave 2.**
+- [ ] `POST /vault/proxy` returns `410 Gone` — **step 9, not built.**
+- [x] `SECURITY.md` states plainly what the guardrail does and does not stop (keychain access,
+      reinstalling the CLI, a permissive `policy.json`, a truncated audit trail, the re-parenting
+      stub), and documents the OS-user separation as the actual boundary.
+
+## Implementation Notes (wave 1, 2026-09-23)
+
+Files: `caller.py`, `ancestry.py`, `policy.py`, `audit.py`, `reveal_gate.py` (new);
+`command/approve_command.py` (new); `errors.py` (+`RevealBlockedError`), `session.py`
+(approval tokens), `main.py` (`approve`, `--agent`), `command/{vault,api_key,note,export}_commands.py`
+(gated). Tests: `test_caller`, `test_ancestry`, `test_policy`, `test_audit`, `test_reveal_gate`,
+`test_approve`, `test_gated_commands` + an autouse conftest fixture that keeps the suite's own
+environment (which is an agent shell) from turning every reveal test red for the wrong reason.
+
+Live evidence, in the agent's own shell against the real vault:
+
+| Run | Result |
+|---|---|
+| `get postgresql` (markers present) | refused, exit 1, `marker:AI_AGENT=hermes-agent, marker:HERMES_AGENT` |
+| `unset AI_AGENT HERMES_AGENT …; ak-get pypi` | refused, `ancestry:hermes-agent\\venv` |
+| `env -u AI_AGENT … get postgresql` | refused, `marker:TERMINAL_CWD, marker:TERMINAL_ENV` (before the marker was added: **allowed** — the gap this evidence closed) |
+| `site-list`, `list` | work normally, exit 0 |
+| `approve postgresql --for-agent` | refused: "approve needs a real terminal" |
 
 ## Risks & Mitigations
 
@@ -320,6 +351,8 @@ Steps 1-5 (guardrail) and 6-8 (blind ingress) are independently shippable; 9 can
 | Building `lease` in this wave | Deferred by decision (2026-09-18): per-entry policy already blocks the dangerous case (exfiltration to a disallowed host) at zero workflow cost, while a TTY-minted lease breaks unattended cron agents and adds a state machine for a timing-only gain |
 
 ## Open Questions
+
+- [ ] **Verify `TERMINAL_CWD` / `TERMINAL_ENV` in the human's own terminal pane** (the two markers added on 2026-09-23 to cover the MSYS `env.exe` gap). They are present in the agent's shell; the earlier pane probe only checked `AI_AGENT`/`HERMES_AGENT` and found neither. If the pane has them too, drop them from `HOST_MARKERS` and accept the narrower coverage — a false block of the human's own terminal is the failure to avoid. One-liner: `Get-ChildItem Env:TERMINAL_*` in the desktop app's terminal pane.
 
 - [x] ~~Which host actually sets `PSAMVAULT_AGENT` for us?~~ → **answered 2026-09-18 by measurement:**
       Hermes already exports `AI_AGENT=hermes-agent` / `HERMES_AGENT=true` on its agent shells, so no
