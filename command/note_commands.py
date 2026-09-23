@@ -5,9 +5,10 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+import reveal_gate
 from crypto import encrypt_note, decrypt_note
-from error_ui import print_error
-from errors import ConflictError, NotFoundError, PsamVaultError
+from error_ui import exit_error, print_error
+from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
 from session import load_session
 
 app = typer.Typer(
@@ -165,6 +166,11 @@ def note_get(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    try:
+        reveal_gate.require_reveal(action="note-get", entry=title)
+    except RevealBlockedError as exc:
+        exit_error(exc)
 
     typer.echo(f"\n  Title:    {data['title']}")
     if data.get("category"):
