@@ -12,9 +12,15 @@ The ladder (signals 1-4, cheapest first):
    ``HERMES_AGENT=true`` and its terminal tool exports ``TERMINAL_CWD`` /
    ``TERMINAL_ENV``; Claude Code exports ``CLAUDECODE`` /
    ``CLAUDE_CODE_ENTRYPOINT``. All measured on this machine, not assumed.
-3. **CI** — ``CI=true`` means no human is watching.
+3. **unattended** — ``CI=true`` is *recorded* (``env:CI`` lands in the audit row)
+   but does not by itself make the caller an agent. Unattended is not the same
+   as driven: a pipeline the human wrote is not an agent, and an agent running
+   *inside* CI still carries its own markers or shows up in the ancestry chain —
+   neither of which ``CI`` suppresses. Calling CI an agent would break real
+   pipelines on upgrade and protect nothing, so the caller stays ``uncertain``:
+   allowed and audited under ``human-only``, refused under ``strict``.
 4. **ancestry** — the parent-process chain (:mod:`ancestry`). Consulted
-   *only* when 1-3 are silent, so an ordinary command never pays for it.
+   *only* when 1-2 are silent, so an ordinary command never pays for it.
 
 Why both 2 and 4, when they overlap: measured 2026-09-23, ancestry holds when
 the chain is intact (an agent that runs ``unset AI_AGENT HERMES_AGENT`` in its
@@ -139,6 +145,7 @@ def classify(
     """
     environ = os.environ if env is None else env
     signals: list[str] = []
+    notes: list[str] = []
 
     if _is_truthy(environ.get(EXPLICIT_ENV)):
         signals.append(f"explicit:{EXPLICIT_ENV}")
@@ -150,12 +157,14 @@ def classify(
             if kind == "truthy" and not _is_truthy(value):
                 continue
             signals.append(f"marker:{name}" + (f"={value}" if kind is None else ""))
+        # Recorded for the audit trail, never evidence of an agent: see the
+        # ladder's signal 3. An agent in CI is caught by its markers or ancestry.
         if _is_truthy(environ.get(CI_MARKER)):
-            signals.append(f"env:{CI_MARKER}")
+            notes.append(f"env:{CI_MARKER}")
 
     tty = tty_present()
     if signals:
-        return CallerVerdict(VERDICT_AGENT, signals, tty)
+        return CallerVerdict(VERDICT_AGENT, signals + notes, tty)
 
     if with_ancestry:
         probe = ancestry_probe or _probe_ancestry
@@ -165,7 +174,7 @@ def classify(
             result = ancestry.AncestryResult(is_agent=False)
         if getattr(result, "is_agent", False):
             return CallerVerdict(
-                VERDICT_AGENT, [result.summary()], tty
+                VERDICT_AGENT, [result.summary()] + notes, tty
             )
 
-    return CallerVerdict(VERDICT_HUMAN if tty else VERDICT_UNCERTAIN, [], tty)
+    return CallerVerdict(VERDICT_HUMAN if tty else VERDICT_UNCERTAIN, notes, tty)
