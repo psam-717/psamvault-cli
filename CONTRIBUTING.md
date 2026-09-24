@@ -106,6 +106,30 @@ cli/
 
 4. **Push** and open a Pull Request against `main`.
 
+### Documentation changes
+
+User documentation lives in `docs/` — the README is a landing page that links into it. Every page
+carries front matter (`title`, `description`, `order`) because a website builds its navigation from
+this repository: `order` values must be unique integers, and every page must be linked from
+`docs/README.md`.
+
+Before pushing a docs change, run the surface gate. It fails when the docs name a command, subcommand
+or flag that the CLI does not register, and it checks the front matter and the orphan rule:
+
+```bash
+# macOS / Linux
+./.venv/bin/python scripts/check-docs-surface.py
+```
+
+```powershell
+# Windows (PowerShell)
+.venv\Scripts\python.exe scripts\check-docs-surface.py
+```
+
+CI runs the same script as the `docs` job in `.github/workflows/ci.yml`, so a failure here is a failure
+there. Why it exists: the docs showed `psamvault setup` for first-run setup — a command that has never
+existed in this CLI — and it stayed there because nothing checked the prose against the registry.
+
 ---
 
 ## Commit Message Convention
