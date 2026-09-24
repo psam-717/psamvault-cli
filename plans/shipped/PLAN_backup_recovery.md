@@ -1,6 +1,6 @@
 # Backup & Recovery — surviving a lost machine
 
-**Status:** 🟢 SHIPPED — implemented on `feat/vault-key-envelopes` (backend) + `feat/vault-backup-restore` (CLI), verified live end-to-end; PRs open. See **Implementation Notes** for the harness, the two bugs it caught, and the criterion resolutions.
+**Status:** 🟢 SHIPPED — merged: PR #49 (`feat/vault-backup-restore`), #51 (snapshot-collision fix), #52 (changelog) + backend PR #24 (key-envelope endpoints); verified live end-to-end. See **Implementation Notes** for the harness, the two bugs it caught, and the criterion resolutions.
 
 **Proposed by:** User (psam)
 **Date:** 2026-09-18
