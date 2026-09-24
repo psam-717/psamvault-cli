@@ -16,19 +16,19 @@ Everything psamvault writes under your home directory:
 |---|---|
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
-| `~/.psamvault/flask_sessions/` | Server-side Flask session data (VEK, tokens) — permissions `0700` |
+| `~/.psamvault/flask_sessions/` | Unused. Older dashboards wrote the VEK and tokens here. The current dashboard keeps them in process memory and does not create this directory |
 | `~/.psamvault/policy.json` | Reveal policy — `human-only` (default), `strict` or `open`. Absent means the safe default |
 | `~/.psamvault/audit.jsonl` | Every reveal decision: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
 
-All sensitive values (pepper, tokens, VEK) live exclusively in the OS keychain or in the server-side session directory. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
+All sensitive values (pepper, tokens, VEK) live in the OS keychain. While `pv dashboard` is running it also holds the unlocked session in that process. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
 
-Both `.json` and `.env` files are restricted to owner read/write only (`chmod 600`). The `flask_sessions/` directory is restricted to owner (`chmod 700`).
+Both `.json` and `.env` files are restricted to owner read/write only (`chmod 600`).
 
 Three more files appear in the same directory as psamvault runs:
 
 | File | Purpose |
 |---|---|
-| `~/.psamvault/flask_secret_key` | The dashboard's Flask secret key, generated on first `psamvault dashboard` and re-read on later starts (owner-only) so session IDs survive a server restart |
+| `~/.psamvault/flask_secret_key` | Unused. Older dashboards wrote a Flask secret here so a cookie session survived a restart. The current dashboard has no session cookie |
 | `~/.psamvault/last_seen_version` | The version whose changelog notice has already been shown, so the notice is not repeated on every command |
 | `~/.psamvault/backups/backup-<UTC stamp>/` | Pre-update snapshots of `session.json` and `last_seen_version`, taken by the source-track upgrade. At most the 5 most recent are kept |
 | `~/.psamvault/audit.jsonl.1` | The single previous generation of the audit trail, created when `audit.jsonl` reaches ~1 MB |
