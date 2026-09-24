@@ -15,6 +15,7 @@ import api_client
 from crypto import decrypt_api_key, decrypt_credentials, encrypt_api_key, encrypt_credentials
 from dashboard.cache import (
     CACHE,
+    describe_failure,
     ensure_auth,
     load_api_keys,
     load_entries,
@@ -36,6 +37,26 @@ _ALLOWED_ORIGINS = {
 
 def _error(message: str, status: int):
     return jsonify({"error": message}), status
+
+
+def _from_exception(exc: BaseException, fallback: str, status: int = 400):
+    """Turn a failure into JSON. Session failures include the CLI commands."""
+    message, recovery = describe_failure(exc)
+    if recovery:
+        return jsonify({"error": message, "recovery": recovery}), 401
+    text = message or fallback
+    code = 404 if type(exc).__name__ == "NotFoundError" else status
+    return _error(text, code)
+
+
+def _masked(exc: BaseException, fallback: str):
+    """Hide decrypt and lookup failures. Session expiry still tells the user what to run."""
+    message, recovery = describe_failure(exc)
+    if recovery:
+        return jsonify({"error": message, "recovery": recovery}), 401
+    if type(exc).__name__ == "NotFoundError":
+        return _error(str(exc) or fallback, 404)
+    return _error(fallback, 404)
 
 
 def _validate_site_name(site: str) -> str | None:
@@ -145,7 +166,9 @@ def bootstrap():
             "entries": entries,
             "api_keys": api_keys,
             "entries_error": entries_error,
+            "entries_recovery": CACHE.entries_recovery,
             "api_keys_error": keys_error,
+            "api_keys_recovery": CACHE.api_keys_recovery,
         }
     )
 
@@ -170,9 +193,12 @@ def entry_detail(site_name: str):
     try:
         data = api_client.get_vault_entry(token, refresh, site_name)
         plain = decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
-    except NotFoundError as exc:
-        return _error(str(exc), 404)
-    except (Exception, SystemExit):
+    except (NotFoundError, Exception, SystemExit) as exc:
+        if type(exc).__name__ == "NotFoundError":
+            return _error(str(exc) or "Entry not found", 404)
+        message, recovery = describe_failure(exc)
+        if recovery:
+            return jsonify({"error": message, "recovery": recovery}), 401
         return _error("Entry not found", 404)
     return jsonify(
         {
@@ -193,7 +219,10 @@ def entry_reveal(site_name: str):
     try:
         data = api_client.get_vault_entry(token, refresh, site_name)
         plain = decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
-    except (NotFoundError, Exception, SystemExit):
+    except (NotFoundError, Exception, SystemExit) as exc:
+        message, recovery = describe_failure(exc)
+        if recovery:
+            return jsonify({"error": message, "recovery": recovery}), 401
         return _error("Entry not found", 404)
     fields = _body().get("fields") or ["password", "notes"]
     allowed = {"password", "notes"}
@@ -231,7 +260,7 @@ def entry_add():
             login_url=login_url or None,
         )
     except Exception as exc:
-        return _error(str(exc) or "Failed to save", 400)
+        return _from_exception(exc, "Failed to save")
 
     row = _public_entry(
         {
@@ -257,8 +286,8 @@ def entry_update(site_name: str):
     try:
         data = api_client.get_vault_entry(token, refresh, site_name)
         current = decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
-    except (NotFoundError, Exception, SystemExit):
-        return _error("Entry not found", 404)
+    except (NotFoundError, Exception, SystemExit) as exc:
+        return _masked(exc, "Entry not found")
 
     body = _body()
     username = (body.get("username") or "").strip() or current.get("username", "")
@@ -292,7 +321,7 @@ def entry_update(site_name: str):
     except NotFoundError as exc:
         return _error(str(exc), 404)
     except Exception as exc:
-        return _error(str(exc) or "Failed to save", 400)
+        return _from_exception(exc, "Failed to save")
 
     row = _public_entry(
         {
@@ -318,7 +347,7 @@ def entry_delete(site_name: str):
     try:
         api_client.delete_vault_entry(token, refresh, site_name)
     except Exception as exc:
-        return _error(str(exc) or "Failed to delete", 400)
+        return _from_exception(exc, "Failed to delete")
     remember_entries([item for item in (CACHE.entries or []) if item.get("site_name") != site_name])
     return jsonify({"ok": True})
 
@@ -332,8 +361,8 @@ def api_key_detail(name: str):
     try:
         data = api_client.get_api_key_entry(token, refresh, name)
         plain = decrypt_api_key(vek, data["encrypted_blob"], data["iv"])
-    except (NotFoundError, Exception, SystemExit):
-        return _error("API key not found", 404)
+    except (NotFoundError, Exception, SystemExit) as exc:
+        return _masked(exc, "API key not found")
     return jsonify(
         {
             "name": data.get("name", name),
@@ -352,8 +381,8 @@ def api_key_reveal(name: str):
     try:
         data = api_client.get_api_key_entry(token, refresh, name)
         plain = decrypt_api_key(vek, data["encrypted_blob"], data["iv"])
-    except (NotFoundError, Exception, SystemExit):
-        return _error("API key not found", 404)
+    except (NotFoundError, Exception, SystemExit) as exc:
+        return _masked(exc, "API key not found")
     fields = _body().get("fields") or ["api_key", "notes"]
     allowed = {"api_key", "notes"}
     payload = {field: plain.get(field, "") for field in fields if field in allowed}
@@ -378,7 +407,7 @@ def api_key_add():
     try:
         api_client.add_api_key_entry(token, refresh, name, service, blob, iv)
     except Exception as exc:
-        return _error(str(exc) or "Failed to save", 400)
+        return _from_exception(exc, "Failed to save")
     row = _public_key({"name": name, "service_hint": service or "—", "updated_at": ""})
     rows = [item for item in (CACHE.api_keys or []) if item.get("name") != name]
     rows.append(row)
@@ -395,8 +424,8 @@ def api_key_update(name: str):
     try:
         data = api_client.get_api_key_entry(token, refresh, name)
         current = decrypt_api_key(vek, data["encrypted_blob"], data["iv"])
-    except (NotFoundError, Exception, SystemExit):
-        return _error("API key not found", 404)
+    except (NotFoundError, Exception, SystemExit) as exc:
+        return _masked(exc, "API key not found")
     body = _body()
     service = (body.get("service") or "").strip() or current.get("service", "")
     api_key = body.get("api_key") or current.get("api_key", "")
@@ -408,7 +437,7 @@ def api_key_update(name: str):
     try:
         api_client.update_api_key_entry(token, refresh, name, service, blob, iv)
     except Exception as exc:
-        return _error(str(exc) or "Failed to save", 400)
+        return _from_exception(exc, "Failed to save")
     row = _public_key(
         {
             "name": name,
@@ -430,6 +459,6 @@ def api_key_delete(name: str):
     try:
         api_client.delete_api_key_entry(token, refresh, name)
     except Exception as exc:
-        return _error(str(exc) or "Failed to delete", 400)
+        return _from_exception(exc, "Failed to delete")
     remember_api_keys([item for item in (CACHE.api_keys or []) if item.get("name") != name])
     return jsonify({"ok": True})
