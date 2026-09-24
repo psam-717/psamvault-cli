@@ -37,6 +37,26 @@
 - feat(guardrail): `export --plaintext` now names how many secrets it is about to expose before asking to continue, and a whole-vault dump can never be approved for an agent
 - feat(guardrail): `psamvault logout` drops every pending approval, so a token cannot outlive the session it was minted for
 
+### Safe upgrades (#43)
+
+- `upgrade` (source installs): local modifications are now **auto-stashed before pulling and restored after** — no more "git pull failed" on a dirty tree; a restore conflict parks the changes in a stash with instructions instead of losing them
+- `upgrade` takes a **pre-update snapshot** of `~/.psamvault` state into `~/.psamvault/backups/` (keeps the last 5) before touching anything
+- `upgrade` validates the result: dependency reinstall failure and a failed `import main` smoke test are reported clearly with a rollback hint (previously the pip step's result was ignored)
+- `upgrade` detects local commits ahead of main and explains how to resolve instead of failing cryptically
+- `upgrade` (pipx installs): editable/source-linked installs are detected before `pipx upgrade` and routed to the source track or a reinstall — no more silently broken editable links
+
+### Typed errors (#38)
+
+- API layer now raises typed exceptions (`NotFoundError`, `SessionExpiredError`, `NetworkError`, `ValidationError`, `ConflictError`) — no origin-side printing; command layer owns all user-facing messages (single print site)
+- `ak-get` / `ak-update` / `ak-add` / vault / notes: a dead or expired session is **no longer misreported as "key not found"** — shows `✗ Your session has expired → Run psamvault login`; network failures show `✗ Could not reach the psamvault server → check your connection`
+- `browser open` / `browser daemon`: typed errors distinguish missing entry from session/network failure in both JSON and CLI output
+- `whoami`: prints the actual reason (session expired / server unreachable) instead of exiting silently
+- `search`: session/network failures are surfaced with a clean ✗ + hint instead of being silently swallowed
+- Unreachable server / timeout anywhere now yields a clean connectivity message instead of a raw `httpx` traceback (including during token refresh)
+- New global `--verbose` flag shows underlying error type/detail
+- signup / migrate / auto-login-after-migration error paths no longer print raw exception text
+- `update_check`: fixed Windows crash (`NotADirectoryError`) when the git repo path is invalid — update notice path degrades gracefully
+
 ## Tests
 
 - test(backup): 20 command tests plus wire-shape assertions (the passphrase and the vault key never appear on the wire)
