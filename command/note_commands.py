@@ -5,6 +5,8 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+import claim_flow
+import pending_store as store
 import reveal_gate
 from crypto import encrypt_note, decrypt_note
 from error_ui import exit_error, print_error
@@ -67,9 +69,18 @@ def _get_session_and_key() -> tuple[dict, bytes]:
 
 @app.command(name="add")
 def note_add(
-    title: str = typer.Argument(..., help="Unique title for this note, e.g. my-ssh-key"),
-    content: str = typer.Option(..., "--content", "-c", help="The note content (text to encrypt and store)"),
+    title: Optional[str] = typer.Argument(None, help="Unique title for this note, e.g. my-ssh-key"),
+    content: Optional[str] = typer.Option(
+        None, "--content", "-c", help="The note content (omit to be prompted securely)"
+    ),
     category: Optional[str] = typer.Option(None, "--category", help="Optional category, e.g. ssh, wifi, recovery"),
+    claim: Optional[str] = typer.Option(
+        None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
+    ),
+    wait: bool = typer.Option(
+        False, "--wait", help="After asking for the content, wait until the human fills the claim"
+    ),
+    timeout: str = typer.Option("15m", "--timeout", help="How long --wait waits: 30s, 15m, 1h"),
 ):
     """
     Store a new secure note.
@@ -77,14 +88,52 @@ def note_add(
     The content is encrypted locally before being sent to the server.
     The server never sees the plaintext content.
 
+    From an agent context this command does not accept the content: it creates a
+    claim and prints a code, and the human fills that code in their own terminal.
+
     \b
     Examples:
         psamvault note-add my-ssh-key --content "ssh-rsa AAAAB3NzaC1yc2E..." --category ssh
         psamvault note-add wifi-password --content "Home WiFi: MyNetwork / password123" --category wifi
         psamvault note-add recovery-codes --content "Code 1: ABC... Code 2: DEF..." --category recovery
+        psamvault note-add my-ssh-key --category ssh      (agent: prints a claim code)
+        psamvault note-add --claim PV-4F2K-91QX           (human: fills that claim)
     """
+    if claim:
+        _fill_note_claim(claim)
+        return
+
+    if not title:
+        typer.echo("Error: a title is required (or pass --claim CODE to fill a claim).", err=True)
+        raise typer.Exit(code=1)
+
     _validate_title(title)
 
+    verdict = claim_flow.classify()
+
+    if content is not None:
+        try:
+            claim_flow.require_no_argv_secret(
+                verdict, "--content", title, f"psamvault note-add {title}", command="note-add"
+            )
+        except PsamVaultError as exc:
+            exit_error(exc)
+    elif verdict.is_agent:
+        record = claim_flow.create_claim(
+            store.FAMILY_NOTE, title, category=category, verdict=verdict
+        )
+        claim_flow.print_claim(record)
+        if wait:
+            claim_flow.wait_and_report(record, claim_flow.parse_duration(timeout))
+        return
+    else:
+        content = typer.prompt(f"Note content for {title}", hide_input=True)
+
+    _store_note(title, content, category)
+
+
+def _store_note(title: str, content: str, category: Optional[str]) -> None:
+    """Encrypt and store — shared by the human path and the fill path."""
     typer.echo("")
     session, key = _get_session_and_key()
 
@@ -116,6 +165,19 @@ def note_add(
             raise typer.Exit(code=1)
 
     typer.echo(f" Note '{title}' saved successfully\n")
+
+
+def _fill_note_claim(code: str) -> None:
+    """The human's half: type the note body here, and consume the claim."""
+    try:
+        record = claim_flow.resolve_claim(code, store.FAMILY_NOTE)
+    except PsamVaultError as exc:
+        exit_error(exc)
+
+    content = typer.prompt(f"Note content for {record['name']}", hide_input=True)
+    _store_note(record["name"], content, record.get("category"))
+    # Only now is the code spent: a failed store leaves the claim fillable again.
+    claim_flow.complete_claim(record)
 
 
 # ─── note-get ──────────────────────────────────────────────────────────────────
