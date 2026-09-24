@@ -18,7 +18,7 @@ Available on every command:
 |---|---|
 | `--version`, `-V` | Show version and exit |
 | `--verbose`, `-v` | Show underlying error details |
-| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`) |
+| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`), and a secret passed on the command line to `add`/`ak-add`/`note-add` is refused too |
 | `--install-completion` | Install completion for the current shell |
 | `--show-completion` | Show completion for the current shell, to copy it or customize the installation |
 | `--help` | Show the command's message and exit |
@@ -148,13 +148,16 @@ The optional `--login-url` flag stores the login page URL for use with `psamvaul
 
 | Argument / option | What it does |
 |---|---|
-| `site` *(required)* | Site name, e.g. `github.com` |
-| `--user`, `-u` *(required)* | Username or email for the site |
-| `--pass`, `-p` | Password (omit to be prompted securely) |
+| `site` | Site name, e.g. `github.com` — not needed with `--claim` |
+| `--user`, `-u` | Username or email for the site. Required when you supply the password; with `--claim`, a username the agent recorded is used as-is |
+| `--pass`, `-p` | Password (omit to be prompted securely). Refused in an agent context — see [Credential-blind ingress](../guides/agent-credential-blind-ingress.md) |
 | `--notes`, `-n` | Optional notes |
 | `--login-url` | Login page URL for use with `psamvault open` (e.g. `https://github.com/login`) |
+| `--claim` | Fill a claim code an agent printed, in your own terminal |
+| `--wait` | After creating a claim, wait until the human fills it |
+| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
 
-**When to run it:** when you create an account somewhere and want the credential stored now. Omit `--pass` to be prompted instead of putting the password in your shell history.
+**When to run it:** when you create an account somewhere and want the credential stored now. Omit `--pass` to be prompted instead of putting the password in your shell history. Run it with no value from an agent context and it creates a claim instead of prompting.
 
 ### psamvault get
 
@@ -322,16 +325,25 @@ Store an API key securely in your vault. The key is encrypted locally before bei
 psamvault ak-add xai-prod --service XAI --key sk-...
 psamvault ak-add stripe-test --service Stripe --key sk_test_... --notes "test mode only"
 psamvault ak-add gh-token --service GitHub   # prompts for key
+psamvault ak-add gh-token --service GitHub   # agent: prints a claim code
+psamvault ak-add --claim PV-4F2K-91QX        # you: fills that claim
 ```
 
 | Argument / option | What it does |
 |---|---|
-| `name` *(required)* | A unique label for this key, e.g. `xai-prod` |
-| `--service`, `-s` *(required)* | Service this key belongs to, e.g. `XAI` |
-| `--key`, `-k` | The API key value (omit to be prompted securely) |
+| `name` | A unique label for this key, e.g. `xai-prod` — not needed with `--claim` |
+| `--service`, `-s` | Service this key belongs to, e.g. `XAI` |
+| `--key`, `-k` | The API key value (omit to be prompted securely). Refused in an agent context |
 | `--notes`, `-n` | Optional notes e.g. 'read-only key' |
+| `--claim` | Fill a claim code an agent printed, in your own terminal |
+| `--wait` | After creating a claim, wait until the human fills it |
+| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
+| `--from-file` | Store the key from a file, without it ever being printed |
+| `--from-key` | With `--from-file`: which `NAME=` line to take out of a `.env` |
+| `--from-env` | Store the key from an environment variable |
+| `--delete-source` | With `--from-file --from-key`: delete that line afterwards (original kept at `<file>.bak`) |
 
-**When to run it:** when you mint a token for a tool or a project and want it stored encrypted rather than in a `.env`.
+**When to run it:** when you mint a token for a tool or a project and want it stored encrypted rather than in a `.env` — or, from an agent context with no value, when an agent needs the key stored without ever holding it. Migrating a key that is already in a file is `--from-file`; see [Credential-blind ingress](../guides/agent-credential-blind-ingress.md).
 
 ### psamvault ak-get
 
@@ -418,11 +430,14 @@ psamvault note-add recovery-codes --content "Code 1: ABC... Code 2: DEF..." --ca
 
 | Argument / option | What it does |
 |---|---|
-| `title` *(required)* | Unique title for this note, e.g. `my-ssh-key` |
-| `--content`, `-c` *(required)* | The note content (text to encrypt and store) |
+| `title` | Unique title for this note, e.g. `my-ssh-key` — not needed with `--claim` |
+| `--content`, `-c` | The note content (omit to be prompted securely). Refused in an agent context |
 | `--category` | Optional category, e.g. `ssh`, `wifi`, `recovery` |
+| `--claim` | Fill a claim code an agent printed, in your own terminal |
+| `--wait` | After creating a claim, wait until the human fills it |
+| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
 
-**When to run it:** when a secret has no site attached to it — a private key, a Wi-Fi password, a set of codes for something else.
+**When to run it:** when a secret has no site attached to it — a private key, a Wi-Fi password, a set of codes for something else — or, from an agent context with no content, when an agent needs it stored without ever holding it.
 
 ### psamvault note-get
 
@@ -880,9 +895,50 @@ The next reveal of that entry succeeds **once**; a second attempt is refused. Th
 psamvault --agent get github.com
 ```
 
-Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs, which is the same thing the MCP server does for its subprocesses.
+Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`), and the ingress guardrail refuses a secret passed on the command line to `add`/`ak-add`/`note-add` — those commands return a claim code instead. It sets `PSAMVAULT_AGENT=1` before any command body runs, which is the same thing the MCP server does for its subprocesses.
 
 **When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it.
+
+## Agent ingress commands
+
+The reveal guardrail decides *who may print* a secret. This is the other direction: an agent that has to **create** an entry must not be given the value, so it creates a claim and the human fills it. The guide is [Credential-blind ingress](../guides/agent-credential-blind-ingress.md); this is the command surface.
+
+### psamvault pending
+
+Show the claims waiting for a human — and cancel one.
+
+```bash
+psamvault pending                              # everything outstanding
+psamvault pending --code PV-4F2K-91QX          # one claim in full
+psamvault pending --cancel PV-4F2K-91QX        # stop a claim
+```
+
+A claim appears when `add`, `ak-add` or `note-add` runs without a value in an agent context: instead of prompting, the CLI prints `PV-XXXX-XXXX` and the exact command you run to fill it.
+
+```text
+  CODE            FAMILY      ENTRY                  STATUS
+  PV-4F2K-91QX    api_key     github-prod (GitHub)   pending, 12m left
+  PV-7B3M-02ZC    credential  github.com             filled 3m ago
+```
+
+| Option | What it does |
+|---|---|
+| `--code` | Show one claim in full: family, name, service or category, notes, time left |
+| `--cancel` | Delete one claim, so its code stops working |
+
+Claims live in `~/.psamvault/pending/`, owner-only, hold **metadata only** — never a value — are single-use, and expire 15 minutes after they are created. `pending` is never gated: an agent must always be able to see the claim it created, and it cannot fill one. A claim is not tied to your session, so `psamvault logout` leaves the list alone — they expire on their own, or you cancel them.
+
+**When to run it:** when an agent says it created a claim for you, when `--wait` is blocking and you want to know why, to sweep up claims you never filled, and to cancel one you no longer want.
+
+### Filling a claim
+
+| The agent ran | You run |
+|---|---|
+| `psamvault ak-add rh-token --service "Red Hat"` | `psamvault ak-add --claim PV-4F2K-91QX` |
+| `psamvault add github.com` | `psamvault add --claim PV-4F2K-91QX` |
+| `psamvault note-add ssh-key --category ssh` | `psamvault note-add --claim PV-4F2K-91QX` |
+
+Each asks for the value with hidden input, stores the entry encrypted, and only then spends the code. A fill from an agent context is refused; a fill that fails (say the name already exists) leaves the claim fillable, so a typo does not cost you the code.
 
 ## Command groups
 
@@ -904,6 +960,7 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault backup create` | `psamvault backup create` |
 | `psamvault restore` | `psamvault backup restore` |
 | `psamvault approve` | `psamvault approve` |
+| `psamvault pending` | — |
 | `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
@@ -938,11 +995,12 @@ Every command in this reference is also reachable through its group:
 | `psamvault changelog` | `latest`, `all`, `show` |
 | `psamvault backup` | `create`, `verify`, `status`, `rotate`, `revoke`, `restore` |
 
-`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`.
+`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve`, `pending` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`.
 
 ## Related pages
 
 - [Configuration](configuration.md) — every file, path and environment variable.
 - [Backup and recovery](../guides/backup-and-recovery.md) — the runbook behind `backup` and `restore`.
+- [Credential-blind ingress](../guides/agent-credential-blind-ingress.md) — letting an agent create an entry without ever holding the secret.
 - [Upgrading](../guides/upgrading.md) — the two upgrade tracks in full.
 - [Web dashboard](../guides/web-dashboard.md) — the dashboard in full.
