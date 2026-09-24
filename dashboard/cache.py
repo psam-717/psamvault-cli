@@ -35,9 +35,11 @@ class ProcessCache:
         self.csrf_token = secrets.token_urlsafe(32)
         self.entries: list | None = None
         self.entries_error: str | None = None
+        self.entries_recovery: str | None = None
         self.entries_at = 0.0
         self.api_keys: list | None = None
         self.api_keys_error: str | None = None
+        self.api_keys_recovery: str | None = None
         self.api_keys_at = 0.0
 
     def set_tokens(self, access_token: str, refresh_token: str) -> None:
@@ -97,11 +99,40 @@ def ensure_auth() -> dict | None:
         return CACHE.auth
 
 
-def _error_text(exc: BaseException) -> str:
-    if isinstance(exc, SystemExit):
-        return "Session expired. Run pv login in your terminal, then try again."
-    text = str(exc).strip()
-    return text or "Request failed"
+# Shown when the access token is dead but a CLI command can refresh the
+# keychain copy. `pv list` runs that refresh. A missing login is a different
+# screen: the dashboard tells the user to run `pv login`.
+SESSION_RECOVERY = "session"
+SESSION_GUIDE = (
+    "Your session has expired. Run pv list in the terminal to restore it, then click Retry. "
+    "If you are logged out, run pv login instead."
+)
+
+
+def drop_auth() -> None:
+    """Forget the in-memory tokens so the next request reads the keychain again."""
+    with _lock:
+        CACHE.auth = None
+        CACHE.auth_loaded = False
+
+
+def _is_session_failure(exc: BaseException) -> bool:
+    if isinstance(exc, SystemExit) or type(exc).__name__ == "SessionExpiredError":
+        return True
+    text = f"{getattr(exc, 'message', '')} {getattr(exc, 'hint', '')} {exc}".lower()
+    return "session" in text and ("expir" in text or "invalid" in text)
+
+
+def describe_failure(exc: BaseException) -> tuple[str, str | None]:
+    """Return the message to show, and 'session' when the user must use the CLI."""
+    if _is_session_failure(exc):
+        drop_auth()
+        return SESSION_GUIDE, SESSION_RECOVERY
+    text = (getattr(exc, "message", None) or str(exc)).strip() or "Request failed"
+    hint = getattr(exc, "hint", None)
+    if hint and hint not in text:
+        text = f"{text} {hint}"
+    return text, None
 
 
 def _fresh(stamp: float, refresh: bool) -> bool:
@@ -128,10 +159,11 @@ def load_entries(refresh: bool = False) -> tuple[list | None, str | None]:
     try:
         data = api_client.list_vault_entries(auth["access_token"], auth["refresh_token"])
     except (Exception, SystemExit) as exc:
-        message = _error_text(exc)
+        message, recovery = describe_failure(exc)
         with _lock:
             CACHE.entries = None
             CACHE.entries_error = message
+            CACHE.entries_recovery = recovery
             CACHE.entries_at = time.monotonic()
         return None, message
     # Caller stores the stripped rows. The raw payload can carry ciphertext.
@@ -146,10 +178,11 @@ def load_api_keys(refresh: bool = False) -> tuple[list | None, str | None]:
     try:
         data = api_client.list_api_key_entries(auth["access_token"], auth["refresh_token"])
     except (Exception, SystemExit) as exc:
-        message = _error_text(exc)
+        message, recovery = describe_failure(exc)
         with _lock:
             CACHE.api_keys = None
             CACHE.api_keys_error = message
+            CACHE.api_keys_recovery = recovery
             CACHE.api_keys_at = time.monotonic()
         return None, message
     return _rows(data), None
@@ -159,6 +192,7 @@ def remember_entries(rows: list) -> None:
     with _lock:
         CACHE.entries = rows
         CACHE.entries_error = None
+        CACHE.entries_recovery = None
         CACHE.entries_at = time.monotonic()
 
 
@@ -166,4 +200,5 @@ def remember_api_keys(rows: list) -> None:
     with _lock:
         CACHE.api_keys = rows
         CACHE.api_keys_error = None
+        CACHE.api_keys_recovery = None
         CACHE.api_keys_at = time.monotonic()
