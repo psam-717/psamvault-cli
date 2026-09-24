@@ -50,6 +50,11 @@ packages = ["."]
 [tool.hatch.build.targets.wheel.sources]
 "." = ""
 
+# The React build is not a Python module. Without this, a pip install of the
+# dashboard has the API and a 503 page.
+[tool.hatch.build.targets.wheel.force-include]
+"dashboard/static/app" = "dashboard/static/app"
+
 [project.urls]
 Homepage = "https://github.com/psam-717/psamvault-cli"
 Repository = "https://github.com/psam-717/psamvault-cli"
