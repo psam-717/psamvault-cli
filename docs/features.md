@@ -52,6 +52,10 @@ A backup here backs up the **key**, not the data: your entries live on the serve
 
 Four commands can print a secret — `get`, `ak-get`, `note-get` and `export --plaintext` (plus `--copy` on any of them). Each one classifies its caller first and refuses when the caller is a program, with the capability alternatives printed and an audit row recorded. Reach for `psamvault approve <entry> --for-agent` when an agent genuinely needs one secret printed once. Full detail: [The agent reveal guardrail](guides/agent-reveal-guardrail.md).
 
+## Credential-blind ingress (claims)
+
+An agent that needs an entry created must not be handed the value, so `add`, `ak-add` and `note-add` behave differently when a program calls them without a value: instead of prompting they create a **claim** and print a code (`PV-XXXX-XXXX`) that you fill in your own terminal. `psamvault pending` lists what is outstanding, `--wait` lets the agent block until you fill it, and `--from-file` / `--from-key` / `--from-env` move a secret that is already on the machine into the vault without it ever appearing on a command line. The pending file holds metadata only — never a value. Full detail: [Credential-blind ingress](guides/agent-credential-blind-ingress.md).
+
 ## Typed errors and verbose diagnostics
 
 Failures are typed (`PsamVaultError`, `SessionExpiredError`) and printed as a message plus a hint rather than a traceback, so a network failure, an expired session and a wrong passphrase each say what they are and what to do next. Reach for the global `--verbose` / `-v` flag when you need the underlying error detail. Full detail: [Global options](reference/commands.md#global-options).
