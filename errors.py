@@ -104,3 +104,26 @@ class RevealBlockedError(PsamVaultError):
     def __init__(self, message: str, details: list[str] | None = None, hint: str | None = None):
         super().__init__(message, hint=hint)
         self.details = list(details or [])
+
+
+class IngressBlockedError(PsamVaultError):
+    """A secret was about to *enter* through a context that keeps copies.
+
+    The mirror image of :class:`RevealBlockedError`: the reveal gate stops a
+    secret leaving the vault, this stops one arriving by command line — where
+    process listings, shell history and any wrapper that logs a command line all
+    keep a copy. Raised when an agent asks for ``--key``/``--pass``, or tries to
+    fill a claim itself instead of handing the code to the human.
+
+        ✗ psamvault --key is blocked in this context (agent terminal detected)
+           • a value in argv is visible to process listings, shell history …
+           • psamvault ak-add github-prod --service GitHub   (prints a claim code …)
+        → Ask the human for the value via the claim flow, or use --from-file
+
+    Attributes:
+        details: Bullet lines rendered under the message.
+    """
+
+    def __init__(self, message: str, details: list[str] | None = None, hint: str | None = None):
+        super().__init__(message, hint=hint)
+        self.details = list(details or [])
