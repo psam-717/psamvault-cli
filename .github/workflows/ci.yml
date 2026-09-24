@@ -41,3 +41,31 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+  docs:
+    name: Docs describe real commands
+    runs-on: ubuntu-latest
+
+    env:
+      # The gate imports the typer app, which pulls in config/crypto — same env as the test job.
+      PSAMVAULT_PEPPER: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      PSAMVAULT_API_URL: "https://test.example.com"
+      PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install the package (the gate reads the real command registry)
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+
+      - name: Docs must not name a command or flag that does not exist
+        run: python scripts/check-docs-surface.py
