@@ -26,7 +26,8 @@ Opens a local web server at `http://localhost:8500` running on [Waitress](https:
 1. Open `http://localhost:8500`
 2. If you're logged in via CLI, the dashboard loads your entries and API keys
 3. If not, a CLI instruction screen appears — run `pv login` in your terminal, then click **I've logged in**
-4. Switch tabs and search in the browser. Add, edit, delete, reveal and copy each make one request, and the button stays disabled until it returns
+4. If a session-expired notice appears while you are already in, run `pv list` in the terminal to restore the session, then click **Retry**. If that command says you are logged out, run `pv login` instead
+5. Switch tabs and search in the browser. Add, edit, delete, reveal and copy each make one request, and the button stays disabled until it returns
 
 > **Security:** The dashboard runs on `127.0.0.1:8500` only. It is not exposed to your network.
 
