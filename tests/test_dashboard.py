@@ -428,6 +428,36 @@ def test_refresh_query_bypasses_a_cached_list_error(client, monkeypatch):
     assert calls["list_entries"] == 2
 
 
+def test_expired_session_tells_the_user_which_command_restores_it(client, monkeypatch):
+    from errors import SessionExpiredError
+
+    test_client, _calls, gets, _stored = client
+    _bootstrap(test_client)
+    reads_after_login = gets["n"]
+
+    def expired(access_token, refresh_token):
+        raise SessionExpiredError(
+            "Your session has expired",
+            hint="Run  psamvault login  to sign in again",
+        )
+
+    monkeypatch.setattr(api_client, "list_vault_entries", expired)
+    failed = test_client.get("/api/bootstrap?refresh=1")
+    body = failed.get_json()
+    assert body["entries"] is None
+    assert body["entries_recovery"] == "session"
+    assert "pv list" in body["entries_error"]
+    assert "pv login" in body["entries_error"]
+
+    monkeypatch.setattr(api_client, "list_vault_entries", lambda access_token, refresh_token: [])
+    restored = test_client.get("/api/bootstrap?refresh=1")
+    restored_body = restored.get_json()
+    assert restored_body["entries"] == []
+    assert restored_body["entries_recovery"] is None
+    # The failed call drops the cached tokens, so Retry reads the keychain again.
+    assert gets["n"] >= reads_after_login + 6
+
+
 def test_decrypt_failure_on_reveal_is_an_error(client, monkeypatch):
     test_client, _calls, _gets, _stored = client
     _response, body = _bootstrap(test_client)
