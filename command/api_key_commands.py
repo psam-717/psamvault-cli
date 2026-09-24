@@ -8,6 +8,8 @@ import typer
 from cryptography.exceptions import InvalidTag
  
 import api_client
+import claim_flow
+import pending_store as store
 import reveal_gate
 from crypto import decrypt_api_key, encrypt_api_key
 from error_ui import exit_error, print_error
@@ -117,40 +119,140 @@ def _search_api_keys(vek: bytes, entries: list[dict], query: str) -> list[dict]:
 
 @app.command(name="add")
 def ak_add(
-    name: str = typer.Argument(..., help="A unique label for this key, e.g. xai-prod"),
-    service: str = typer.Option(..., "--service", "-s", help="Service this key belongs to, e.g. XAI"),
+    name: Optional[str] = typer.Argument(None, help="A unique label for this key, e.g. xai-prod"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service this key belongs to, e.g. XAI"),
     key: Optional[str] = typer.Option(
         None, "--key", "-k", help="The API key value (omit to be prompted securely)"
     ),
-    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes e.g. 'read-only key")
+    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes e.g. 'read-only key'"),
+    claim: Optional[str] = typer.Option(
+        None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
+    ),
+    wait: bool = typer.Option(
+        False, "--wait", help="After asking for the value, wait until the human fills the claim"
+    ),
+    timeout: str = typer.Option("15m", "--timeout", help="How long --wait waits: 30s, 15m, 1h"),
+    from_file: Optional[str] = typer.Option(
+        None, "--from-file", help="Store the key from a file, without it ever being printed"
+    ),
+    from_key: Optional[str] = typer.Option(
+        None, "--from-key", help="With --from-file: which NAME= line to take out of a .env file"
+    ),
+    from_env: Optional[str] = typer.Option(
+        None, "--from-env", help="Store the key from this environment variable"
+    ),
+    delete_source: bool = typer.Option(
+        False, "--delete-source", help="With --from-file --from-key: delete that line afterwards"
+    ),
 ):
     """
     Store an API key securely in your vault.
- 
+
     The key is encrypted locally before being sent to the server.
     The server never sees your plaintext key.
- 
+
+    From an agent context this command does not prompt and does not accept the
+    key: it creates a claim and prints a code, and the human fills that code in
+    their own terminal. The value then never passes through the agent.
+
     \b
     Examples:
-        psamvault ak-add xai-prod --service XAI --key sk-...
-        psamvault ak-add stripe-test --service Stripe --key sk_test_... --notes "test mode only"
-        psamvault ak-add gh-token --service GitHub  (prompts for key)
+        psamvault ak-add xai-prod --service XAI --key sk-...         (your own terminal)
+        psamvault ak-add gh-token --service GitHub                   (prompts securely)
+        psamvault ak-add gh-token --service GitHub                   (agent: prints a claim code)
+        psamvault ak-add --claim PV-4F2K-91QX                        (human: fills that claim)
+        psamvault ak-add stripe-test --service Stripe --from-file ./.env --from-key STRIPE_TEST_KEY
+        psamvault ak-add sa-prod --service Google --from-file ./service-account.json
+        psamvault ak-add gh-token --service GitHub --from-env GITHUB_TOKEN
     """
+    if claim:
+        _fill_api_key_claim(claim)
+        return
+
+    if not name:
+        typer.echo("Error: a name is required (or pass --claim CODE to fill a claim).", err=True)
+        raise typer.Exit(code=1)
+
     _validate_entry_name(name)
-    
-    if key is None:
+    _validate_source_flags(name, service, key, from_file, from_key, from_env, delete_source)
+
+    verdict = claim_flow.classify()
+
+    if from_file or from_env:
+        # Moving a value that is already on this machine: read it, never print it.
+        try:
+            key = (
+                claim_flow.read_secret_from_file(from_file, from_key)
+                if from_file
+                else claim_flow.read_env_secret(from_env)
+            )
+        except PsamVaultError as exc:
+            exit_error(exc)
+    elif key is not None:
+        try:
+            claim_flow.require_no_argv_secret(
+                verdict,
+                "--key",
+                name,
+                f"psamvault ak-add {name} --service {service}",
+                command="ak-add",
+            )
+        except PsamVaultError as exc:
+            exit_error(exc)
+    elif verdict.is_agent:
+        # An agent asking for an entry it must not see the value of.
+        record = claim_flow.create_claim(
+            store.FAMILY_API_KEY, name, service=service, notes=notes, verdict=verdict
+        )
+        claim_flow.print_claim(record)
+        if wait:
+            claim_flow.wait_and_report(record, claim_flow.parse_duration(timeout))
+        return
+    else:
         key = typer.prompt(f"API key for {name}", hide_input=True)
-    
+
+    _store_api_key(name, service, key, notes)
+
+    if delete_source:
+        removed_from, backup = claim_flow.remove_env_line(from_file, from_key)
+        typer.echo(f" ✓ Removed {from_key} from {removed_from} (original kept at {backup})\n")
+
+
+def _validate_source_flags(name, service, key, from_file, from_key, from_env, delete_source) -> None:
+    """Catch contradictory flags before anything is read, prompted for or stored."""
+
+    def fail(message: str, hint: str) -> None:
+        typer.echo(f"\n ✗ {message}", err=True)
+        typer.echo(f" → {hint}", err=True)
+        raise typer.Exit(code=1)
+
+    if not service:
+        fail("--service is required.", f"psamvault ak-add {name} --service XAI")
+    if from_key and not from_file:
+        fail("--from-key needs --from-file.", "--from-file ./.env --from-key STRIPE_TEST_KEY")
+    if from_file and from_env:
+        fail("Use --from-file or --from-env, not both.", "pick the one that holds the value")
+    if delete_source and not (from_file and from_key):
+        fail(
+            "--delete-source needs --from-file and --from-key.",
+            "a whole-file source is never deleted — that file IS the secret",
+        )
+    if sum(1 for source in (key, from_file, from_env) if source) > 1:
+        fail("Give the value once.", "use one of --key, --from-file or --from-env")
+
+
+def _store_api_key(name: str, service: str, key: str, notes: Optional[str]) -> None:
+    """Encrypt and store — the part both the human path and the fill path share."""
     typer.echo("")
     session, vek = _get_session_and_key()
-    
+
     encrypted_blob, iv = encrypt_api_key(
         key=vek,
         service=service,
         api_key=key,
         notes=notes or "",
     )
-    
+
     with Spinner(f"Saving API key '{name}'"):
         try:
             api_client.add_api_key_entry(
@@ -173,7 +275,19 @@ def ak_add(
             print_error(exc)
             raise typer.Exit(code=1)
     typer.echo(f" API key '{name}' saved successfully\n")
-    
+
+
+def _fill_api_key_claim(code: str) -> None:
+    """The human's half: type the value here, and the claim is consumed."""
+    try:
+        record = claim_flow.resolve_claim(code, store.FAMILY_API_KEY)
+    except PsamVaultError as exc:
+        exit_error(exc)
+
+    key = typer.prompt(f"API key for {record['name']}", hide_input=True)
+    _store_api_key(record["name"], record.get("service") or "", key, record.get("notes"))
+    # Only now is the code spent: a failed store leaves the claim fillable again.
+    claim_flow.complete_claim(record)
 
 
 @app.command(name="get")
