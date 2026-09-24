@@ -17,7 +17,7 @@ Thank you for your interest in contributing! This guide will get you set up loca
 ```bash
 # 1. Clone the repository
 git clone https://github.com/psam-717/psamvault-cli
-cd psamvault-cli/cli
+cd psamvault-cli
 
 # 2. Create and activate a virtual environment
 python -m venv cli_venv
