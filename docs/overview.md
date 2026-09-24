@@ -79,7 +79,7 @@ The full key chain, including where each piece of material lives, is documented 
 - **Backup kit files** hold key material only — never the pepper, the passphrase, entry plaintext or ciphertext — and are written owner-only (`0600`)
 - **A backup passphrase** wraps your vault key with PBKDF2-HMAC-SHA256 (600,000 iterations) + AES-256-GCM; a restore re-wraps that key on the new machine rather than re-encrypting entries
 - **Restore is proof-checked** — it decrypts one of your real entries and reports honestly if it cannot
-- **Server-side sessions** — the dashboard stores your VEK and tokens on the filesystem, never in the browser cookie. The cookie is a random session ID only.
+- **Server-side sessions** — the dashboard keeps your VEK and tokens in the local server process, never in the browser.
 
 ## What it is not for
 
