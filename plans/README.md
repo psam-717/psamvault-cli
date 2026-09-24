@@ -24,6 +24,7 @@ tables below. Plans are committed with their feature's PR, not on their own.
 |---|---|---|---|---|
 | [PLAN_agent_safe_vault.md](active/PLAN_agent_safe_vault.md) | Reveal guardrail (caller classification, policy, TTY-only approval tokens, audit log) + credential-blind ingress (claim codes, loopback form, `--from-file`) + use-side policy/leases | agent security | **wave 1 (the reveal guardrail) merged in PR #54** — steps 6-9 not started | Wave 2 = steps 6-8 (blind ingress: claim codes, `--from-file`/`--from-env`, use-side policy); step 9 = delete the backend `/vault/proxy` (410) behind a Render deploy |
 | [PLAN_vek_rotation.md](active/PLAN_vek_rotation.md) | Vault key rotation — re-wrap the VEK under a new passphrase so a leaked kit file stops working (`rotate-key`) | cryptography / recovery | decisions locked, no code | Build order in the plan; reuses the envelope machinery shipped for backup (#49) |
+| [PLAN_dashboard_ui.md](active/PLAN_dashboard_ui.md) | Dashboard speed and UI — stop per-click keychain and API work, then use coss ui (Origin UI) and ReUI components | dashboard | built on `feat/dashboard-speed-and-ui`, not merged | Move to `shipped/` when the PR merges |
 
 ## shipped/ — implemented
 
