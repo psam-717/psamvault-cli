@@ -17,14 +17,18 @@ export type Bootstrap = {
   entries: Entry[] | null;
   api_keys: ApiKeyRow[] | null;
   entries_error: string | null;
+  entries_recovery: string | null;
   api_keys_error: string | null;
+  api_keys_recovery: string | null;
 };
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  recovery: string | null;
+  constructor(status: number, message: string, recovery: string | null = null) {
     super(message);
     this.status = status;
+    this.recovery = recovery;
   }
 }
 
@@ -42,7 +46,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof data.error === "string" ? data.error : "Request failed";
-    throw new ApiError(response.status, message);
+    const recovery = typeof data.recovery === "string" ? data.recovery : null;
+    throw new ApiError(response.status, message, recovery);
   }
   return data as T;
 }
