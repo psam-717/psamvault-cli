@@ -633,6 +633,7 @@ a document does not stop it. So the four commands that print a secret now ask
 | You run `psamvault get github.com` in your own terminal | Prints the password. Nothing changes. |
 | Hermes, Claude Code, Codex, Goose or OpenCode runs it | Refused, exit code 1, with the capability alternatives printed. One audit row records it. |
 | A script of yours pipes it (`psamvault get x \| cat`) | Allowed, with an audit note — a plain pipe is not evidence of an agent. Set `"reveal": "strict"` to refuse these too. |
+| A CI job runs it (`CI=true`, e.g. GitHub Actions) | Allowed and audited — `env:CI` is recorded, but an unattended job is not an agent. An *agent* running inside CI is still refused, by its own markers or its ancestry. Use `"reveal": "strict"` to refuse CI too. |
 | The agent needs the secret to finish a job | Use the MCP capabilities: `use_credential`, `run_with_credential` or `browser_login` — they inject the secret without ever revealing it. |
 | The agent genuinely needs the value printed once | You run `psamvault approve` in your own terminal (below). |
 | You were blocked but you *are* a human | Read `~/.psamvault/audit.jsonl` — the deny row names the exact signal that matched. |
@@ -668,9 +669,9 @@ protected with nothing to configure. The same file works on Windows, macOS and
 Linux; the permission warning (`chmod 600`) is POSIX-only, since Windows reports
 one mode for every file and uses your user ACL instead.
 
-| `"reveal"` | An agent (markers, ancestry) | A bare pipe or script | |
+| `"reveal"` | An agent (markers, ancestry) | A bare pipe, script or CI job | |
 |---|---|---|---|
-| `"human-only"` *(default)* | refused | allowed + audited | stops the real case without breaking your pipes |
+| `"human-only"` *(default)* | refused | allowed + audited | stops the real case without breaking your pipes or CI |
 | `"strict"` | refused | refused | "no terminal, no secret" — you opt in |
 | `"open"` | allowed + audited | allowed + audited | everything works; the trail still records it |
 

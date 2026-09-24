@@ -26,6 +26,7 @@
 - fix(restore): a revoked kit file is now actually refused — a broad exception handler was swallowing the exit and continuing with the restore
 - fix(backup): `backup verify --kit` on a kit with no server-side copy printed a sliced placeholder (`slot kit-only…`); it now names the real slot id, or states that the kit has no server-side copy
 - fix(upgrade): a pre-update state snapshot can no longer be written into an existing snapshot directory — the clock stamp is microsecond-precise but Windows' granularity is ~15 ms, so back-to-back snapshots got the same name and silently merged, losing one
+- fix(caller): a CI job is no longer graded as an agent — `CI=true` is recorded in the audit row as unattended instead. An agent running inside CI is still refused by its own markers or its ancestry, and `"reveal": "strict"` still refuses CI. Without this, every pipeline running `ak-get` would have failed the moment it upgraded, because GitHub Actions sets `CI=true` unconditionally
 
 ## Changed
 
@@ -35,6 +36,26 @@
 - feat(guardrail): `get`, `ak-get` and `note-get` are gated at the emit point — after the fetch and the decrypt — so a failed lookup never consumes an approval
 - feat(guardrail): `export --plaintext` now names how many secrets it is about to expose before asking to continue, and a whole-vault dump can never be approved for an agent
 - feat(guardrail): `psamvault logout` drops every pending approval, so a token cannot outlive the session it was minted for
+
+### Safe upgrades (#43)
+
+- `upgrade` (source installs): local modifications are now **auto-stashed before pulling and restored after** — no more "git pull failed" on a dirty tree; a restore conflict parks the changes in a stash with instructions instead of losing them
+- `upgrade` takes a **pre-update snapshot** of `~/.psamvault` state into `~/.psamvault/backups/` (keeps the last 5) before touching anything
+- `upgrade` validates the result: dependency reinstall failure and a failed `import main` smoke test are reported clearly with a rollback hint (previously the pip step's result was ignored)
+- `upgrade` detects local commits ahead of main and explains how to resolve instead of failing cryptically
+- `upgrade` (pipx installs): editable/source-linked installs are detected before `pipx upgrade` and routed to the source track or a reinstall — no more silently broken editable links
+
+### Typed errors (#38)
+
+- API layer now raises typed exceptions (`NotFoundError`, `SessionExpiredError`, `NetworkError`, `ValidationError`, `ConflictError`) — no origin-side printing; command layer owns all user-facing messages (single print site)
+- `ak-get` / `ak-update` / `ak-add` / vault / notes: a dead or expired session is **no longer misreported as "key not found"** — shows `✗ Your session has expired → Run psamvault login`; network failures show `✗ Could not reach the psamvault server → check your connection`
+- `browser open` / `browser daemon`: typed errors distinguish missing entry from session/network failure in both JSON and CLI output
+- `whoami`: prints the actual reason (session expired / server unreachable) instead of exiting silently
+- `search`: session/network failures are surfaced with a clean ✗ + hint instead of being silently swallowed
+- Unreachable server / timeout anywhere now yields a clean connectivity message instead of a raw `httpx` traceback (including during token refresh)
+- New global `--verbose` flag shows underlying error type/detail
+- signup / migrate / auto-login-after-migration error paths no longer print raw exception text
+- `update_check`: fixed Windows crash (`NotADirectoryError`) when the git repo path is invalid — update notice path degrades gracefully
 
 ## Tests
 
