@@ -89,6 +89,7 @@ export function App() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [sessionHelp, setSessionHelp] = useState(false);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   async function refresh(force = false) {
@@ -96,7 +97,13 @@ export function App() {
       const body = await loadBootstrap(force);
       setData(body);
       setLoggedOut(false);
+      setSessionHelp(body.entries_recovery === "session" || body.api_keys_recovery === "session");
     } catch (error) {
+      if (error instanceof ApiError && error.recovery === "session") {
+        setSessionHelp(true);
+        toast.error(error.message);
+        return;
+      }
       if (error instanceof ApiError && error.status === 401) {
         setLoggedOut(true);
         setData(null);
@@ -146,6 +153,7 @@ export function App() {
     try {
       await action();
     } catch (error) {
+      if (error instanceof ApiError && error.recovery === "session") setSessionHelp(true);
       toast.error(error instanceof Error ? error.message : "Request failed");
     } finally {
       setPending(null);
@@ -174,16 +182,16 @@ export function App() {
             </div>
             <div>
               <h1 className="text-lg font-semibold">psamvault</h1>
-              <p className="text-sm text-muted-foreground">Sign in from the terminal</p>
+              <p className="text-sm text-muted-foreground">You are logged out</p>
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            This dashboard uses the session <span className="font-mono text-foreground">pv login</span> already
-            stored in your OS keychain. It has no password field of its own.
+            Sign-in happens in the terminal. This page has no password field. Run this command, then come back
+            and click the button.
           </p>
           <pre className="mt-4 rounded-md bg-muted px-3 py-2 font-mono text-sm">pv login</pre>
-          <Button className="mt-6 w-full" type="button" onClick={() => void refresh(true)} disabled={pending === "login"}>
-            {pending === "login" ? "Checking…" : "I've logged in"}
+          <Button className="mt-6 w-full" type="button" onClick={() => void refresh(true)}>
+            I've logged in
           </Button>
         </Card>
       </main>
@@ -241,7 +249,9 @@ export function App() {
           </div>
         </div>
 
-        {tab === "entries" && data.entries_error && (
+        {sessionHelp && <SessionGuide onRetry={() => void refresh(true)} />}
+
+        {tab === "entries" && data.entries_error && data.entries_recovery !== "session" && (
           <Alert className="mb-4 border-destructive/40 text-destructive">
             <p>{data.entries_error}</p>
             <Button className="mt-3" variant="outline" type="button" onClick={() => void refresh(true)}>
@@ -249,7 +259,7 @@ export function App() {
             </Button>
           </Alert>
         )}
-        {tab === "keys" && data.api_keys_error && (
+        {tab === "keys" && data.api_keys_error && data.api_keys_recovery !== "session" && (
           <Alert className="mb-4 border-destructive/40 text-destructive">
             <p>{data.api_keys_error}</p>
             <Button className="mt-3" variant="outline" type="button" onClick={() => void refresh(true)}>
@@ -515,6 +525,25 @@ function Shell({
         {children}
       </main>
     </TooltipProvider>
+  );
+}
+
+function SessionGuide({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Alert className="mb-4">
+      <p className="font-medium">Your session has expired</p>
+      <p className="mt-1 text-muted-foreground">
+        Run this in the terminal to restore it, then click Retry.
+      </p>
+      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv list</pre>
+      <p className="mt-3 text-muted-foreground">
+        If that command says you are logged out, sign in with this instead, then click Retry.
+      </p>
+      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv login</pre>
+      <Button className="mt-4" type="button" variant="outline" onClick={onRetry}>
+        Retry
+      </Button>
+    </Alert>
   );
 }
 
