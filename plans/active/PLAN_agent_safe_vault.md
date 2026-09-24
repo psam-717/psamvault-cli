@@ -1,9 +1,15 @@
 # Agent-Safe Vault — reveal guardrails and credential-blind writes
 
-**Status:** 🟢 WAVE 1 BUILT (2026-09-23) — steps 1-5 implemented on
-`feat/agent-safe-vault-guardrail` (PR open): classifier, ancestry, policy, audit, gate,
-`approve` command, `--agent` flag, all four reveal paths gated, 97 new tests.
-Steps 6-9 (blind ingress, loopback form, use-side hardening, proxy removal) not started.
+**Status:** 🟢 WAVE 1 MERGED — steps 1-5 shipped in v0.6.0 (PR #54, merged 2026-09-23):
+classifier, ancestry, policy, audit, gate, `approve` command, `--agent` flag, all four reveal paths
+gated, 97 new tests. Landing verified — the merge commit is an ancestor of `main`.
+
+**🟡 WAVE 2 DECISIONS LOCKED (2026-09-24, psam) — credential-blind ingress, not started.**
+Coverage (all three secret families), the handoff mechanism (`ak-pending` + opt-in `--wait`),
+`--from-file` semantics and the wave boundary are decided below. Wave 3 (loopback claim form, use-side
+per-entry policy, the MCP half) is deferred **with its decisions recorded**, so reopening starts from
+them instead of from scratch. Step 11 (backend `/vault/proxy` → `410 Gone`) is independent of
+wave 2 and can land any time.
 
 **Proposed by:** User (psam)
 **Date:** 2026-09-18
@@ -96,6 +102,13 @@ and priced, but deliberately not built now: Hermes and the desktop app currently
    agent that reads this source. Signal strength is therefore its own open question below; the real
    boundary remains the OS-user split.
 
+9. **Wave 2 has no claim surface in the code today.** `grep` for `claim`, `pending`, `from_file` and
+   `allow_hosts` across the CLI returns nothing but the JWT `exp` claim in `session.py` — steps 6-8
+   are 0% built. One consequence to keep honest: a shell-driven agent (Hermes runs the CLI directly)
+   can use the claim flow the moment wave 2 ships, but an agent whose only surface is the MCP server
+   cannot create a claim until `create_entry_blind` lands there (wave 3) — the MCP has no
+   create-entry tool at all today.
+
 ## Key Decisions Needed
 
 All resolved — see **Decisions Made**. Rejected alternatives at the end.
@@ -120,6 +133,11 @@ All resolved — see **Decisions Made**. Rejected alternatives at the end.
 | Backend proxy credential path | **Delete it (option A), shipped as `410 Gone`** with an "upgrade psamvault-mcp ≥ 0.4.0" hint; keep `GET /vault/proxy/check/{site_name}` | Decided 2026-09-18 after the pre-deletion checks (see Key Points 7): no live caller, no cross-repo consumer, nothing to break except pinned MCP ≤0.3.0 installs, which get a legible error instead of a silent failure. The zero-knowledge claim stays literally true and the hosted-agent case (option B) is not a user psamvault currently serves |
 | Hermes' own self-identification | **Counts as an agent** — `AI_AGENT=hermes-agent` / `HERMES_AGENT=true` go into the frozen marker list | Decided 2026-09-18 after measuring both sides: the agent's shell carries them, the user's in-app terminal pane (PowerShell, real TTY) does not — so blocking the agent costs the user nothing |
 | Signal strength | **Marker list + parent-process ancestry** | Decided 2026-09-18. Marker-only was *verified* bypassable (`env -u AI_AGENT …` scrub + self-allocated `winpty` PTY); ancestry is evaluated independently of the environment, so it holds against the env-stripping dodge. **Amended 2026-09-23 after live measurement:** ancestry survives an in-shell `unset` but goes blind across an MSYS `env.exe` hop (Cygwin fork stub). So the Hermes terminal markers (`TERMINAL_CWD`, `TERMINAL_ENV`) were added to the frozen list, and the pair — not either alone — is the design. The OS-user split remains documented as the only actual boundary |
+| Blind ingress coverage (wave 2) | **All three secret families share one pending-store primitive** — API keys (`ak-add`), site credentials (`add`), secure notes (`note-add`) | The entry a human most often hands over is a password they want the agent to scaffold, not an API key. The pending record is type-agnostic (`{family, name, service, notes}`), so the extra coverage is two more `--claim` paths, not a second mechanism |
+| Handoff discovery (wave 2) | **`psamvault ak-pending [--code]` check command + opt-in `--wait`/`--timeout`** on the creating command | The check works in every host with no blocking; `--wait` collapses the happy path to one call. A host that caps a tool call (the ~300 s cap observed with twine) cuts a wait short but cannot lose the claim — it lives in the pending store until its TTL, and the timeout message says so |
+| `--from-file` semantics (wave 2) | **Both modes, chosen by `--from-key NAME`** — with it, parse a `.env`-style file and take that one value; without it, the whole file is the secret. `--delete-source` is valid only with `--from-key` | Both cases are real and different: a key inside a `.env` on disk vs a service-account JSON or `.pem` that *is* the secret. Deleting a whole file is not a migration, and `--delete-source` must never be able to destroy one |
+| Wave boundary (2026-09-24) | **Wave 2 = blind ingress only** (claim codes for all three families, `ak-pending`, `--wait`, `--from-file`/`--from-env`, `--key` still refused in agent context). **Wave 3 = loopback claim form + use-side per-entry policy/redaction + the MCP half** | Step 10 lands mostly in `psamvault-mcp` and needs its own release, skill updates and compat bump, so bundling it makes the CLI PR unreviewable; the loopback form adds a local HTTP server (and a DNS-rebind surface to harden) for a case `--claim` in a terminal already covers |
+| Use-side policy default for an undeclared entry (decided 2026-09-24, builds in wave 3) | **Fail-open** — a declared policy restricts; an entry with no policy stays usable in agent context, is audited, and `psamvault policy allow` declares one. `security status` names entries with no policy | Fail-closed would refuse every automated flow on the machine (release uploads through `run_with_credential`, the daily compat cron) on the day it ships, and a guardrail that walls off the pipeline gets switched off. The reveal side is already strict where it matters (`human-only`); the use side guards keys the user actually relies on, so restriction must be declarable rather than assumed |
 
 ## Design
 
@@ -168,38 +186,56 @@ chain and asks whether any ancestor is an agent runtime.
 - **Caveats to document:** PID reuse, a detached/re-parented process, and a runtime installed under a
   non-obviously-named path all defeat it. It raises the bar; it is not the boundary.
 
-### Part 2 — Credential-blind ingress
+### Part 2 — Credential-blind ingress (wave 2, decisions locked 2026-09-24)
 
 ```bash
 # agent side — no secret anywhere near the agent
 psamvault ak-add github-prod --service GitHub
-  →  Pending: github-prod (service: GitHub)
+  →  Pending: github-prod (service: GitHub)              family: api_key
      Claim code: PV-4F2K-91QX        expires in 15m
      Human: run  psamvault ak-add --claim PV-4F2K-91QX
-        or open  http://127.0.0.1:8765/claim/PV-4F2K-91QX
+     (the loopback form is wave 3 — `--claim` in a terminal is the wave-2 path)
+     The agent is told the code and nothing else, ever.
 
-# human side — their own terminal, hidden input
+# human side — their own terminal, hidden input, no --key accepted on this path
 psamvault ak-add --claim PV-4F2K-91QX
-  API key for github-prod: ********
+  API key for github-prod: ********        ← hidden
   →  ✓ stored github-prod (service: GitHub)
+
+# the same primitive and the same code, for the other two families
+psamvault add --claim PV-4F2K-91QX           # site credential: username + password
+psamvault note-add --claim PV-4F2K-91QX      # secure note body
+
+# how the agent finds out the human filled it
+psamvault ak-pending                         # pending / filled / expired, with age
+psamvault ak-pending --code PV-4F2K-91QX
+psamvault ak-add github-prod --service GitHub --wait --timeout 15m
+  →  returns the moment the human fills it; on timeout exit 3, the code still valid
 
 # or migrate a file without reading it
 psamvault ak-add stripe-test --service Stripe --from-file ./.env --from-key STRIPE_TEST_KEY --delete-source
+psamvault ak-add sa-prod --service Google --from-file ./service-account.json   # the whole file is the secret
+psamvault ak-add gh-token --service GitHub --from-env GITHUB_TOKEN
 ```
 
-- Loopback form: `127.0.0.1` only, single-use token, write-only (no GET ever returns the secret),
+- **Loopback form — wave 3, deferred 2026-09-24, not built here.** `127.0.0.1` only, single-use token, write-only (no GET ever returns the secret),
   closes on success/TTL, serves a minimal page the CLI already has a precedent for in
-  `browser_commands.py`.
+  `browser_commands.py`, plus the dashboard's Host-allowlist/DNS-rebind check
+  (`dashboard/__init__.py`) for the bind.
 - The agent-visible response is `{"status": "pending", "claim_code": "PV-4F2K-91QX",
-  "expires_in": 900}` — and nothing else, ever.
-- Pending entries are invisible to `ak-list` / `list` until filled.
-- `psamvault ak-pending` lets a human list and cancel outstanding claims.
+  "expires_in": 900, "family": "api_key"}` — and nothing else, ever.
+- Pending entries are invisible to `ak-list` / `site-list` / `note-list` / `list` until filled — a
+  half-created entry must not read as an entry.
+- `psamvault ak-pending` lists, inspects and cancels outstanding claims (cancelling from an agent
+  shell is allowed too: it reveals nothing).
+- **Claims are local to the machine that created them.** An agent on the droplet cannot hand a claim to
+  a human on the laptop; the message and the docs must say so rather than letting it look like a bug.
 
-### Part 2b — Use-side hardening
+### Part 2b — Use-side hardening (wave 3 — decisions recorded, not built)
 
 | Item | Change |
 |---|---|
-| Policy per entry | `{"allow_hosts": [...], "allow_commands": [...], "allow_inject": ["bearer_token"]}` in `policy.json`, enforced in `use_credential` and `run_with_credential` |
+| Policy per entry | an `entries` block beside the existing reveal fields, e.g. `{"entries": {"github.com": {"allow_hosts": [...], "allow_commands": [...], "allow_inject": ["bearer_token" \| "api_key_header" \| "basic_auth" \| "env"]}}}` (shape proposed here, to confirm when wave 3 is built), enforced in `use_credential` and `run_with_credential`. **Undeclared = unrestricted + audited** (decided 2026-09-24, fail-open); `psamvault policy allow <entry> ...` declares, `security status` names the gap |
 | Leases | **Deferred — not built in this wave** (decided 2026-09-18; see Open Questions for the reopen trigger and the headless-mint blocker) |
 | Redaction | Extend `cmd_runner._redact`: raw value, base64, URL-encoded, first-8 prefix, and the username under `basic_auth` |
 | Secrets on disk | `export_key_to_env_file` / `export_key_to_mcp_config` (`psamvault-mcp`) write plaintext secrets to disk: gate behind a confirm + audit row + `0600` verification |
@@ -211,26 +247,27 @@ psamvault ak-add stripe-test --service Stripe --from-file ./.env --from-key STRI
 |---|---|
 | `caller.py`, `policy.py`, `reveal_gate.py`, `audit.py` | **new** — classification, policy load/validate, gate, audit writer |
 | `command/approve_command.py` | **new** — approval token mint |
-| `command/api_key_commands.py` | claim/create/`--from-file`/`--from-env`/`--delete-source`; gate `ak-get` |
-| `command/vault_commands.py` | gate `get` (including `--copy`) |
-| `command/note_commands.py` | gate `note-get` |
+| `command/api_key_commands.py` | **wave 1:** gate `ak-get`. **wave 2:** `--claim`, `--wait`/`--timeout`, `--from-file`/`--from-key`/`--from-env`/`--delete-source`; when `--claim` is given, `--key` is not accepted and the claim path runs |
+| `command/vault_commands.py` | **wave 1:** gate `get` (including `--copy`). **wave 2:** `add --claim` |
+| `command/note_commands.py` | **wave 1:** gate `note-get`. **wave 2:** `note-add --claim` |
 | `command/export_command.py` | gate `--plaintext` |
-| `command/claim_server.py` | **new** — loopback write-only claim form |
-| `command/pending_store.py` | **new** — `~/.psamvault/pending/*.json` read/write/prune |
-| `main.py` | register `approve`, `ak-pending`; document `--agent` (no `lease` — deferred) |
+| `command/claim_server.py` | **new — wave 3** — loopback write-only claim form |
+| `command/pending_store.py` | **new — wave 2** — `~/.psamvault/pending/*.json` read/write/prune, code re-roll on collision |
+| `command/claim_commands.py` | **new — wave 2** — `ak-pending` list / inspect / cancel |
+| `main.py` | register `approve` (wave 1), `ak-pending` (wave 2), `policy` / `security status` (wave 3); document `--agent` (no `lease` — deferred) |
 | `session.py` | approval-token rows alongside the existing session keys |
-| `tests/` | `test_caller.py`, `test_policy.py`, `test_reveal_gate.py`, `test_approve.py`, `test_blind_ingress.py`, `test_redaction.py`; existing command tests get the gate patched or a permissive policy fixture |
+| `tests/` | **wave 1:** `test_caller.py`, `test_policy.py`, `test_ancestry.py`, `test_audit.py`, `test_reveal_gate.py`, `test_approve.py`, `test_gated_commands.py`. **wave 2:** `test_pending_store.py`, `test_blind_ingress.py`, `test_from_file.py`. **wave 3:** `test_redaction.py`, `test_policy_entries.py`. Existing command tests get the gate patched or a permissive policy fixture |
 
-## MCP changes (`psamvault-mcp`)
+## MCP changes (`psamvault-mcp`) — wave 3
 
 | Item | Change |
 |---|---|
-| `mcp_server/cmd_runner.py` | Export `PSAMVAULT_AGENT=1`; wider redaction |
-| `mcp_server/tools.py` | Enforce entry policy in `use_credential` / `run_with_credential`; add `create_entry_blind(name, service, notes)` returning the claim code; audit rows |
+| `mcp_server/cmd_runner.py` | Export `PSAMVAULT_AGENT=1` (wave 1's 🟡 half); wider redaction (wave 3) |
+| `mcp_server/tools.py` | **wave 3:** enforce entry policy in `use_credential` / `run_with_credential`; add `create_entry_blind(family, name, service, notes)` returning the claim code; audit rows |
 | `AGENTS.md` / `SKILL.md` / `agent_guide.py` | Replace "do not run bare `psamvault get`" with the enforced rule + the claim-code workflow |
 | `tests/test_tools.py` | Assert no tool returns a secret value; assert the claim workflow never places the secret in a tool result |
 
-## Backend changes
+## Backend changes (step 11 — independent)
 
 | Item | Change |
 |---|---|
@@ -248,13 +285,23 @@ psamvault ak-add stripe-test --service Stripe --from-file ./.env --from-key STRI
 | 3 | `reveal_gate.py`, `audit.py`, gate the four reveal paths (`get`, `ak-get`, `note-get`, `export --plaintext`) + `--copy`; gate sits at the emit point so a failed fetch never burns a token; existing suite green | 2 | 🟢 |
 | 4 | `approve` command + token lifecycle (`--for-agent` required, TTY required, single use, TTL clamp, expiry pruned, dropped on logout) | 3 | 🟢 |
 | 5 | `--agent` flag + `PSAMVAULT_AGENT` handling + ladder verified live. **MCP env export is a separate repo** (`psamvault-mcp` `cmd_runner.py`) — follow-up PR | 4 | 🟢 CLI / 🟡 MCP |
-| 6 | Blind ingress: pending store, claim code, `--claim`, `--from-file`/`--from-env`, block `--key` in agent context | 5 | 🔴 |
-| 7 | Loopback claim form | 6 | 🔴 |
-| 8 | Use-side per-entry policy + wider redaction (CLI + MCP) — **no lease** (deferred) | 6 | 🔴 |
-| 9 | Backend proxy credential-path removal | — | 🔴 |
-| 10 | Docs (`SECURITY.md` threat-model section, README agent section in both repos), changelog PR, live proof | 1-9 | 🔴 |
+| 6 | **WAVE 2 — blind ingress core.** `command/pending_store.py` (new: `~/.psamvault/pending/<code>.json`, 0600, 15-min TTL, code re-roll on collision, prune) + `command/claim_commands.py` (new: `ak-pending` list/inspect/cancel, `--wait`/`--timeout`). `ak-add`, `add`, `note-add` create a claim when the caller is an agent; `--claim CODE` completes it from a human terminal (hidden input, no `--key` on that path). `--service` becomes optional when `--claim` is given — the value is not known yet and the pending record supplies it. The claim path never echoes the value | 5 | 🔴 |
+| 7 | **WAVE 2 — migrate without reading.** `--from-file` both modes (`--from-key NAME` parses `.env`; no flag = whole file is the secret), `--from-env VAR`, `--delete-source` (only with `--from-key`; the line is removed, a `.bak` kept) | 6 | 🔴 |
+| 8 | **WAVE 2 — docs in the SAME PR, not a follow-up.** `docs/reference/commands.md` with a WHEN per new command (create-by-claim vs create-by-key vs fill-a-claim vs cancel vs migrate-a-file, and what each is NOT for), `docs/features.md`, `docs/guides/agent-reveal-guardrail.md`, and `SECURITY.md`'s claim-code limits (local-file scope, cross-machine gap, TTL). Then the changelog PR, then the code PR. The surface gate cannot see an undocumented NEW command — walk the diff by hand | 6-7 | 🔴 |
+| 9 | WAVE 3 — loopback claim form (`command/claim_server.py`), deferred 2026-09-24 | 6 | ⏸ |
+| 10 | WAVE 3 — use-side per-entry policy (`entries` block, fail-open default) + wider `cmd_runner._redact` + guards on `export_key_to_env_file`/`export_key_to_mcp_config`; CLI policy schema + MCP enforcement; MCP `create_entry_blind` and the `PSAMVAULT_AGENT=1` export (wave 1's 🟡 MCP half). Own release + compat/skill bump | 7 | ⏸ |
+| 11 | Backend `POST /vault/proxy` → `410 Gone` + regenerate the committed `openapi.json` — independent of wave 2, no live caller | — | 🔴 |
 
-Steps 1-5 (guardrail) and 6-8 (blind ingress) are independently shippable; 9 can go at any time.
+Wave 1 (steps 1-5) shipped in v0.6.0. Wave 2 (steps 6-8) is one CLI PR and is independent of both
+wave 3 and step 11; step 11 can go at any time.
+
+**Concurrent work — read before branching.** A second agent works this repo's web dashboard
+(`dashboard/`, the `pv dashboard` command) and lands on `main` while wave 2 is built. Branch from
+current `main`, `git fetch` before every push and again immediately before opening the PR, rebase
+onto `origin/main`, then re-run the full suite **and** `scripts/check-docs-surface.py`. The files
+that actually collide are `CHANGELOG.unreleased.md` (keep both sides), `docs/reference/commands.md`
+and `main.py`. `dashboard/*` is not touched by this wave — it is read-only precedent for the
+wave-3 loopback form.
 
 ## Acceptance Criteria
 
@@ -289,20 +336,40 @@ wave-2 items are untouched by this work and stay open.
       `"reveal": "strict"` refuses it (test).
 - [x] The full existing CLI suite passes unchanged with the default policy — 331 passed (234
       pre-existing + 97 new); no test relies on a TTY.
-- [ ] `psamvault ak-add github-prod --service GitHub` in agent context prints only a claim code —
-      **wave 2, not built.**
-- [ ] The claim code completes from a second terminal, in the loopback web form, and via
-      `--from-file` — **wave 2, not built.**
-- [ ] Pending claims expire after 15 minutes — **wave 2, not built.**
-- [ ] `run_with_credential` output redacts raw/base64/URL-encoded/first-8/username — **wave 2.**
-- [ ] An entry outside `allow_hosts` is refused by `use_credential` — **wave 2.**
-- [ ] Per-entry policy enforced in both use paths, no lease — **wave 2.**
-- [ ] `POST /vault/proxy` returns `410 Gone` — **step 9, not built.**
 - [x] `SECURITY.md` states plainly what the guardrail does and does not stop (keychain access,
       reinstalling the CLI, a permissive `policy.json`, a truncated audit trail, the re-parenting
       stub), and documents the OS-user separation as the actual boundary.
 
-## Implementation Notes (wave 1, 2026-09-23)
+**Wave 2 (steps 6-8) — decisions locked 2026-09-24, not built.**
+
+- [ ] In agent context (real Hermes session, not a simulation), `psamvault ak-add github-prod
+      --service GitHub` prints a claim code, the family, the TTL and the human's next step — and
+      nothing else. Same for `psamvault add <site>` and `psamvault note-add <title>`. One audit row
+      per decision.
+- [ ] The claim completes from a second (human) terminal for **each** of the three families: the
+      entry exists afterwards, decrypts with the value the human typed, and the pending record is gone.
+- [ ] The claim path cannot echo: no `--key` accepted, hidden prompt, value absent from stdout,
+      stderr, argv and the audit rows — asserted by grepping every produced artifact for the typed
+      value and requiring zero matches.
+- [ ] `psamvault ak-pending` and `ak-pending --code CODE` report pending / filled / expired with age;
+      cancel removes the record and the code stops working.
+- [ ] `--wait --timeout` returns the moment the human fills the claim; on timeout it exits non-zero
+      saying the code is still valid, and a fill that lands afterwards still completes.
+- [ ] A claim older than 15 minutes is refused with a clear message and pruned on next access.
+- [ ] `--from-file X --from-key NAME` stores that one value; `--from-file X` stores the whole file;
+      `--delete-source` removes only that line, keeps a `.bak`, and is refused without `--from-key`.
+      In no case does the agent-facing output contain the value.
+- [ ] Pending claims are invisible to `ak-list` / `site-list` / `note-list` / `list`.
+- [ ] `--key <value>` is still refused in agent context (wave 1 unchanged) and the full suite is green
+      with no test relying on a TTY.
+- [ ] Every new command and flag is in `docs/reference/commands.md` with its WHEN, the `docs` CI job is
+      green, and the reference contrasts create-by-claim / create-by-key / fill / cancel / migrate.
+- [ ] Live proof: the agent's own shell creating the claim plus a completion in psam's terminal,
+      reported as audit rows (create / fill / refuse) — never the revealed value.
+- [ ] Wave 3 items (loopback form, use-side policy, MCP `create_entry_blind`) stay open in this file.
+- [ ] `POST /vault/proxy` returns `410 Gone` — **step 11, independent, not built.**
+
+## Implementation Notes (wave 1 — shipped in v0.6.0)
 
 Files: `caller.py`, `ancestry.py`, `policy.py`, `audit.py`, `reveal_gate.py` (new);
 `command/approve_command.py` (new); `errors.py` (+`RevealBlockedError`), `session.py`
@@ -334,6 +401,12 @@ Live evidence, in the agent's own shell against the real vault:
 | A permissive `policy.json` silently disables everything | `backup status`-style `psamvault security status` prints the effective policy; audit rows record the policy file hash at decision time |
 | `--key` deprecation breaks existing scripts | Kept for interactive TTY with a warning; only agent context blocks it; changelog calls the change out |
 | Windows vs macOS/Linux TTY/env differences | Step 1 probes both; `caller.py` is platform-branching with tests per platform; all docs give PowerShell **and** bash forms (psam: never Windows-only) |
+| A claim code leaks in a transcript before the human uses it (wave 2) | TTL 15 min, single-use, and the human's fill replaces the agent's pending entry — a stolen code lets an attacker fill *their own* secret into a name that `create`'s output names explicitly, which is exactly what a user notices. Cancelling is allowed from any shell because it reveals nothing |
+| The pending file is readable by anything running as the user, the agent included (wave 2) | It holds no secret by construction (`{family, name, service, notes}`) and is 0600. What it leaks is *which* entries are being created, at the moment the human is already being told the name — accepted and stated, not audited away |
+| An agent on another machine cannot complete a claim created here (wave 2) | Say it in the message and in the docs: claims are local to the machine that created them. Cross-machine handoff is out of scope, not a bug |
+| `--wait` parks an agent turn in a host that caps tool calls (wave 2) | The claim survives the truncation in the pending store; the timeout message names the code and the remaining TTL, so the agent's next call is `ak-pending --code`, not a fresh claim |
+| Two claims land on the same code (wave 2) | Codes come from `secrets`, not the clock — this repo has already been bitten by ~15 ms timestamp granularity in `upgrade_utils` snapshots — and the store re-rolls when the file exists instead of overwriting it |
+| A `--delete-source` typo destroys the wrong file (wave 2) | Deleting is allowed only for one line inside a `--from-key` source, a `.bak` is kept, and whole-file mode refuses `--delete-source` outright |
 
 ## Rejected Alternatives
 
@@ -349,6 +422,11 @@ Live evidence, in the agent's own shell against the real vault:
 | Keep `--key <value>` as the documented non-interactive path | Argv is observable (process listings, history, wrapper logs) |
 | Keep the backend proxy credential path | Requires the plaintext to leave the machine to make a request the client already makes itself |
 | Building `lease` in this wave | Deferred by decision (2026-09-18): per-entry policy already blocks the dangerous case (exfiltration to a disallowed host) at zero workflow cost, while a TTY-minted lease breaks unattended cron agents and adds a state machine for a timing-only gain |
+| Loopback claim form in wave 2 | Deferred 2026-09-24: it adds a local HTTP server (and a DNS-rebind surface to harden) for the same-machine case `--claim` in a terminal already covers |
+| API-keys-only blind ingress | The entry a human most often needs to hand over is a site password they want the agent to scaffold; the pending record is type-agnostic, so covering all three families is two more `--claim` paths, not a second mechanism |
+| Fail-closed use-side policy (no policy ⇒ refuse) | It refuses every automated flow on the machine on the day it ships — release uploads through `run_with_credential`, the daily compat cron — and gets switched off. Declare-based fail-open with an audit trail and a `security status` gap report is the version that survives |
+| Relay-only handoff (no `ak-pending`, no `--wait`) | Leaves an unattended agent unable to tell whether the human filled the claim, and pushes it to guess from `ak-list` |
+| `--delete-source` on a whole-file migration | Moving a service-account JSON into the vault is a copy, not a move; deleting the source is a destructive default nobody asked for |
 
 ## Open Questions
 
@@ -380,3 +458,23 @@ Live evidence, in the agent's own shell against the real vault:
       an MCP server whose only permitted egress is our backend) is recorded as a rejected alternative,
       not a fork — nobody runs psamvault that way today, and the price is a permanently qualified
       zero-knowledge claim. Path C (scoped tokens so the server can decrypt) stays rejected.
+- [x] ~~Wave 2 scope: blind ingress alone, or blind ingress plus use-side policy and the loopback
+      form?~~ → **BLIND INGRESS ALONE** (decided 2026-09-24). Step 10 lands mostly in
+      `psamvault-mcp` and needs its own release, skill updates and compat bump, so bundling it makes
+      the CLI PR unreviewable; the loopback form can follow on its own.
+- [x] ~~How does the agent learn a claim was filled?~~ → **`ak-pending` check command + opt-in
+      `--wait`** (decided 2026-09-24). The check works everywhere without blocking; `--wait` collapses
+      the happy path to one call and degrades safely when a host caps the tool call.
+- [x] ~~Only API keys, or every secret family?~~ → **all three** (decided 2026-09-24) — one
+      pending-store primitive behind `ak-add`, `add` and `note-add`.
+- [x] ~~`--from-file`: one `.env` key, or the whole file?~~ → **both, chosen by `--from-key`**
+      (decided 2026-09-24); `--delete-source` only with `--from-key`.
+- [x] ~~Undeclared-entry default under use-side policy?~~ → **FAIL-OPEN + a declare helper**
+      (decided 2026-09-24, builds in wave 3; see Decisions Made).
+- [ ] **An MCP-only agent (no shell) cannot create a claim until `create_entry_blind` lands** — the
+      MCP has no create-entry tool at all today. To settle when wave 3 is planned: does that tool ship
+      with the policy work (one MCP release), or earlier as its own small PR? Not blocking wave 2 —
+      Hermes runs the CLI directly.
+- [ ] Does `PSAMVAULT_AGENT=1` in `cmd_runner.py` (wave 1's 🟡 MCP half) ride with the small
+      step-11 PR, with wave 3, or on its own? It is three lines plus a test, and it makes every CLI
+      call the MCP spawns classify correctly.
