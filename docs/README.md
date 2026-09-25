@@ -20,6 +20,7 @@ These pages are the full documentation. The [project README](../README.md) is th
 
 - [Backup and recovery](guides/backup-and-recovery.md) — the runbook for a new machine or a wiped laptop: back up the vault key, verify it, restore access, and know the failure modes.
 - [The agent reveal guardrail](guides/agent-reveal-guardrail.md) — who may print a secret, the three policy modes, one-shot agent approvals, and the measured limits of the guardrail.
+- [Credential-blind ingress](guides/agent-credential-blind-ingress.md) — the other direction: how an agent asks for an entry it must never hold, the pending claim codes, and filling one.
 - [Upgrading](guides/upgrading.md) — the pipx and source upgrade paths, pre-update state snapshots, stashing, rollback hints, and the data-vs-key distinction.
 - [Web dashboard](guides/web-dashboard.md) — the dashboard: how to start it, the login flow, and how it interacts with the OS keychain.
 

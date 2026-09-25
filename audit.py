@@ -33,11 +33,15 @@ AUDIT_FILE = CONFIG_DIR / AUDIT_FILENAME
 MAX_AUDIT_BYTES = 1_000_000  # ~1 MB, then rotate one generation
 
 # Decisions recorded in the trail. "minted" is the human's approval mint, so the
-# trail shows BOTH sides of a handover and not just the agent's half.
+# trail shows BOTH sides of a handover and not just the agent's half. The two
+# claim decisions are the same idea for blind ingress: an agent asking for an
+# entry to exist, and the human supplying the value.
 DECISION_ALLOW = "allow"
 DECISION_DENY = "deny"
 DECISION_APPROVED = "approved"
 DECISION_MINTED = "minted"
+DECISION_CLAIM_CREATED = "claim-created"
+DECISION_CLAIM_FILLED = "claim-filled"
 
 
 def _rotate(path: Path) -> None:
