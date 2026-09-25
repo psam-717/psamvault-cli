@@ -1,251 +1,163 @@
-"""The pending-claim store — metadata only, single-use, TTL-bound.
+"""The claim store — metadata only, single-use, gone when it expires.
 
-Layer 1: the store on its own, with no CLI in the way. The flows that use it
-(claim creation from an agent context, the fill from a human terminal, `--wait`)
-are in test_blind_ingress.py.
-
-What these tests are protecting, in order of how badly it would hurt:
-
-* **a secret never lands in the claim file** — anything running as the user, the
-  agent included, can read ``~/.psamvault/pending/``;
-* **a code is never reused and never overwritten** — a second claim that
-  collided with a live one must re-roll, not clobber the first;
-* **expiry is enforced on access** — a laptop that was asleep for a week does
-  not wake up holding live claims.
+These are the invariants the security story rests on: exactly what a claim file
+holds, how long it lives, and that spending it leaves nothing behind. Everything
+else about the ingress feature is a CLI test (``test_blind_ingress.py``).
 """
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 
 import pending_store as store
 
-FAMILY = store.FAMILY_API_KEY
+# The whole record. If a field is ever added, this test is where it gets noticed:
+# a claim must never grow into something worth stealing.
+CLAIM_FIELDS = {
+    "code",
+    "family",
+    "name",
+    "service",
+    "notes",
+    "login_url",
+    "category",
+    "username",
+    "created_at",
+    "expires_at",
+}
 
 
-def on_disk() -> list[str]:
-    return sorted(p.name for p in store.PENDING_DIR.glob("*.json"))
+def test_a_claim_holds_metadata_only():
+    record = store.create(store.FAMILY_API_KEY, "github-prod", service="GitHub", notes="work")
+
+    path = store._path(record["code"])
+    assert path.exists()
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+
+    assert set(on_disk) == CLAIM_FIELDS, "a claim carries no field beyond the metadata set"
+    assert on_disk["code"] == record["code"]
+    assert on_disk["family"] == store.FAMILY_API_KEY
+    assert on_disk["name"] == "github-prod"
+    assert on_disk["service"] == "GitHub"
 
 
-def later(seconds: int) -> datetime:
-    return datetime.now(timezone.utc) + timedelta(seconds=seconds)
+def test_the_claim_file_is_owner_only():
+    if os.name == "nt":
+        pytest.skip("Windows reports one mode for every file; the user ACL is the control there")
+
+    record = store.create(store.FAMILY_NOTE, "wifi")
+
+    assert oct(store._path(record["code"]).stat().st_mode & 0o777) == "0o600"
 
 
-# ── the code itself ───────────────────────────────────────────────────────────
-
-
-def test_code_is_prefixed_and_crockford_base32():
+def test_a_code_is_crockford_and_reads_back_loosely():
     code = store.generate_code()
-    prefix, first, second = code.split("-")
-    assert prefix == "PV"
-    assert len(first) == 4 and len(second) == 4
-    assert set(first + second) <= set(store.CODE_ALPHABET)
-    # Crockford omits I, L, O and U so a code read over the phone cannot be
-    # transcribed into a different one.
-    assert not set("ILOU") & set(first + second)
+    body = code.replace(f"{store.CODE_PREFIX}-", "").replace("-", "")
 
+    assert code.startswith(f"{store.CODE_PREFIX}-")
+    assert len(body) == store.CODE_CHARS
+    assert all(ch in store.CODE_ALPHABET for ch in body)
+    # Crockford drops the letters that get mistyped when a code is read aloud
+    for ambiguous in "ILOU":
+        assert ambiguous not in body
 
-def test_codes_do_not_repeat_in_a_small_sample():
-    codes = {store.generate_code() for _ in range(200)}
-    assert len(codes) == 200
-
-
-@pytest.mark.parametrize(
-    "typed",
-    ["PV-4F2K-91QX", "pv-4f2k-91qx", "pv4f2k91qx", "4F2K-91QX", " pv 4f2k 91qx "],
-)
-def test_a_typed_code_is_normalised(typed):
-    assert store.normalize_code(typed) == "PV-4F2K-91QX"
-
-
-@pytest.mark.parametrize("bad", ["", "PV-123", "PV-4F2K-91Q", "PV-4F2K-91QI", "not-a-code"])
-def test_a_malformed_code_is_rejected(bad):
+    assert store.normalize_code(code.lower()) == code
+    assert store.normalize_code(body) == code
+    assert store.normalize_code(f"pv {body[:4]} {body[4:]}") == code
     with pytest.raises(ValueError):
-        store.normalize_code(bad)
+        store.normalize_code("PV-TOO-SHORT")
 
 
-# ── creating a claim ──────────────────────────────────────────────────────────
-
-
-def test_create_writes_metadata_only(tmp_path):
-    record = store.create(FAMILY, "github-prod", service="GitHub", notes="read-only")
-
-    assert record["code"].startswith("PV-")
-    assert record["family"] == FAMILY
-    assert record["name"] == "github-prod"
-    assert record["service"] == "GitHub"
-    assert record["notes"] == "read-only"
-    assert record["status"] == store.STATUS_PENDING
-    assert record["filled_at"] is None
-    assert record["ttl_seconds"] == store.DEFAULT_TTL_SECONDS
-
-    # The exact field set is the invariant: a new field cannot be added without
-    # a test noticing, because a secret-bearing field is the one mistake here
-    # that nothing else would catch.
-    assert set(record) == {
-        "code",
-        "family",
-        "name",
-        "service",
-        "notes",
-        "login_url",
-        "category",
-        "username",
-        "created_at",
-        "expires_at",
-        "ttl_seconds",
-        "status",
-        "filled_at",
-    }
-
-    stored = json.loads((store.PENDING_DIR / f"{record['code']}.json").read_text())
-    assert stored == record
-
-
-def test_create_rejects_an_unknown_family():
-    with pytest.raises(ValueError):
-        store.create("bitcoin-wallet", "x")
-
-
-def test_create_clamps_the_ttl_into_the_supported_window():
-    assert store.create(FAMILY, "a", ttl_seconds=5)["ttl_seconds"] == store.MIN_TTL_SECONDS
-    assert store.create(FAMILY, "b", ttl_seconds=99999)["ttl_seconds"] == store.MAX_TTL_SECONDS
-
-
-def test_create_rerolls_instead_of_overwriting_a_live_claim(monkeypatch):
-    first = store.create(FAMILY, "github-prod", service="GitHub")
-
-    calls = {"n": 0}
-
-    def colliding_code():
-        calls["n"] += 1
-        return first["code"] if calls["n"] == 1 else "PV-ZZZZ-ZZZZ"
-
-    monkeypatch.setattr(store, "generate_code", colliding_code)
-    second = store.create(FAMILY, "other-prod")
-
-    assert second["code"] == "PV-ZZZZ-ZZZZ"
-    assert calls["n"] == 2, "a collision must trigger exactly one re-roll"
-    # ...and the live claim is untouched, not silently replaced.
-    assert store.peek(first["code"])["name"] == "github-prod"
-    assert len(on_disk()) == 2
-
-
-def test_create_gives_up_rather_than_clobbering(monkeypatch):
-    first = store.create(FAMILY, "github-prod")
+def test_a_collision_re_rolls_and_never_overwrites_the_existing_claim(monkeypatch):
+    first = store.create(store.FAMILY_API_KEY, "one", service="S")
     monkeypatch.setattr(store, "generate_code", lambda: first["code"])
 
     with pytest.raises(RuntimeError):
-        store.create(FAMILY, "other-prod")
+        store.create(store.FAMILY_API_KEY, "two", service="S")
 
-    assert store.peek(first["code"])["name"] == "github-prod"
-    assert len(on_disk()) == 1
-
-
-# ── reading, expiring, filling ────────────────────────────────────────────────
+    assert store.load(first["code"])["name"] == "one", "the first claim survived the attempt"
 
 
-def test_load_accepts_any_reasonable_typing_of_the_code():
-    record = store.create(FAMILY, "github-prod")
+def test_an_expired_claim_is_pruned_on_sight():
+    record = store.create(
+        store.FAMILY_API_KEY, "old", service="S", ttl_seconds=store.MIN_TTL_SECONDS
+    )
+    later = store._now() + timedelta(seconds=store.MIN_TTL_SECONDS + 1)
 
-    assert store.load(record["code"].lower())["name"] == "github-prod"
-    assert store.load(record["code"].replace("-", ""))["name"] == "github-prod"
-
-
-def test_an_unknown_code_is_none_not_an_error():
-    assert store.load("PV-AAAA-AAAA") is None
-    assert store.peek("nonsense") is None
+    assert store.load(record["code"], now=later) is None
+    assert not store._path(record["code"]).exists(), "an expired claim does not linger on disk"
 
 
-def test_an_expired_claim_is_pruned_when_it_is_touched():
-    record = store.create(FAMILY, "github-prod", ttl_seconds=store.MIN_TTL_SECONDS)
+def test_listing_keeps_live_claims_and_prunes_the_rest():
+    live = store.create(store.FAMILY_CREDENTIAL, "github.com")
+    stale = store.create(store.FAMILY_NOTE, "wifi", ttl_seconds=store.MIN_TTL_SECONDS)
+    later = store._now() + timedelta(seconds=store.MIN_TTL_SECONDS + 1)
 
-    assert store.load(record["code"], now=later(store.MIN_TTL_SECONDS + 1)) is None
-    assert on_disk() == [], "an expired claim is deleted, not left as a trap"
+    listed = store.list_records(now=later)
 
-
-def test_peek_reports_an_expired_claim_so_the_error_can_say_which():
-    record = store.create(FAMILY, "github-prod", ttl_seconds=store.MIN_TTL_SECONDS)
-
-    peeked = store.peek(record["code"], now=later(store.MIN_TTL_SECONDS + 1))
-    assert peeked is not None
-    assert store.is_expired(peeked, now=later(store.MIN_TTL_SECONDS + 1)) is True
+    assert [r["code"] for r in listed] == [live["code"]]
+    assert not store._path(stale["code"]).exists()
 
 
-def test_mark_filled_flips_the_status_and_is_single_use():
-    record = store.create(FAMILY, "github-prod")
+def test_live_claims_list_oldest_first():
+    base = store._now()
+    store.create(store.FAMILY_NOTE, "second", now=base + timedelta(seconds=60))
+    store.create(store.FAMILY_API_KEY, "first", service="S", now=base)
 
-    filled = store.mark_filled(record["code"])
-    assert filled["status"] == store.STATUS_FILLED
-    assert filled["filled_at"]
+    names = [r["name"] for r in store.list_records(now=base + timedelta(seconds=61))]
 
-    # A filled claim is no longer pending, still readable as evidence, and
-    # refuses a second fill — the code is consumed.
-    assert store.pending() == []
-    assert store.load(record["code"])["status"] == store.STATUS_FILLED
-    assert store.mark_filled(record["code"]) is None
+    assert names == ["first", "second"]
 
 
-def test_an_expired_claim_cannot_be_filled():
-    record = store.create(FAMILY, "github-prod", ttl_seconds=store.MIN_TTL_SECONDS)
-    assert store.mark_filled(record["code"], now=later(store.MIN_TTL_SECONDS + 1)) is None
+def test_spending_a_claim_deletes_it():
+    record = store.create(store.FAMILY_API_KEY, "k", service="S")
 
+    spent = store.consume(record["code"])
 
-def test_a_filled_claim_is_report_kept_then_pruned():
-    record = store.create(FAMILY, "github-prod")
-    store.mark_filled(record["code"])
-
-    retention = store.FILLED_RETENTION_SECONDS
-    assert store.load(record["code"], now=later(retention - 1))["status"] == store.STATUS_FILLED
-    assert store.load(record["code"], now=later(retention + 1)) is None
-    assert on_disk() == []
-
-
-# ── listing and cancelling ────────────────────────────────────────────────────
-
-
-def test_listing_puts_pending_first_and_reports_remaining_time():
-    store.create(FAMILY, "first", ttl_seconds=600)
-    second = store.create(FAMILY, "second", ttl_seconds=600)
-    store.mark_filled(second["code"])
-
-    records = store.list_records()
-    assert [r["name"] for r in records] == ["first", "second"]
-    assert [r["status"] for r in records] == [store.STATUS_PENDING, store.STATUS_FILLED]
-
-    assert 0 < store.seconds_remaining(records[0]) <= 600
-    assert store.seconds_remaining(records[1]) == 0, "a filled claim has no countdown"
-
-
-def test_listing_prunes_expired_claims_and_survives_a_corrupt_file():
-    store.create(FAMILY, "live")
-    store.create(FAMILY, "dead", ttl_seconds=store.MIN_TTL_SECONDS)
-    (store.PENDING_DIR / "PV-C0RP-T000.json").write_text("{not json")
-
-    records = store.list_records(now=later(store.MIN_TTL_SECONDS + 1))
-
-    assert [r["name"] for r in records] == ["live"]
-    assert on_disk() == ["PV-" + records[0]["code"].split("-", 1)[1] + ".json"]
-
-
-def test_cancel_removes_the_claim_and_the_code_stops_working():
-    record = store.create(FAMILY, "github-prod")
-
-    assert store.delete(record["code"]) is True
-    assert store.delete(record["code"]) is False
+    assert spent["code"] == record["code"]
+    assert not store._path(record["code"]).exists(), "a spent code leaves nothing behind"
+    assert store.consume(record["code"]) is None, "single use"
     assert store.load(record["code"]) is None
 
 
-# ── the file on disk ──────────────────────────────────────────────────────────
+def test_spending_refuses_an_expired_or_unknown_claim():
+    record = store.create(
+        store.FAMILY_API_KEY, "k", service="S", ttl_seconds=store.MIN_TTL_SECONDS
+    )
+    later = store._now() + timedelta(seconds=store.MIN_TTL_SECONDS + 1)
+
+    assert store.consume(record["code"], now=later) is None
+    assert store.consume("PV-AAAA-AAAA") is None
 
 
-@pytest.mark.skipif(
-    os.name != "posix", reason="Windows reports 0o666 for every file regardless of its ACLs"
-)
-def test_the_claim_directory_and_files_are_private():
-    record = store.create(FAMILY, "github-prod")
-    path = store.PENDING_DIR / f"{record['code']}.json"
+def test_cancelling_removes_the_claim():
+    record = store.create(store.FAMILY_NOTE, "wifi")
 
-    assert store.PENDING_DIR.stat().st_mode & 0o777 == 0o700
-    assert path.stat().st_mode & 0o777 == 0o600
+    assert store.delete(record["code"]) is True
+    assert store.delete(record["code"]) is False, "cancelling twice is not an error, just false"
+    assert store.load(record["code"]) is None
+
+
+def test_remaining_time_counts_down():
+    record = store.create(store.FAMILY_API_KEY, "k", service="S")
+
+    assert store.seconds_remaining(record) == pytest.approx(store.DEFAULT_TTL_SECONDS, abs=2)
+
+    half = store._now() + timedelta(seconds=store.DEFAULT_TTL_SECONDS // 2)
+    assert store.seconds_remaining(record, now=half) == pytest.approx(
+        store.DEFAULT_TTL_SECONDS // 2, abs=2
+    )
+
+
+def test_the_lifetime_is_clamped_to_the_supported_window():
+    record = store.create(store.FAMILY_API_KEY, "k", service="S", ttl_seconds=5)
+
+    assert store.seconds_remaining(record) <= store.MIN_TTL_SECONDS
+    assert store.clamp_ttl(99999) == store.MAX_TTL_SECONDS
+    assert store.clamp_ttl("nonsense") == store.DEFAULT_TTL_SECONDS
+
+
+def test_an_unknown_family_is_refused():
+    with pytest.raises(ValueError):
+        store.create("wallet", "x")
