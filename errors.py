@@ -118,7 +118,7 @@ class IngressBlockedError(PsamVaultError):
         ✗ psamvault --key is blocked in this context (agent terminal detected)
            • a value in argv is visible to process listings, shell history …
            • psamvault ak-add github-prod --service GitHub   (prints a claim code …)
-        → Ask the human for the value via the claim flow, or use --from-file
+        → Ask the human to fill the claim code in their own terminal
 
     Attributes:
         details: Bullet lines rendered under the message.
