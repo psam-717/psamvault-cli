@@ -9,20 +9,20 @@ never passes through the agent, its argv, its shell history or its transcript.
 
 A record holds metadata only — the family the entry belongs to, its name, and
 the non-secret fields the agent already knew (``service``, ``notes``,
-``login_url``, ``category``, ``username``), plus the timestamps and a status.
+``login_url``, ``category``, ``username``) — plus the two timestamps.
 
 Three invariants, all pinned by ``tests/test_pending_store.py``:
 
 * **No secret is ever stored here.** Anything running as the user — the agent
   included — can read this directory, so the record must never carry more than
   *which* entries are being created. The exact field set is asserted by a test.
-* **A code is single-use and short-lived.** 15 minutes by default; filling flips
-  the status so a second fill cannot replay the code, and a code is never reused
-  or overwritten — a collision re-rolls.
+* **A code is single-use and short-lived.** 15 minutes by default; the fill
+  *deletes* the record, so a second fill cannot replay the code, and there is no
+  filled-claim archive to keep tidy. A code is never reused or overwritten — a
+  collision re-rolls.
 * **Expiry is enforced on access, not by a timer.** ``load`` and ``list_records``
   prune as they read, so a laptop that was asleep for a week does not wake up
-  holding live claims. A filled claim is kept for an hour as evidence, then
-  pruned.
+  holding live claims.
 
 The claim code is not a capability: it authorises *writing one named entry*, and
 holding it lets an attacker fill in their own secret under a name the user is
@@ -43,10 +43,6 @@ PENDING_DIR = CONFIG_DIR / "pending"
 DEFAULT_TTL_SECONDS = 900  # 15 minutes: the plan's decided window
 MIN_TTL_SECONDS = 60
 MAX_TTL_SECONDS = 3600
-FILLED_RETENTION_SECONDS = 3600  # keep a filled claim as evidence for an hour
-
-STATUS_PENDING = "pending"
-STATUS_FILLED = "filled"
 
 FAMILY_API_KEY = "api_key"
 FAMILY_CREDENTIAL = "credential"
@@ -160,26 +156,11 @@ def _remove(path: Path) -> None:
 
 
 def is_expired(record: dict, *, now: datetime | None = None) -> bool:
-    """A *pending* claim past its ``expires_at``. Filled claims never expire."""
-    if record.get("status") != STATUS_PENDING:
-        return False
+    """A claim past its ``expires_at`` — a live claim is never anything else."""
     expires = _parse(record.get("expires_at"))
     if expires is None:
         return True  # unreadable timestamp: treat as dead rather than live
     return expires <= (now or _now())
-
-
-def _is_stale(record: dict, *, now: datetime | None = None) -> bool:
-    """True when the record should be pruned on sight (either kind)."""
-    moment = now or _now()
-    if is_expired(record, now=moment):
-        return True
-    if record.get("status") == STATUS_FILLED:
-        filled = _parse(record.get("filled_at")) or _parse(record.get("created_at"))
-        if filled is None:
-            return False
-        return filled + timedelta(seconds=FILLED_RETENTION_SECONDS) <= moment
-    return False
 
 
 # ── the public surface ────────────────────────────────────────────────────────
@@ -226,9 +207,6 @@ def create(
             "username": username,
             "created_at": _stamp(moment),
             "expires_at": _stamp(moment + timedelta(seconds=ttl)),
-            "ttl_seconds": ttl,
-            "status": STATUS_PENDING,
-            "filled_at": None,
         }
         _write(path, record)
         return record
@@ -239,11 +217,11 @@ def create(
 
 
 def peek(code: str, *, now: datetime | None = None) -> dict | None:
-    """Read a claim and report it *even when it is expired or filled*.
+    """Read a claim and report it *even when it has expired*.
 
     ``load`` answers "can this be used"; ``peek`` answers "what is this", which
-    is what an expired-or-already-filled message needs. Only a missing or
-    unreadable file comes back as ``None``.
+    is what an expired-claim message needs. Only a missing or unreadable file
+    comes back as ``None``.
     """
     try:
         path = _path(code)
@@ -258,31 +236,25 @@ def peek(code: str, *, now: datetime | None = None) -> dict | None:
 
 def load(code: str, *, now: datetime | None = None) -> dict | None:
     """A claim that may still be used, or ``None`` (missing, expired, pruned)."""
-    try:
-        path = _path(code)
-    except ValueError:
-        return None
-    record = _read(path)
+    record = peek(code, now=now)
     if record is None:
-        _remove(path)
         return None
-    if _is_stale(record, now=now):
-        _remove(path)
+    if is_expired(record, now=now):
+        _remove(_path(record["code"]))
         return None
     return record
 
 
-def mark_filled(code: str, *, now: datetime | None = None) -> dict | None:
-    """Consume a claim. ``None`` when it is unknown, expired or already filled."""
-    moment = now or _now()
-    record = peek(code, now=moment)
-    if record is None or record.get("status") != STATUS_PENDING:
+def consume(code: str, *, now: datetime | None = None) -> dict | None:
+    """Spend a claim: return the record and delete it.
+
+    Called only after the entry is really stored, so a failed save leaves the
+    claim fillable. ``None`` when there is nothing live to spend.
+    """
+    record = load(code, now=now)
+    if record is None:
         return None
-    if is_expired(record, now=moment):
-        return None
-    record["status"] = STATUS_FILLED
-    record["filled_at"] = _stamp(moment)
-    _write(_path(record["code"]), record)
+    _remove(_path(record["code"]))
     return record
 
 
@@ -299,43 +271,26 @@ def delete(code: str) -> bool:
 
 
 def list_records(*, now: datetime | None = None) -> list[dict]:
-    """Every live claim: pending first (oldest first), then recently filled.
+    """Every live claim, oldest first.
 
-    Prunes as it reads — an expired or long-filled claim is deleted the moment
-    anything looks at the directory.
+    Prunes as it reads — an expired claim is deleted the moment anything looks
+    at the directory, so a machine that was asleep holds no stale codes.
     """
     moment = now or _now()
     records: list[dict] = []
     for path in sorted(_directory().glob("*.json")):
         record = _read(path)
-        if record is None or _is_stale(record, now=moment):
+        if record is None or is_expired(record, now=moment):
             _remove(path)
             continue
         records.append(record)
-    records.sort(key=lambda r: (r.get("status") != STATUS_PENDING, r.get("created_at") or ""))
+    records.sort(key=lambda r: r.get("created_at") or "")
     return records
 
 
-def pending(*, now: datetime | None = None) -> list[dict]:
-    """Only the claims still waiting for a human."""
-    return [r for r in list_records(now=now) if r.get("status") == STATUS_PENDING]
-
-
 def seconds_remaining(record: dict, *, now: datetime | None = None) -> int:
-    """Seconds until a pending claim expires; ``0`` for a filled one."""
-    if record.get("status") != STATUS_PENDING:
-        return 0
+    """Seconds until this claim expires."""
     expires = _parse(record.get("expires_at"))
     if expires is None:
         return 0
     return max(0, int((expires - (now or _now())).total_seconds()))
-
-
-def filled_seconds_ago(record: dict, *, now: datetime | None = None) -> int | None:
-    """How long ago a claim was filled; ``None`` while it is still pending."""
-    if record.get("status") != STATUS_FILLED:
-        return None
-    filled = _parse(record.get("filled_at")) or _parse(record.get("created_at"))
-    if filled is None:
-        return None
-    return max(0, int(((now or _now()) - filled).total_seconds()))
