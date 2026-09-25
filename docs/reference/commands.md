@@ -154,8 +154,6 @@ The optional `--login-url` flag stores the login page URL for use with `psamvaul
 | `--notes`, `-n` | Optional notes |
 | `--login-url` | Login page URL for use with `psamvault open` (e.g. `https://github.com/login`) |
 | `--claim` | Fill a claim code an agent printed, in your own terminal |
-| `--wait` | After creating a claim, wait until the human fills it |
-| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
 
 **When to run it:** when you create an account somewhere and want the credential stored now. Omit `--pass` to be prompted instead of putting the password in your shell history. Run it with no value from an agent context and it creates a claim instead of prompting.
 
@@ -336,14 +334,8 @@ psamvault ak-add --claim PV-4F2K-91QX        # you: fills that claim
 | `--key`, `-k` | The API key value (omit to be prompted securely). Refused in an agent context |
 | `--notes`, `-n` | Optional notes e.g. 'read-only key' |
 | `--claim` | Fill a claim code an agent printed, in your own terminal |
-| `--wait` | After creating a claim, wait until the human fills it |
-| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
-| `--from-file` | Store the key from a file, without it ever being printed |
-| `--from-key` | With `--from-file`: which `NAME=` line to take out of a `.env` |
-| `--from-env` | Store the key from an environment variable |
-| `--delete-source` | With `--from-file --from-key`: delete that line afterwards (original kept at `<file>.bak`) |
 
-**When to run it:** when you mint a token for a tool or a project and want it stored encrypted rather than in a `.env` — or, from an agent context with no value, when an agent needs the key stored without ever holding it. Migrating a key that is already in a file is `--from-file`; see [Credential-blind ingress](../guides/agent-credential-blind-ingress.md).
+**When to run it:** when you mint a token for a tool or a project and want it stored encrypted rather than in a `.env` — or, from an agent context with no value, when an agent needs the key stored without ever holding it: that path prints a claim code instead of prompting. See [Credential-blind ingress](../guides/agent-credential-blind-ingress.md).
 
 ### psamvault ak-get
 
@@ -434,8 +426,6 @@ psamvault note-add recovery-codes --content "Code 1: ABC... Code 2: DEF..." --ca
 | `--content`, `-c` | The note content (omit to be prompted securely). Refused in an agent context |
 | `--category` | Optional category, e.g. `ssh`, `wifi`, `recovery` |
 | `--claim` | Fill a claim code an agent printed, in your own terminal |
-| `--wait` | After creating a claim, wait until the human fills it |
-| `--timeout` | How long `--wait` waits: `30s`, `15m`, `1h` |
 
 **When to run it:** when a secret has no site attached to it — a private key, a Wi-Fi password, a set of codes for something else — or, from an agent context with no content, when an agent needs it stored without ever holding it.
 
@@ -908,27 +898,25 @@ The reveal guardrail decides *who may print* a secret. This is the other directi
 Show the claims waiting for a human — and cancel one.
 
 ```bash
-psamvault pending                              # everything outstanding
-psamvault pending --code PV-4F2K-91QX          # one claim in full
-psamvault pending --cancel PV-4F2K-91QX        # stop a claim
+psamvault pending                       # what is outstanding, and how long is left
+psamvault pending --cancel PV-4F2K-91QX # stop a claim
 ```
 
 A claim appears when `add`, `ak-add` or `note-add` runs without a value in an agent context: instead of prompting, the CLI prints `PV-XXXX-XXXX` and the exact command you run to fill it.
 
 ```text
-  CODE            FAMILY      ENTRY                  STATUS
-  PV-4F2K-91QX    api_key     github-prod (GitHub)   pending, 12m left
-  PV-7B3M-02ZC    credential  github.com             filled 3m ago
+  CODE            FAMILY      ENTRY                  EXPIRES
+  PV-4F2K-91QX    api_key     github-prod (GitHub)   12m left
+  PV-7B3M-02ZC    credential  github.com             9m left
 ```
 
 | Option | What it does |
 |---|---|
-| `--code` | Show one claim in full: family, name, service or category, notes, time left |
 | `--cancel` | Delete one claim, so its code stops working |
 
-Claims live in `~/.psamvault/pending/`, owner-only, hold **metadata only** — never a value — are single-use, and expire 15 minutes after they are created. `pending` is never gated: an agent must always be able to see the claim it created, and it cannot fill one. A claim is not tied to your session, so `psamvault logout` leaves the list alone — they expire on their own, or you cancel them.
+Claims live in `~/.psamvault/pending/`, owner-only, hold **metadata only** — never a value — are single-use, and expire 15 minutes after they are created. A fill **deletes** the file, so the list only ever shows what is still waiting. `pending` is never gated: an agent must always be able to see the claim it created, and it cannot fill one. A claim is not tied to your session, so `psamvault logout` leaves the list alone — they expire on their own, or you cancel them.
 
-**When to run it:** when an agent says it created a claim for you, when `--wait` is blocking and you want to know why, to sweep up claims you never filled, and to cancel one you no longer want.
+**When to run it:** when an agent says it created a claim for you, to sweep up claims you never filled, and to cancel one you no longer want.
 
 ### Filling a claim
 

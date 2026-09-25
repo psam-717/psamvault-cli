@@ -54,7 +54,7 @@ Four commands can print a secret — `get`, `ak-get`, `note-get` and `export --p
 
 ## Credential-blind ingress (claims)
 
-An agent that needs an entry created must not be handed the value, so `add`, `ak-add` and `note-add` behave differently when a program calls them without a value: instead of prompting they create a **claim** and print a code (`PV-XXXX-XXXX`) that you fill in your own terminal. `psamvault pending` lists what is outstanding, `--wait` lets the agent block until you fill it, and `--from-file` / `--from-key` / `--from-env` move a secret that is already on the machine into the vault without it ever appearing on a command line. The pending file holds metadata only — never a value. Full detail: [Credential-blind ingress](guides/agent-credential-blind-ingress.md).
+An agent that needs an entry created must not be handed the value, so `add`, `ak-add` and `note-add` behave differently when a program calls them without a value: instead of prompting they create a **claim** and print a code (`PV-XXXX-XXXX`) that you fill in your own terminal. `psamvault pending` lists what is still waiting and how long it has left, `psamvault pending --cancel CODE` drops one, and a fill deletes the claim so a code cannot be replayed. The pending file holds metadata only — never a value. Full detail: [Credential-blind ingress](guides/agent-credential-blind-ingress.md).
 
 ## Typed errors and verbose diagnostics
 

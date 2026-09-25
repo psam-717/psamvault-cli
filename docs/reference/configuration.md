@@ -19,7 +19,7 @@ Everything psamvault writes under your home directory:
 | `~/.psamvault/flask_sessions/` | Unused. Older dashboards wrote the VEK and tokens here. The current dashboard keeps them in process memory and does not create this directory |
 | `~/.psamvault/policy.json` | Reveal policy — `human-only` (default), `strict` or `open`. Absent means the safe default |
 | `~/.psamvault/audit.jsonl` | Every reveal decision: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
-| `~/.psamvault/pending/<code>.json` | Claims waiting for a human to fill — metadata only (name, service, notes), owner-only, single-use, 15-minute lifetime. Absent when nothing is outstanding |
+| `~/.psamvault/pending/<code>.json` | Claims waiting for a human to fill — metadata only (name, service, notes, login URL, category), owner-only, single-use, 15-minute lifetime. Deleted the moment it is filled, so the directory is absent or empty when nothing is outstanding |
 
 All sensitive values (pepper, tokens, VEK) live in the OS keychain. While `pv dashboard` is running it also holds the unlocked session in that process. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
 
@@ -172,10 +172,10 @@ Two invariants hold for every row, and both are pinned by tests:
 ```json
 { "code": "PV-4F2K-91QX", "family": "api_key", "name": "github-prod", "service": "GitHub",
   "notes": null, "status": "pending", "created_at": "2026-09-24T13:04:11+00:00",
-  "expires_at": "2026-09-24T13:19:11+00:00", "filled_at": null }
+  "expires_at": "2026-09-24T13:19:11+00:00" }
 ```
 
-It holds **no secret** — the value exists only once the human types it, and it goes straight into the encrypted entry. Expired claims are pruned the next time the store is touched (any `pending`, `add`, `ak-add` or `note-add`), so the directory does not accumulate. Because codes are local to this machine, a claim created here cannot be filled anywhere else.
+It holds **no secret** — the value exists only once the human types it, and it goes straight into the encrypted entry. The fill **deletes** the file, so a code cannot be replayed and no filled-claim record is kept; expired claims are pruned the next time the store is touched (any `pending`, `add`, `ak-add` or `note-add`), so the directory does not accumulate either. Because codes are local to this machine, a claim created here cannot be filled anywhere else.
 
 See [Credential-blind ingress](../guides/agent-credential-blind-ingress.md) for the flow and the limits.
 
