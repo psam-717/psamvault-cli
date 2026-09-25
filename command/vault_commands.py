@@ -95,10 +95,6 @@ def add(
     claim: Optional[str] = typer.Option(
         None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
     ),
-    wait: bool = typer.Option(
-        False, "--wait", help="After asking for the value, wait until the human fills the claim"
-    ),
-    timeout: str = typer.Option("15m", "--timeout", help="How long --wait waits: 30s, 15m, 1h"),
 ):
     """
     Add a new credential entry to your vault.
@@ -107,8 +103,8 @@ def add(
     The server never sees your plaintext password.
 
     From an agent context this command does not prompt and does not accept the
-    password: it creates a claim and prints a code, and the human fills that code
-    in their own terminal. The value then never passes through the agent.
+    password: it prints a claim code, and the human fills that code in their own
+    terminal. The value then never passes through the agent.
 
     \b
     Example:
@@ -152,8 +148,6 @@ def add(
             verdict=verdict,
         )
         claim_flow.print_claim(record)
-        if wait:
-            claim_flow.wait_and_report(record, claim_flow.parse_duration(timeout))
         return
     else:
         if not user:
@@ -210,12 +204,13 @@ def _store_credential(
 
 
 def _fill_credential_claim(code: str) -> None:
-    """The human's half: type the username and password here, and consume the claim."""
+    """The human's half: type the username and password here, and spend the claim."""
     try:
         record = claim_flow.resolve_claim(code, store.FAMILY_CREDENTIAL)
     except PsamVaultError as exc:
         exit_error(exc)
 
+    claim_flow.print_fill_header(record)
     user = record.get("username") or typer.prompt(f"Username for {record['name']}")
     password = typer.prompt(f"Password for {record['name']}", hide_input=True)
     _store_credential(

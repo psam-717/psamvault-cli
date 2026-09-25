@@ -77,10 +77,6 @@ def note_add(
     claim: Optional[str] = typer.Option(
         None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
     ),
-    wait: bool = typer.Option(
-        False, "--wait", help="After asking for the content, wait until the human fills the claim"
-    ),
-    timeout: str = typer.Option("15m", "--timeout", help="How long --wait waits: 30s, 15m, 1h"),
 ):
     """
     Store a new secure note.
@@ -88,8 +84,8 @@ def note_add(
     The content is encrypted locally before being sent to the server.
     The server never sees the plaintext content.
 
-    From an agent context this command does not accept the content: it creates a
-    claim and prints a code, and the human fills that code in their own terminal.
+    From an agent context this command does not accept the content: it prints a
+    claim code, and the human fills that code in their own terminal.
 
     \b
     Examples:
@@ -123,8 +119,6 @@ def note_add(
             store.FAMILY_NOTE, title, category=category, verdict=verdict
         )
         claim_flow.print_claim(record)
-        if wait:
-            claim_flow.wait_and_report(record, claim_flow.parse_duration(timeout))
         return
     else:
         content = typer.prompt(f"Note content for {title}", hide_input=True)
@@ -168,12 +162,13 @@ def _store_note(title: str, content: str, category: Optional[str]) -> None:
 
 
 def _fill_note_claim(code: str) -> None:
-    """The human's half: type the note body here, and consume the claim."""
+    """The human's half: type the note body here, and spend the claim."""
     try:
         record = claim_flow.resolve_claim(code, store.FAMILY_NOTE)
     except PsamVaultError as exc:
         exit_error(exc)
 
+    claim_flow.print_fill_header(record)
     content = typer.prompt(f"Note content for {record['name']}", hide_input=True)
     _store_note(record["name"], content, record.get("category"))
     # Only now is the code spent: a failed store leaves the claim fillable again.
