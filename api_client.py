@@ -155,7 +155,7 @@ def ensure_session() -> dict:
     exp = get_access_token_expiry(session.get("access_token", ""))
     if exp is not None and exp <= time.time() + REFRESH_THRESHOLD_SECONDS:
         try:
-            new_access, new_refresh = refresh_access_token(session["refresh_token"])
+            new_access, new_refresh = refresh_session_tokens(session.get("refresh_token"))
         except SessionExpiredError:
             print_error(
                 SessionExpiredError(
@@ -219,8 +219,13 @@ def migrate_password(username: str, old_login_password: str, new_master_password
     return response.json()
 
 
-def refresh_access_token(refresh_token: str) -> str:
-    """POST /auth/refresh - returns a new access_token string"""
+def refresh_access_token(refresh_token: str) -> tuple[str, str]:
+    """POST /auth/refresh - returns a fresh (access_token, refresh_token) pair.
+
+    The presented token is single-use: the server revokes it and mints a successor
+    on every call, so a 401 from here can also mean another client already rotated
+    the chain. ``refresh_session_tokens`` is the entry point that handles that.
+    """
     response = _post(
         f"{_base_url()}/auth/refresh",
         json={"refresh_token": refresh_token}
@@ -228,6 +233,31 @@ def refresh_access_token(refresh_token: str) -> str:
     _handle_error(response)
     data = response.json()
     return data["access_token"], data["refresh_token"]
+
+
+def refresh_session_tokens(used: "str | None" = None) -> tuple[str, str]:
+    """Refresh the stored session, surviving a rotation another client performed.
+
+    Refresh tokens are single-use and the CLI, the MCP server and the dashboard all
+    share one keychain entry, so the 401 we get back may simply mean somebody else
+    refreshed a moment ago and the store now holds a newer token. Re-read the store
+    once and retry with it. An unchanged store (or no stored token) means the chain
+    really is dead, and the original SessionExpiredError propagates unchanged.
+
+    ``used`` lets a caller that already read the session pass its refresh token in,
+    so the healthy path costs no extra keychain read.
+    """
+    from session import load_session
+
+    if used is None:
+        used = load_session().get("refresh_token")
+    try:
+        return refresh_access_token(used)
+    except SessionExpiredError:
+        current = load_session().get("refresh_token")
+        if not current or current == used:
+            raise
+        return refresh_access_token(current)
 
 
 def logout(access_token: str, refresh_token: str) -> None:
