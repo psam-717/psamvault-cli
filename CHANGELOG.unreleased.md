@@ -19,6 +19,7 @@
 ## Fixed
 
 - fix(dashboard): an expired session tells you to run `pv list` and click Retry, or `pv login` if you are logged out. Retry reads the keychain again
+- fix(session): a refresh that lost the token rotation to another client no longer reports the session as expired - the CLI re-reads the keychain store and retries with the newer token, and only an unchanged store is treated as a dead chain
 
 ## Docs
 
