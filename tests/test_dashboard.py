@@ -538,3 +538,109 @@ def test_decrypt_failure_on_reveal_is_an_error(client, monkeypatch):
         headers=_csrf(body),
     )
     assert response.status_code == 404
+
+
+def test_dashboard_login_then_logout_revokes_the_server_session(client, monkeypatch):
+    """Sign-in stores a keychain session. Sign-out revokes that refresh token."""
+    from crypto import decrypt_vek, derive_key, derive_master_password, encrypt_vek
+
+    import account_flows
+
+    test_client, _calls, _gets, _stored = client
+    password = "Password1"
+    salt = "ab" * 32
+    key = derive_key(derive_master_password(password), salt)
+    encrypted, iv = encrypt_vek(bytes(key), TEST_VEK)
+    revoked = {}
+
+    def login(username, master):
+        return {
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "kdf_salt": salt,
+            "encrypted_vek": encrypted,
+            "vek_iv": iv,
+            "has_recovery_codes": False,
+        }
+
+    def revoke(access_token, refresh_token):
+        revoked["pair"] = (access_token, refresh_token)
+
+    monkeypatch.setattr(api_client, "login", login)
+    monkeypatch.setattr(api_client, "logout", revoke)
+
+    signed_in = test_client.post("/api/auth/login", json={"username": "psam", "password": password})
+    assert signed_in.status_code == 200, signed_in.data
+    body = signed_in.get_json()
+    assert body == {"ok": True, "username": "psam", "has_recovery_codes": False}
+    text = signed_in.get_data(as_text=True)
+    assert password not in text
+    assert TEST_VEK.hex() not in text
+    assert "fresh-access" not in text
+
+    dash_cache.CACHE.reset()
+    loaded = session.load_session()
+    assert bytes(decrypt_vek(key, loaded["encrypted_vek"], loaded["vek_iv"])) == TEST_VEK
+    _response, bootstrap = _bootstrap(test_client)
+
+    signed_out = test_client.post("/api/logout", json={}, headers=_csrf(bootstrap))
+    assert signed_out.status_code == 200
+    assert revoked["pair"] == ("fresh-access", "fresh-refresh")
+    assert session.is_logged_in() is False
+    again = test_client.get("/api/bootstrap")
+    assert again.status_code == 401
+
+
+def test_dashboard_auth_routes_reject_another_sites_origin(client):
+    test_client, _calls, _gets, _stored = client
+    response = test_client.post(
+        "/api/auth/login",
+        json={"username": "psam", "password": "Password1"},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert response.status_code == 403
+    assert "Password1" not in response.get_data(as_text=True)
+
+
+def test_dashboard_recover_rejects_a_mismatched_password_before_any_reset(client, monkeypatch):
+    test_client, _calls, _gets, _stored = client
+
+    def recover(*args, **kwargs):
+        raise AssertionError("recovery must not call the server")
+
+    monkeypatch.setattr(api_client, "recover_with_code", recover)
+    response = test_client.post(
+        "/api/auth/recover",
+        json={
+            "username": "psam",
+            "recovery_code": "ABCD-EF01-2345",
+            "new_password": "NewPassword1",
+            "confirm": "NewPassword2",
+        },
+    )
+    assert response.status_code == 400
+    assert "match" in response.get_json()["error"]
+
+
+def test_dashboard_issues_recovery_codes_only_with_the_csrf_token(client, monkeypatch):
+    import account_flows
+
+    test_client, _calls, _gets, _stored = client
+    _response, body = _bootstrap(test_client)
+    monkeypatch.setattr(api_client, "get_remaining_codes", lambda token: {"remaining_codes": 3})
+    remaining = test_client.get("/api/auth/recovery-codes")
+    assert remaining.status_code == 200
+    assert remaining.get_json() == {"remaining": 3}
+
+    blocked = test_client.post("/api/auth/recovery-codes", json={"password": "Password1"})
+    assert blocked.status_code == 403
+
+    monkeypatch.setattr(account_flows, "issue_recovery_codes", lambda password, session_data: ["AAAA-BBBB-CCCC"])
+    issued = test_client.post(
+        "/api/auth/recovery-codes",
+        json={"password": "Password1"},
+        headers=_csrf(body),
+    )
+    assert issued.status_code == 200
+    assert issued.get_json() == {"codes": ["AAAA-BBBB-CCCC"]}
+    assert "Password1" not in issued.get_data(as_text=True)
