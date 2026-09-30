@@ -80,6 +80,20 @@ function initials(name: string) {
   return name.slice(0, 2).toUpperCase() || "PV";
 }
 
+type KeyKind = "standalone" | "project" | "unscoped";
+
+const KEY_KIND_OPTIONS: { id: KeyKind; label: string }[] = [
+  { id: "standalone", label: "Standalone" },
+  { id: "project", label: "Project-scoped" },
+  { id: "unscoped", label: "Project-unscoped" },
+];
+
+function keyKindOf(row: ApiKeyRow): KeyKind {
+  if (!row.project) return "standalone";
+  if (row.project === "(unscoped)" || row.project.startsWith("(unscoped)/")) return "unscoped";
+  return "project";
+}
+
 function groupKeys(rows: ApiKeyRow[]) {
   const sections = new Map<string, ApiKeyRow[]>();
   const standalone: ApiKeyRow[] = [];
@@ -101,11 +115,13 @@ function groupKeys(rows: ApiKeyRow[]) {
 
 function KeyTables({
   rows,
+  showHeadings,
   onView,
   onEdit,
   onDelete,
 }: {
   rows: ApiKeyRow[];
+  showHeadings: boolean;
   onView: (row: ApiKeyRow) => void;
   onEdit: (row: ApiKeyRow) => void;
   onDelete: (row: ApiKeyRow) => void;
@@ -114,7 +130,7 @@ function KeyTables({
     <div className="flex flex-col gap-2">
       {groupKeys(rows).map((section) => (
         <div key={section.label}>
-          <p className="px-4 pt-4 text-sm font-medium">{section.label}</p>
+          {showHeadings && <p className="px-4 pt-4 text-sm font-medium">{section.label}</p>}
           <Table>
             <TableHeader>
               <TableRow>
@@ -155,6 +171,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("entries");
   const [query, setQuery] = useState("");
+  const [keyKind, setKeyKind] = useState<KeyKind>("project");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -207,16 +224,22 @@ export function App() {
         entry.username_hint.toLowerCase().includes(needle),
     );
   }, [entries, query]);
+  const kindCounts = useMemo(() => {
+    const counts: Record<KeyKind, number> = { standalone: 0, project: 0, unscoped: 0 };
+    for (const row of keys ?? []) counts[keyKindOf(row)] += 1;
+    return counts;
+  }, [keys]);
   const filteredKeys = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!keys) return [];
-    if (!needle) return keys;
-    return keys.filter((row) =>
+    const inKind = (keys ?? []).filter((row) => keyKindOf(row) === keyKind);
+    if (!needle) return inKind;
+    return inKind.filter((row) =>
       [row.name, row.key_name, row.project, row.source, row.service_hint]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle)),
     );
-  }, [keys, query]);
+  }, [keys, query, keyKind]);
+  const keyKindLabel = KEY_KIND_OPTIONS.find((option) => option.id === keyKind)?.label ?? "API";
 
   async function run(id: string, action: () => Promise<void>) {
     if (pending) return;
@@ -301,6 +324,20 @@ export function App() {
             </TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
+            {tab === "keys" && (
+              <select
+                aria-label="Key type"
+                value={keyKind}
+                onChange={(event) => setKeyKind(event.target.value as KeyKind)}
+                className="h-9 max-w-full rounded-md border bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {KEY_KIND_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label} ({kindCounts[option.id]})
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="relative min-w-0 flex-1 sm:w-64">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -355,11 +392,19 @@ export function App() {
             {tab === "keys" && keys && filteredKeys.length === 0 && (
               <Empty
                 icon={<KeyRound className="size-8" />}
-                title={searching ? "No matching API keys" : "No API keys stored"}
+                title={
+                  searching
+                    ? "No matching API keys"
+                    : keys.length === 0
+                      ? "No API keys stored"
+                      : `No ${keyKindLabel.toLowerCase()} keys`
+                }
                 description={
                   searching
-                    ? "Nothing in the loaded list matches that search."
-                    : "Use psamvault ak-add, or Add, to store a key."
+                    ? "Nothing in this type matches that search."
+                    : keys.length === 0
+                      ? "Use psamvault ak-add, or Add, to store a key."
+                      : "Choose another type in the filter."
                 }
               />
             )}
@@ -391,7 +436,15 @@ export function App() {
                 </TableBody>
               </Table>
             )}
-            {tab === "keys" && filteredKeys.length > 0 && <KeyTables rows={filteredKeys} onView={(row) => setDialog({ kind: "view-key", row })} onEdit={(row) => setDialog({ kind: "edit-key", name: row.name })} onDelete={(row) => setConfirm({ kind: "key", name: row.name })} />}
+            {tab === "keys" && filteredKeys.length > 0 && (
+              <KeyTables
+                rows={filteredKeys}
+                showHeadings={keyKind === "project"}
+                onView={(row) => setDialog({ kind: "view-key", row })}
+                onEdit={(row) => setDialog({ kind: "edit-key", name: row.name })}
+                onDelete={(row) => setConfirm({ kind: "key", name: row.name })}
+              />
+            )}
           </ScrollArea>
         </Card>
       </Tabs>
