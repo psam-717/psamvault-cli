@@ -80,6 +80,75 @@ function initials(name: string) {
   return name.slice(0, 2).toUpperCase() || "PV";
 }
 
+function groupKeys(rows: ApiKeyRow[]) {
+  const sections = new Map<string, ApiKeyRow[]>();
+  const standalone: ApiKeyRow[] = [];
+  for (const row of rows) {
+    if (!row.project) {
+      standalone.push(row);
+      continue;
+    }
+    const bucket = sections.get(row.project) ?? [];
+    bucket.push(row);
+    sections.set(row.project, bucket);
+  }
+  const grouped = [...sections.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((label) => ({ label: `Project: ${label}`, rows: sections.get(label) ?? [] }));
+  if (standalone.length) grouped.push({ label: "Standalone keys", rows: standalone });
+  return grouped;
+}
+
+function KeyTables({
+  rows,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  rows: ApiKeyRow[];
+  onView: (row: ApiKeyRow) => void;
+  onEdit: (row: ApiKeyRow) => void;
+  onDelete: (row: ApiKeyRow) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {groupKeys(rows).map((section) => (
+        <div key={section.label}>
+          <p className="px-4 pt-4 text-sm font-medium">{section.label}</p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Key</TableHead>
+                <TableHead>Service</TableHead>
+                <TableHead className="hidden sm:table-cell">Updated</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.rows.map((row) => (
+                <TableRow key={row.name}>
+                  <TableCell>
+                    <div className="font-medium" title={row.name}>
+                      {row.key_name || row.name}
+                      {row.stale && <Badge className="ml-2">stale</Badge>}
+                    </div>
+                    {row.source && <div className="text-xs text-muted-foreground">{row.source}</div>}
+                  </TableCell>
+                  <TableCell>{row.service_hint}</TableCell>
+                  <TableCell className="hidden text-muted-foreground sm:table-cell">{row.updated_at}</TableCell>
+                  <TableCell>
+                    <RowMenu onView={() => onView(row)} onEdit={() => onEdit(row)} onDelete={() => onDelete(row)} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
@@ -142,8 +211,10 @@ export function App() {
     const needle = query.trim().toLowerCase();
     if (!keys) return [];
     if (!needle) return keys;
-    return keys.filter(
-      (row) => row.name.toLowerCase().includes(needle) || row.service_hint.toLowerCase().includes(needle),
+    return keys.filter((row) =>
+      [row.name, row.key_name, row.project, row.source, row.service_hint]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
     );
   }, [keys, query]);
 
@@ -320,34 +391,7 @@ export function App() {
                 </TableBody>
               </Table>
             )}
-            {tab === "keys" && filteredKeys.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Service</TableHead>
-                    <TableHead className="hidden sm:table-cell">Updated</TableHead>
-                    <TableHead className="w-12" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredKeys.map((row) => (
-                    <TableRow key={row.name}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell>{row.service_hint}</TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">{row.updated_at}</TableCell>
-                      <TableCell>
-                        <RowMenu
-                          onView={() => setDialog({ kind: "view-key", row })}
-                          onEdit={() => setDialog({ kind: "edit-key", name: row.name })}
-                          onDelete={() => setConfirm({ kind: "key", name: row.name })}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+            {tab === "keys" && filteredKeys.length > 0 && <KeyTables rows={filteredKeys} onView={(row) => setDialog({ kind: "view-key", row })} onEdit={(row) => setDialog({ kind: "edit-key", name: row.name })} onDelete={(row) => setConfirm({ kind: "key", name: row.name })} />}
           </ScrollArea>
         </Card>
       </Tabs>
