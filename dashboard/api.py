@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, jsonify, request
 
 import api_client
+from api_key_names import parse_api_key_name
 from crypto import decrypt_api_key, decrypt_credentials, encrypt_api_key, encrypt_credentials
 from dashboard.cache import (
     CACHE,
@@ -99,10 +100,15 @@ def _public_entry(row: dict) -> dict:
 
 
 def _public_key(row: dict) -> dict:
+    parsed = parse_api_key_name(row.get("name") or "")
     return {
-        "name": row.get("name") or "",
+        "name": parsed["name"],
         "service_hint": row.get("service_hint") or "—",
         "updated_at": (row.get("updated_at") or "")[:10],
+        "project": parsed["display_project"],
+        "key_name": parsed["key_name"],
+        "source": parsed["source"],
+        "stale": parsed["stale"],
     }
 
 
