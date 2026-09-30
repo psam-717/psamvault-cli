@@ -9,6 +9,12 @@ from cryptography.exceptions import InvalidTag
  
 import api_client
 import reveal_gate
+from api_key_names import (
+    AmbiguousApiKeyName,
+    entry_name_error,
+    prepare_list_items,
+    resolve_api_key_name,
+)
 from crypto import decrypt_api_key, encrypt_api_key
 from error_ui import exit_error, print_error
 from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
@@ -38,25 +44,53 @@ def ak_help(ctx: typer.Context):
 """)
         
         
-# Characters not allowed in API key entry names
-FORBIDDEN_NAME_CHARS = set('\\/"\' <>|?*&#%')
-
-
 def _validate_entry_name(name: str) -> None:
-    """Raise a user-friendly error if the entry name contains forbidden characters."""
-    if not name.strip():
-        typer.echo("Error: Entry name cannot be blank.", err=True)
-        raise typer.Exit(code=1)
-    
-    found = [c for c in name if c in FORBIDDEN_NAME_CHARS]
-    if found:
-        unique = "".join(dict.fromkeys(found))
-        typer.echo(
-            f"Error: Entry name contains invalid character(s): {' '.join(repr(c) for c in unique)}\n"
-            "  Forbidden characters: \\ / \" ' < > | ? * & # %",
-            err=True
+    """Reject a blank name, or a slash that is not the project/.env/KEY form."""
+    error = entry_name_error(name)
+    if error is None:
+        return
+    typer.echo(f"Error: {error}", err=True)
+    raise typer.Exit(code=1)
+
+
+def _lookup_stored_name(session: dict, requested: str) -> str:
+    """Map a leaf or a full name to the row the server stored."""
+    data = api_client.list_api_key_entries(
+        access_token=session["access_token"],
+        refresh_token=session["refresh_token"],
+    )
+    entries = data["entries"] if isinstance(data, dict) else data
+    return resolve_api_key_name(requested, entries)
+
+
+def _print_ambiguous(exc: AmbiguousApiKeyName) -> None:
+    lines = "\n".join(f"  {match}" for match in exc.matches)
+    typer.echo(
+        f"\n ✗ '{exc.requested}' matches more than one API key — pass the full name.\n{lines}",
+        err=True,
+    )
+
+
+def _load_api_key(session: dict, name: str) -> tuple[dict, str]:
+    """Fetch one key. A leaf that 404s is resolved against the list once."""
+    try:
+        data = api_client.get_api_key_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            name=name,
         )
-        raise typer.Exit(code=1)
+        return data, name
+    except NotFoundError:
+        stored = _lookup_stored_name(session, name)
+        if stored.lower() == name.lower():
+            raise
+        session = load_session()
+        data = api_client.get_api_key_entry(
+            access_token=session["access_token"],
+            refresh_token=session["refresh_token"],
+            name=stored,
+        )
+        return data, stored
     
     
 def _get_session_and_key() -> tuple[dict, bytes]:
@@ -186,11 +220,15 @@ def ak_get(
 ):
     """
     Retrieve and decrypt a stored API key.
+
+    A project key can be named in full (``project/.env/KEY``) or by its leaf
+    when that leaf matches one live row.
  
     \b
     Examples:
         psamvault ak-get openai-prod
         psamvault ak-get openai-prod --copy
+        psamvault ak-get "atlas/.env/MY_CUSTOM_KEY"
     """
     _validate_entry_name(name)
  
@@ -198,11 +236,10 @@ def ak_get(
 
     try:
         with Spinner(f"Fetching API key '{name}'"):
-            data = api_client.get_api_key_entry(
-                access_token=session["access_token"],
-                refresh_token=session["refresh_token"],
-                name=name,
-            )
+            data, name = _load_api_key(session, name)
+    except AmbiguousApiKeyName as exc:
+        _print_ambiguous(exc)
+        raise typer.Exit(code=1)
     except NotFoundError:
         typer.echo(
             f"\n ✗ API key '{name}' was not found in your vault.",
@@ -257,6 +294,27 @@ def ak_get(
 
 
 
+def _source_label(item: dict) -> str:
+    source = item.get("source") or "-"
+    if item.get("stale_only"):
+        extra = item.get("stale_count") or 0
+        suffix = f" +{extra} more" if extra else ""
+        return f"{source} (stale){suffix}"
+    extra = item.get("stale_count") or 0
+    if extra:
+        return f"{source} (+{extra} stale)"
+    return source
+
+
+def _print_project_keys(project: str, rows: list[dict]) -> None:
+    typer.echo(f"  Project: {project}")
+    typer.echo(f"    {'KEY':<28} {'SOURCE':<28} {'UPDATED'}")
+    typer.echo(f"    {'-'*28} {'-'*28} {'-'*20}")
+    for item in rows:
+        typer.echo(f"    {item['key_name']:<28} {_source_label(item):<28} {item['updated']}")
+    typer.echo()
+
+
 @app.command(name="list")
 def ak_list(
     project_name: Optional[str] = typer.Option(
@@ -268,7 +326,9 @@ def ak_list(
 
     Shows entry names, service hints, and notes — does not decrypt any keys.
     Keys stored via scan_and_protect(project_name=...) are grouped under their
-    project name. Use --project <name> to filter by project.
+    project name. Keys stored with no project are grouped under (unscoped).
+    Backup copies of the same key fold onto the live .env row. Use --project
+    <name> to filter by project. Pass (unscoped) to see keys stored with no project.
 
     \b
     Examples:
@@ -290,59 +350,18 @@ def ak_list(
         typer.echo("No API keys stored. Use  psamvault ak-add  to store one.\n")
         return
 
-    # Build the items with project prefix parsing
-    items = []
-    for e in entries:
-        name = e["name"]
-        parts = name.split("/.env/")
-        is_project_key = len(parts) == 2
-
-        if project_name:
-            if not is_project_key or parts[0] != project_name:
-                continue
-
-        items.append({
-            "name": name,
-            "service_hint": e.get("service_hint", "-") or "-",
-            "notes": e.get("notes") or None,
-            "updated": e.get("updated_at", "?")[:10],
-            "project": parts[0] if is_project_key else None,
-            "key_name": parts[1] if is_project_key else name,
-        })
-
-    if project_name:
-        # Filtered view — simple list
-        if not items:
-            typer.echo(f"No API keys found for project '{project_name}'.\n")
-            return
-        typer.echo(f"\n  Project: {project_name}")
-        typer.echo(f"  {'NAME':<28} {'PATTERN':<25} {'UPDATED'}")
-        typer.echo(f"  {'-'*28} {'-'*25} {'-'*20}")
-        for item in items:
-            typer.echo(f"  {project_name:<28} {item['key_name']:<25} {item['updated']}")
-        typer.echo(f"\n  {len(items)} entr{'y' if len(items) == 1 else 'ies'} in project '{project_name}'.\n")
+    prepared = prepare_list_items(entries, project_name)
+    if project_name and prepared["stored"] == 0:
+        typer.echo(f"No API keys found for project '{project_name}'.\n")
         return
 
-    # Full view — grouped by project + standalone
-    projects: dict[str, list] = {}
-    standalone: list = []
-    for item in items:
-        if item["project"]:
-            projects.setdefault(item["project"], []).append(item)
-        else:
-            standalone.append(item)
-
     typer.echo()
-    for proj_name, proj_items in sorted(projects.items()):
-        typer.echo(f"  Project: {proj_name}")
-        typer.echo(f"    {'NAME':<28} {'PATTERN':<25} {'UPDATED'}")
-        typer.echo(f"    {'-'*28} {'-'*25} {'-'*20}")
-        for item in proj_items:
-            typer.echo(f"    {proj_name:<28} {item['key_name']:<25} {item['updated']}")
-        typer.echo()
+    for proj_name, proj_items in prepared["projects"].items():
+        _print_project_keys(proj_name, proj_items)
 
+    standalone = prepared["standalone"]
     if standalone:
-        typer.echo(f"  Standalone Keys")
+        typer.echo("  Standalone Keys")
         typer.echo(f"    {'NAME':<28} {'SERVICE':<22} {'NOTES':<30} {'UPDATED'}")
         typer.echo(f"    {'-'*28} {'-'*22} {'-'*30} {'-'*20}")
         for item in standalone:
@@ -350,7 +369,17 @@ def ak_list(
             typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<22} {notes_display:<30} {item['updated']}")
         typer.echo()
 
-    typer.echo(f"  {len(items)} entr{'y' if len(items) == 1 else 'ies'} found.\n")
+    stored = prepared["stored"]
+    shown = prepared["shown"]
+    if project_name:
+        typer.echo(
+            f"  {shown} entr{'y' if shown == 1 else 'ies'} in project '{project_name}'.\n"
+        )
+        return
+    if shown != stored:
+        typer.echo(f"  {stored} stored, {shown} shown (stale copies folded).\n")
+        return
+    typer.echo(f"  {shown} entr{'y' if shown == 1 else 'ies'} found.\n")
     
     
 @app.command(name="update")
@@ -377,11 +406,10 @@ def ak_update(
 
     try:
         with Spinner(f"Fetching current entry for '{name}'"):
-            current_data = api_client.get_api_key_entry(
-                access_token=session["access_token"],
-                refresh_token=session["refresh_token"],
-                name=name,
-            )
+            current_data, name = _load_api_key(session, name)
+    except AmbiguousApiKeyName as exc:
+        _print_ambiguous(exc)
+        raise typer.Exit(code=1)
     except NotFoundError:
         typer.echo(
             f"\n ✗ API key '{name}' was not found in your vault.",
@@ -440,30 +468,54 @@ def ak_delete(
 ):
     """
     Permanently delete a stored API key entry.
+
+    A project key can be named in full (``project/.env/KEY``) or by its leaf
+    when that leaf matches one live row. The confirmation names the stored row.
  
     This action cannot be undone.
  
     \b
     Examples:
         psamvault ak-delete openai-prod
+        psamvault ak-delete "atlas/.env/MY_CUSTOM_KEY"
     """
     _validate_entry_name(name)
- 
+
+    session = api_client.ensure_session()
+    try:
+        stored = _lookup_stored_name(session, name)
+    except AmbiguousApiKeyName as exc:
+        _print_ambiguous(exc)
+        raise typer.Exit(code=1)
+    except NotFoundError:
+        typer.echo(
+            f"\n ✗ API key '{name}' was not found in your vault.",
+            err=True,
+        )
+        typer.echo(" → Use  psamvault ak-list  to see your saved API keys.", err=True)
+        raise typer.Exit(code=1)
+    except PsamVaultError as exc:
+        print_error(exc)
+        raise typer.Exit(code=1)
+
+    # The list call may have rotated the tokens.
+    session = load_session()
+
     confirm = typer.confirm(
-        f"Are you sure you want to permanently delete the API key '{name}'?"
+        f"Are you sure you want to permanently delete the API key '{stored}'?"
     )
     if not confirm:
         typer.echo("Cancelled")
         raise typer.Exit()
  
     typer.echo("")
-    session = api_client.ensure_session()
  
-    with Spinner(f"Deleting API key '{name}'"):
+    with Spinner(f"Deleting API key '{stored}'"):
         api_client.delete_api_key_entry(
             access_token=session["access_token"],
             refresh_token=session["refresh_token"],
-            name=name,
+            name=stored,
         )
+    name = stored
  
     typer.echo(f" API key '{name}' deleted.\n")

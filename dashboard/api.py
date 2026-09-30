@@ -11,7 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
+import account_flows
 import api_client
+from api_key_names import parse_api_key_name
 from crypto import decrypt_api_key, decrypt_credentials, encrypt_api_key, encrypt_credentials
 from dashboard.cache import (
     CACHE,
@@ -99,10 +101,15 @@ def _public_entry(row: dict) -> dict:
 
 
 def _public_key(row: dict) -> dict:
+    parsed = parse_api_key_name(row.get("name") or "")
     return {
-        "name": row.get("name") or "",
+        "name": parsed["name"],
         "service_hint": row.get("service_hint") or "—",
         "updated_at": (row.get("updated_at") or "")[:10],
+        "project": parsed["display_project"],
+        "key_name": parsed["key_name"],
+        "source": parsed["source"],
+        "stale": parsed["stale"],
     }
 
 
@@ -133,6 +140,36 @@ def _tokens(auth: dict) -> tuple[str, str, bytes]:
 def _body() -> dict:
     data = request.get_json(silent=True)
     return data if isinstance(data, dict) else {}
+
+
+def _text(data: dict, key: str) -> str:
+    value = data.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _browser_origin_or_response():
+    """Block a web page on another site from posting a password here.
+
+    A missing Origin is a local tool or the test client. A browser always
+    sends one, and only this dashboard's own origin is accepted.
+    """
+    origin = request.headers.get("Origin")
+    if origin and origin not in _ALLOWED_ORIGINS:
+        return _error("Bad origin", 403)
+    return None
+
+
+def _account_status(action):
+    """Run an account flow and return its status dict. Secrets stay in the flow."""
+    failure = _browser_origin_or_response()
+    if failure is not None:
+        return failure
+    try:
+        payload = action()
+    except account_flows.AccountFlowError as exc:
+        return _error(exc.message, 400)
+    CACHE.reset()
+    return jsonify({"ok": True, **payload})
 
 
 @bp.after_request
@@ -175,12 +212,75 @@ def bootstrap():
 
 @bp.post("/logout")
 def logout():
-    _auth, failure = _csrf_or_response()
+    auth, failure = _csrf_or_response()
     if failure is not None:
         return failure
-    session_store.clear_session()
+    # Revoke the refresh token on the server first. A network failure still
+    # clears this machine, matching `pv logout`.
+    account_flows.logout_account(auth["access_token"], auth["refresh_token"])
     CACHE.reset()
     return jsonify({"ok": True})
+
+
+@bp.post("/auth/login")
+def auth_login():
+    data = _body()
+    return _account_status(lambda: account_flows.login_account(_text(data, "username"), _text(data, "password")))
+
+
+@bp.post("/auth/recover")
+def auth_recover():
+    data = _body()
+    return _account_status(
+        lambda: account_flows.recover_account(
+            _text(data, "username"),
+            _text(data, "recovery_code"),
+            _text(data, "new_password"),
+            _text(data, "confirm"),
+        )
+    )
+
+
+@bp.post("/auth/restore")
+def auth_restore():
+    data = _body()
+    return _account_status(
+        lambda: account_flows.restore_account(
+            _text(data, "username"),
+            _text(data, "passphrase"),
+            _text(data, "new_password"),
+            _text(data, "confirm"),
+            kit_text=_text(data, "kit"),
+            generate_codes=data.get("generate_codes") is True,
+            replace_session=data.get("replace_session") is True,
+        )
+    )
+
+
+@bp.get("/auth/recovery-codes")
+def auth_recovery_codes():
+    auth, failure = _auth_or_response()
+    if failure is not None:
+        return failure
+    try:
+        remaining = account_flows.remaining_recovery_codes(auth["access_token"])
+    except account_flows.AccountFlowError as exc:
+        return _error(exc.message, 400)
+    return jsonify({"remaining": remaining})
+
+
+@bp.post("/auth/recovery-codes")
+def auth_issue_recovery_codes():
+    auth, failure = _csrf_or_response()
+    if failure is not None:
+        return failure
+    try:
+        codes = account_flows.issue_recovery_codes(_text(_body(), "password"), auth)
+    except account_flows.AccountFlowError as exc:
+        return _error(exc.message, 400)
+    except KeyError:
+        return _error("The saved session is missing data. Sign in again.", 400)
+    return jsonify({"codes": codes})
 
 
 @bp.get("/entries/<path:site_name>")

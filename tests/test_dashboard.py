@@ -458,6 +458,72 @@ def test_expired_session_tells_the_user_which_command_restores_it(client, monkey
     assert gets["n"] >= reads_after_login + 6
 
 
+def test_project_key_is_grouped_and_the_row_actions_use_the_stored_name(client, monkeypatch):
+    """A project/.env/KEY row is labeled, and view/delete send that full name."""
+    test_client, calls, _gets, stored = client
+    scoped_blob, scoped_iv = encrypt_api_key(TEST_VEK, "scan", "sk-scoped", "scoped note")
+    scoped = {
+        "name": "atlas054probe/.env/my_custom_key",
+        "service_hint": "scan",
+        "updated_at": "2026-09-26T00:00:00Z",
+        "encrypted_blob": scoped_blob,
+        "iv": scoped_iv,
+    }
+    stale = {
+        "name": "env/.env.bak-20260911t114609z/openrouter_api_key",
+        "service_hint": "scan",
+        "updated_at": "2026-09-11T00:00:00Z",
+        "encrypted_blob": scoped_blob,
+        "iv": scoped_iv,
+    }
+
+    def list_keys(access_token, refresh_token):
+        calls["list_keys"] += 1
+        return [dict(stored["key"]), scoped, stale]
+
+    seen = {}
+
+    def get_key(access_token, refresh_token, name):
+        seen["get"] = name
+        if name == scoped["name"]:
+            return dict(scoped)
+        raise NotFoundError(f"No API key entry found for '{name}'.")
+
+    def delete_key(access_token, refresh_token, name):
+        seen["delete"] = name
+        return {"ok": True}
+
+    monkeypatch.setattr(api_client, "list_api_key_entries", list_keys)
+    monkeypatch.setattr(api_client, "get_api_key_entry", get_key)
+    monkeypatch.setattr(api_client, "delete_api_key_entry", delete_key)
+    monkeypatch.setattr(dash_cache, "LIST_TTL_SECONDS", 0)
+    dash_cache.CACHE.api_keys_at = 0
+
+    _response, body = _bootstrap(test_client, query_string={"refresh": "1"})
+    rows = {row["name"]: row for row in body["api_keys"]}
+    assert rows[scoped["name"]]["project"] == "atlas054probe"
+    assert rows[scoped["name"]]["key_name"] == "my_custom_key"
+    assert rows[scoped["name"]]["source"] == ".env"
+    assert rows[scoped["name"]]["stale"] is False
+    assert rows[stale["name"]]["project"] == "(unscoped)"
+    assert rows[stale["name"]]["stale"] is True
+    assert rows["OpenAI"]["project"] is None
+    assert rows["OpenAI"]["key_name"] == "OpenAI"
+
+    detail = test_client.get("/api/api-keys/atlas054probe/.env/my_custom_key")
+    assert detail.status_code == 200, detail.data
+    assert detail.get_json()["notes"] == "scoped note"
+    assert seen["get"] == scoped["name"]
+    assert "sk-scoped" not in detail.get_data(as_text=True)
+
+    deleted = test_client.delete(
+        "/api/api-keys/atlas054probe/.env/my_custom_key",
+        headers=_csrf(body),
+    )
+    assert deleted.status_code == 200, deleted.data
+    assert seen["delete"] == scoped["name"]
+
+
 def test_decrypt_failure_on_reveal_is_an_error(client, monkeypatch):
     test_client, _calls, _gets, _stored = client
     _response, body = _bootstrap(test_client)
@@ -472,3 +538,109 @@ def test_decrypt_failure_on_reveal_is_an_error(client, monkeypatch):
         headers=_csrf(body),
     )
     assert response.status_code == 404
+
+
+def test_dashboard_login_then_logout_revokes_the_server_session(client, monkeypatch):
+    """Sign-in stores a keychain session. Sign-out revokes that refresh token."""
+    from crypto import decrypt_vek, derive_key, derive_master_password, encrypt_vek
+
+    import account_flows
+
+    test_client, _calls, _gets, _stored = client
+    password = "Password1"
+    salt = "ab" * 32
+    key = derive_key(derive_master_password(password), salt)
+    encrypted, iv = encrypt_vek(bytes(key), TEST_VEK)
+    revoked = {}
+
+    def login(username, master):
+        return {
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "kdf_salt": salt,
+            "encrypted_vek": encrypted,
+            "vek_iv": iv,
+            "has_recovery_codes": False,
+        }
+
+    def revoke(access_token, refresh_token):
+        revoked["pair"] = (access_token, refresh_token)
+
+    monkeypatch.setattr(api_client, "login", login)
+    monkeypatch.setattr(api_client, "logout", revoke)
+
+    signed_in = test_client.post("/api/auth/login", json={"username": "psam", "password": password})
+    assert signed_in.status_code == 200, signed_in.data
+    body = signed_in.get_json()
+    assert body == {"ok": True, "username": "psam", "has_recovery_codes": False}
+    text = signed_in.get_data(as_text=True)
+    assert password not in text
+    assert TEST_VEK.hex() not in text
+    assert "fresh-access" not in text
+
+    dash_cache.CACHE.reset()
+    loaded = session.load_session()
+    assert bytes(decrypt_vek(key, loaded["encrypted_vek"], loaded["vek_iv"])) == TEST_VEK
+    _response, bootstrap = _bootstrap(test_client)
+
+    signed_out = test_client.post("/api/logout", json={}, headers=_csrf(bootstrap))
+    assert signed_out.status_code == 200
+    assert revoked["pair"] == ("fresh-access", "fresh-refresh")
+    assert session.is_logged_in() is False
+    again = test_client.get("/api/bootstrap")
+    assert again.status_code == 401
+
+
+def test_dashboard_auth_routes_reject_another_sites_origin(client):
+    test_client, _calls, _gets, _stored = client
+    response = test_client.post(
+        "/api/auth/login",
+        json={"username": "psam", "password": "Password1"},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert response.status_code == 403
+    assert "Password1" not in response.get_data(as_text=True)
+
+
+def test_dashboard_recover_rejects_a_mismatched_password_before_any_reset(client, monkeypatch):
+    test_client, _calls, _gets, _stored = client
+
+    def recover(*args, **kwargs):
+        raise AssertionError("recovery must not call the server")
+
+    monkeypatch.setattr(api_client, "recover_with_code", recover)
+    response = test_client.post(
+        "/api/auth/recover",
+        json={
+            "username": "psam",
+            "recovery_code": "ABCD-EF01-2345",
+            "new_password": "NewPassword1",
+            "confirm": "NewPassword2",
+        },
+    )
+    assert response.status_code == 400
+    assert "match" in response.get_json()["error"]
+
+
+def test_dashboard_issues_recovery_codes_only_with_the_csrf_token(client, monkeypatch):
+    import account_flows
+
+    test_client, _calls, _gets, _stored = client
+    _response, body = _bootstrap(test_client)
+    monkeypatch.setattr(api_client, "get_remaining_codes", lambda token: {"remaining_codes": 3})
+    remaining = test_client.get("/api/auth/recovery-codes")
+    assert remaining.status_code == 200
+    assert remaining.get_json() == {"remaining": 3}
+
+    blocked = test_client.post("/api/auth/recovery-codes", json={"password": "Password1"})
+    assert blocked.status_code == 403
+
+    monkeypatch.setattr(account_flows, "issue_recovery_codes", lambda password, session_data: ["AAAA-BBBB-CCCC"])
+    issued = test_client.post(
+        "/api/auth/recovery-codes",
+        json={"password": "Password1"},
+        headers=_csrf(body),
+    )
+    assert issued.status_code == 200
+    assert issued.get_json() == {"codes": ["AAAA-BBBB-CCCC"]}
+    assert "Password1" not in issued.get_data(as_text=True)
