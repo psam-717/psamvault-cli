@@ -2,7 +2,6 @@ import {
   ChevronDown,
   KeyRound,
   Loader2,
-  Lock,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -24,6 +23,7 @@ import {
   type Entry,
   getApiKey,
   getEntry,
+  type AuthResult,
   loadBootstrap,
   logout,
   revealApiKey,
@@ -32,6 +32,7 @@ import {
   updateEntry,
   ApiError,
 } from "./api";
+import { AuthScreen, CodeList, RecoveryCodesDialog } from "./AuthScreen";
 import {
   Alert,
   AlertDialog,
@@ -179,6 +180,9 @@ export function App() {
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [sessionHelp, setSessionHelp] = useState(false);
+  const [needsCodes, setNeedsCodes] = useState(false);
+  const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
+  const [codesOpen, setCodesOpen] = useState(false);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   async function refresh(force = false) {
@@ -207,6 +211,13 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  function signedIn(result: AuthResult) {
+    if (result.warning) toast.error(result.warning);
+    if (result.recovery_codes && result.recovery_codes.length > 0) setFreshCodes(result.recovery_codes);
+    setNeedsCodes(result.has_recovery_codes === false);
+    void refresh(true);
+  }
 
   function toggleTheme() {
     const next = !dark;
@@ -268,25 +279,7 @@ export function App() {
   if (loggedOut || !data) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
-        <Card className="w-full max-w-md p-8">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Lock className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">psamvault</h1>
-              <p className="text-sm text-muted-foreground">You are logged out</p>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Sign-in happens in the terminal. This page has no password field. Run this command, then come back
-            and click the button.
-          </p>
-          <pre className="mt-4 rounded-md bg-muted px-3 py-2 font-mono text-sm">pv login</pre>
-          <Button className="mt-6 w-full" type="button" onClick={() => void refresh(true)}>
-            I've logged in
-          </Button>
-        </Card>
+        <AuthScreen onSignedIn={signedIn} onAlreadySignedIn={() => void refresh(true)} />
       </main>
     );
   }
@@ -299,6 +292,7 @@ export function App() {
       dark={dark}
       onTheme={toggleTheme}
       onLogout={() => setConfirm({ kind: "logout", name: "" })}
+      onCodes={() => setCodesOpen(true)}
     >
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Stat icon={<Vault className="size-4" />} label="Vault entries" value={entries ? String(entries.length) : "—"} />
@@ -370,7 +364,19 @@ export function App() {
           </div>
         </div>
 
-        {sessionHelp && <SessionGuide onRetry={() => void refresh(true)} />}
+        {needsCodes && (
+          <Alert className="mb-4">
+            <p className="font-medium">No recovery codes yet</p>
+            <p className="mt-1 text-muted-foreground">
+              If you forget this login password, a recovery code is what gets you back in. Create a set now.
+            </p>
+            <Button className="mt-3" type="button" variant="outline" onClick={() => setCodesOpen(true)}>
+              Create recovery codes
+            </Button>
+          </Alert>
+        )}
+
+        {sessionHelp && <SessionGuide onRetry={() => void refresh(true)} onSignedIn={signedIn} />}
 
         {tab === "entries" && data.entries_error && data.entries_recovery !== "session" && (
           <Alert className="mb-4 border-destructive/40 text-destructive">
@@ -549,7 +555,7 @@ export function App() {
             title={confirm.kind === "logout" ? "Sign out?" : `Delete ${confirm.name}?`}
             description={
               confirm.kind === "logout"
-                ? "You will need pv login in the terminal before this page can open the vault again."
+                ? "This signs you out on the server and on this machine. Sign in again before the page can open the vault."
                 : "This removes the item from the vault. It cannot be undone from the dashboard."
             }
             confirmLabel={confirm.kind === "logout" ? "Sign out" : "Delete"}
@@ -584,6 +590,20 @@ export function App() {
           />
         )}
       </AlertDialog>
+      <RecoveryCodesDialog open={codesOpen} onOpenChange={setCodesOpen} />
+      <Dialog open={freshCodes !== null} onOpenChange={(open) => !open && setFreshCodes(null)}>
+        {freshCodes && (
+          <DialogContent title="Write these recovery codes down">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Each code works once. They are shown this once and are not kept in the browser.
+            </p>
+            <CodeList codes={freshCodes} />
+            <Button className="mt-4" type="button" onClick={() => setFreshCodes(null)}>
+              I've saved them
+            </Button>
+          </DialogContent>
+        )}
+      </Dialog>
     </Shell>
   );
 }
@@ -593,12 +613,14 @@ function Shell({
   dark,
   onTheme,
   onLogout,
+  onCodes,
   children,
 }: {
   username: string;
   dark: boolean;
   onTheme: () => void;
   onLogout: () => void;
+  onCodes?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -625,6 +647,11 @@ function Shell({
                 {dark ? <Sun /> : <Moon />}
               </Button>
             </Tooltip>
+            {username && onCodes && (
+              <Button type="button" variant="outline" size="sm" onClick={onCodes}>
+                Recovery codes
+              </Button>
+            )}
             {username && (
               <Button type="button" variant="outline" size="sm" onClick={onLogout}>
                 <LogOut /> Sign out
@@ -638,21 +665,20 @@ function Shell({
   );
 }
 
-function SessionGuide({ onRetry }: { onRetry: () => void }) {
+function SessionGuide({ onRetry, onSignedIn }: { onRetry: () => void; onSignedIn: (result: AuthResult) => void }) {
   return (
     <Alert className="mb-4">
       <p className="font-medium">Your session has expired</p>
       <p className="mt-1 text-muted-foreground">
-        Run this in the terminal to restore it, then click Retry.
+        If another command refreshed the session, click Retry. Otherwise sign in here. A forgotten password uses a
+        recovery code. A new machine uses Restore.
       </p>
-      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv list</pre>
-      <p className="mt-3 text-muted-foreground">
-        If that command says you are logged out, sign in with this instead, then click Retry.
-      </p>
-      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv login</pre>
       <Button className="mt-4" type="button" variant="outline" onClick={onRetry}>
         Retry
       </Button>
+      <div className="mt-4">
+        <AuthScreen compact onSignedIn={onSignedIn} />
+      </div>
     </Alert>
   );
 }
