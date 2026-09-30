@@ -16,7 +16,7 @@ import { Slot } from "@radix-ui/react-slot";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
-import { X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import * as React from "react";
 import { cn } from "../utils";
 
@@ -257,16 +257,51 @@ export function AlertDialogContent({
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
-export function DropdownMenuContent({ children }: { children: React.ReactNode }) {
+export function DropdownMenuContent({
+  children,
+  align = "end",
+  className,
+}: {
+  children: React.ReactNode;
+  align?: "start" | "center" | "end";
+  className?: string;
+}) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
-        align="end"
-        className="z-50 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+        align={align}
+        sideOffset={4}
+        className={cn(
+          "z-50 min-w-40 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md",
+          className,
+        )}
       >
         {children}
       </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
+  );
+}
+export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+export function DropdownMenuRadioItem({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+  return (
+    <DropdownMenuPrimitive.RadioItem
+      {...props}
+      className={cn(
+        "relative flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
+        className,
+      )}
+    >
+      {children}
+      <span className="absolute right-2 flex size-4 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <Check className="size-4" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+    </DropdownMenuPrimitive.RadioItem>
   );
 }
 export function DropdownMenuItem({
