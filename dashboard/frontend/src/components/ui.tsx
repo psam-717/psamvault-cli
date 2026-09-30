@@ -110,7 +110,7 @@ export function AvatarFallback({ className, ...props }: React.ComponentProps<typ
 }
 
 export function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
-  return <div {...props} className={cn("animate-pulse rounded-md bg-muted", className)} />;
+  return <div {...props} className={cn("psamvault-shimmer rounded-md", className)} />;
 }
 
 export function Alert({ className, ...props }: React.ComponentProps<"div">) {
