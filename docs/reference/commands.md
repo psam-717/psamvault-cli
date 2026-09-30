@@ -346,6 +346,8 @@ psamvault ak-get openai-prod --copy   # copies key to clipboard, clears after 30
 |---|---|
 | `--copy`, `-c` | Copy the key to clipboard instead of displaying it |
 
+A project key can be passed in full (`atlas/.env/MY_CUSTOM_KEY`) or by its leaf when that leaf matches one live row. Two live rows with the same leaf ask for the full name. A slash that is not the `project/.env/KEY` form is still rejected.
+
 **When to run it:** when a tool needs the key pasted once. Gated in an agent context — use the capability alternative instead.
 
 ### psamvault ak-list
@@ -356,11 +358,11 @@ List all stored API key entries.
 psamvault ak-list
 ```
 
-Shows entry name, service hint, notes, and last-updated date. Standalone keys
-display a **NOTES** column (truncated to 30 chars). Project-grouped keys show
-name, pattern, and updated date. Does not decrypt entries.
+Shows the key, its source file, and the last-updated date. Does not decrypt entries.
 
-Keys stored via `scan_and_protect(project_name=...)` are grouped under their project name. Use `--project <name>` to filter by project.
+Keys stored via `scan_and_protect(project_name=...)` are grouped under their project, and the key column is the leaf name (`MY_CUSTOM_KEY`), not the full `project/.env/MY_CUSTOM_KEY` string. Keys stored with no project are grouped under `(unscoped)`. Backup copies of the same key (`.env.bak-*`, `.env.old`, `.env.save`, a dated `.env.<digits>`) fold onto the live `.env` row as `(+N stale)`. A key that exists only as a backup stays visible and is marked `stale`. Standalone keys still show service and notes (notes truncated to 30 chars).
+
+Use `--project <name>` to filter. `--project (unscoped)` shows keys stored with no project.
 
 | Option | What it does |
 |---|---|
@@ -396,9 +398,10 @@ Permanently delete a stored API key entry.
 
 ```bash
 psamvault ak-delete openai-prod
+psamvault ak-delete "atlas/.env/MY_CUSTOM_KEY"
 ```
 
-Permanent — prompts for confirmation first. This action cannot be undone.
+Permanent — prompts for confirmation first, using the stored name. A leaf name deletes the one live row when backup copies share that leaf. This action cannot be undone.
 
 **When to run it:** when a key is retired. There is no undo.
 
