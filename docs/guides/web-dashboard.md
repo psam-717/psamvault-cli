@@ -19,6 +19,7 @@ Opens a local web server at `http://localhost:8500` running on [Waitress](https:
 - **CLI-only authentication** — the dashboard authenticates through your existing CLI session. No manual login form. Run `pv login` in your terminal, then click **I've logged in**.
 - **One read of the keychain** — tokens and the VEK are loaded from the OS keychain once, into the dashboard process. A tab change or a search does not read the keychain again and does not call the API. Nothing is written to a browser cookie.
 - **On-demand reveal** — passwords, API keys and notes are fetched when you click Reveal or Copy. They are not in the list, and they are not in the page source. The response is marked `Cache-Control: no-store`.
+- **Project keys** — a key stored as `project/.env/KEY` is grouped under that project. The row shows the leaf name, and View, Edit, and Delete send the full stored name. Backup copies are marked stale. Keys with no project are grouped under `(unscoped)`.
 - **Auto-cleanup** — `pv dashboard` automatically kills any stale server process and clears cached bytecode before starting fresh, so you always see the latest code.
 
 ## Login flow
