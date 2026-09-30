@@ -260,11 +260,7 @@ export function App() {
   if (loading) {
     return (
       <Shell username="" dark={dark} onTheme={toggleTheme} onLogout={() => {}}>
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-10 w-64" />
-          <Skeleton className="h-64 w-full" />
-        </div>
+        <DashboardSkeleton />
       </Shell>
     );
   }
@@ -661,6 +657,53 @@ function SessionGuide({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function DashboardSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading vault">
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        {["entries", "keys", "status"].map((id) => (
+          <Card key={id} className="flex items-center gap-3 p-4">
+            <Skeleton className="size-9 shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-12" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Skeleton className="h-9 w-52" />
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-full sm:w-64" />
+          <Skeleton className="h-9 w-20" />
+        </div>
+      </div>
+      <Card className="space-y-4 p-4">
+        {["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => (
+          <div key={id} className="flex items-center gap-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="hidden h-4 w-28 sm:block" />
+            <Skeleton className="ml-auto h-4 w-16" />
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+function FormSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Loading">
+      {["name", "value", "notes"].map((id) => (
+        <div key={id} className="space-y-1.5">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <Card className="flex items-center gap-3 p-4">
@@ -783,7 +826,7 @@ function EntryEditor(props: {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.site}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
-        {!initial && !error && <Skeleton className="h-40 w-full" />}
+        {!initial && !error && <FormSkeleton />}
         {initial && (
           <EntryFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
         )}
@@ -870,7 +913,7 @@ function KeyEditor(props: {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.name}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
-        {!initial && !error && <Skeleton className="h-40 w-full" />}
+        {!initial && !error && <FormSkeleton />}
         {initial && (
           <KeyFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
         )}
