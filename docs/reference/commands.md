@@ -771,6 +771,8 @@ pv dashboard
 
 Launch the web dashboard for psamvault (fresh — kills stale servers and clears cache). Opens a local web server at `http://localhost:8500` running on Waitress (production-grade WSGI).
 
+The page can sign in, sign out, reset a forgotten password with a recovery code, and restore a machine from a backup passphrase or kit. Those steps run in the local server. `pv login`, `pv logout`, `pv recover`, and `pv restore` in the terminal do the same work and share the OS keychain session.
+
 The dashboard is not part of a command group — it is available at the root only. See [Web dashboard](../guides/web-dashboard.md) for the features, the login flow and the keychain interaction.
 
 **When to run it:** when you want to browse and edit the whole vault at once, or when `get` one entry at a time is the wrong shape.
