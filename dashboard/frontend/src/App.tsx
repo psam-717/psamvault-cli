@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   KeyRound,
   Loader2,
   Lock,
@@ -45,6 +46,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
   Empty,
   Input,
@@ -325,18 +328,32 @@ export function App() {
           </TabsList>
           <div className="flex gap-2">
             {tab === "keys" && (
-              <select
-                aria-label="Key type"
-                value={keyKind}
-                onChange={(event) => setKeyKind(event.target.value as KeyKind)}
-                className="h-9 max-w-full rounded-md border bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {KEY_KIND_OPTIONS.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label} ({kindCounts[option.id]})
-                  </option>
-                ))}
-              </select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-52 justify-between px-3 font-normal"
+                    aria-label="Key type"
+                  >
+                    <span className="truncate">
+                      {keyKindLabel}
+                      <span className="text-muted-foreground"> ({kindCounts[keyKind]})</span>
+                    </span>
+                    <ChevronDown className="text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuRadioGroup value={keyKind} onValueChange={(value) => setKeyKind(value as KeyKind)}>
+                    {KEY_KIND_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.id} value={option.id}>
+                        <span className="truncate">{option.label}</span>
+                        <span className="ml-auto text-muted-foreground tabular-nums">{kindCounts[option.id]}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             <div className="relative min-w-0 flex-1 sm:w-64">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
