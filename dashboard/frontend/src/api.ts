@@ -128,3 +128,51 @@ export function revealApiKey(name: string, field: "api_key" | "notes") {
 export function logout() {
   return request<{ ok: boolean }>("/api/logout", { method: "POST", body: JSON.stringify({}) });
 }
+
+export type AuthResult = {
+  ok: boolean;
+  username: string;
+  has_recovery_codes?: boolean;
+  proof?: string | null;
+  warning?: string | null;
+  recovery_codes?: string[] | null;
+};
+
+export function loginAccount(username: string, password: string) {
+  return request<AuthResult>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function recoverAccount(payload: {
+  username: string;
+  recovery_code: string;
+  new_password: string;
+  confirm: string;
+}) {
+  return request<AuthResult>("/api/auth/recover", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function restoreAccount(payload: {
+  username: string;
+  passphrase: string;
+  new_password: string;
+  confirm: string;
+  kit: string;
+  generate_codes: boolean;
+  replace_session: boolean;
+}) {
+  return request<AuthResult>("/api/auth/restore", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function recoveryCodeCount() {
+  return request<{ remaining: number }>("/api/auth/recovery-codes");
+}
+
+export function issueRecoveryCodes(password: string) {
+  return request<{ codes: string[] }>("/api/auth/recovery-codes", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
