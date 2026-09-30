@@ -8,6 +8,8 @@ import typer
 from cryptography.exceptions import InvalidTag
  
 import api_client
+import claim_flow
+import pending_store as store
 import reveal_gate
 from crypto import decrypt_api_key, encrypt_api_key
 from error_ui import exit_error, print_error
@@ -117,40 +119,86 @@ def _search_api_keys(vek: bytes, entries: list[dict], query: str) -> list[dict]:
 
 @app.command(name="add")
 def ak_add(
-    name: str = typer.Argument(..., help="A unique label for this key, e.g. xai-prod"),
-    service: str = typer.Option(..., "--service", "-s", help="Service this key belongs to, e.g. XAI"),
+    name: Optional[str] = typer.Argument(None, help="A unique label for this key, e.g. xai-prod"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service this key belongs to, e.g. XAI"),
     key: Optional[str] = typer.Option(
         None, "--key", "-k", help="The API key value (omit to be prompted securely)"
     ),
-    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes e.g. 'read-only key")
+    notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes e.g. 'read-only key'"),
+    claim: Optional[str] = typer.Option(
+        None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
+    ),
 ):
     """
     Store an API key securely in your vault.
- 
+
     The key is encrypted locally before being sent to the server.
     The server never sees your plaintext key.
- 
+
+    From an agent context this command does not prompt and does not accept the
+    key: it prints a claim code, and the human fills that code in their own
+    terminal. The value then never passes through the agent.
+
     \b
     Examples:
-        psamvault ak-add xai-prod --service XAI --key sk-...
-        psamvault ak-add stripe-test --service Stripe --key sk_test_... --notes "test mode only"
-        psamvault ak-add gh-token --service GitHub  (prompts for key)
+        psamvault ak-add xai-prod --service XAI --key sk-...    (your own terminal)
+        psamvault ak-add gh-token --service GitHub              (prompts securely)
+        psamvault ak-add gh-token --service GitHub              (agent: prints a claim code)
+        psamvault ak-add --claim PV-4F2K-91QX                   (human: fills that claim)
     """
+    if claim:
+        _fill_api_key_claim(claim)
+        return
+
+    if not name:
+        typer.echo("Error: a name is required (or pass --claim CODE to fill a claim).", err=True)
+        raise typer.Exit(code=1)
+
     _validate_entry_name(name)
-    
-    if key is None:
+
+    if not service:
+        typer.echo("\n ✗ --service is required.", err=True)
+        typer.echo(f" → psamvault ak-add {name} --service <service>", err=True)
+        raise typer.Exit(code=1)
+
+    verdict = claim_flow.classify()
+
+    if key is not None:
+        try:
+            claim_flow.require_no_argv_secret(
+                verdict,
+                "--key",
+                name,
+                f"psamvault ak-add {name} --service {service}",
+                command="ak-add",
+            )
+        except PsamVaultError as exc:
+            exit_error(exc)
+    elif verdict.is_agent:
+        # An agent asking for an entry it must not see the value of.
+        record = claim_flow.create_claim(
+            store.FAMILY_API_KEY, name, service=service, notes=notes, verdict=verdict
+        )
+        claim_flow.print_claim(record)
+        return
+    else:
         key = typer.prompt(f"API key for {name}", hide_input=True)
-    
+
+    _store_api_key(name, service, key, notes)
+
+
+def _store_api_key(name: str, service: str, key: str, notes: Optional[str]) -> None:
+    """Encrypt and store — the part the human path and the fill path share."""
     typer.echo("")
     session, vek = _get_session_and_key()
-    
+
     encrypted_blob, iv = encrypt_api_key(
         key=vek,
         service=service,
         api_key=key,
         notes=notes or "",
     )
-    
+
     with Spinner(f"Saving API key '{name}'"):
         try:
             api_client.add_api_key_entry(
@@ -173,7 +221,20 @@ def ak_add(
             print_error(exc)
             raise typer.Exit(code=1)
     typer.echo(f" API key '{name}' saved successfully\n")
-    
+
+
+def _fill_api_key_claim(code: str) -> None:
+    """The human's half: type the value here, and the claim is spent."""
+    try:
+        record = claim_flow.resolve_claim(code, store.FAMILY_API_KEY)
+    except PsamVaultError as exc:
+        exit_error(exc)
+
+    claim_flow.print_fill_header(record)
+    key = typer.prompt(f"API key for {record['name']}", hide_input=True)
+    _store_api_key(record["name"], record.get("service") or "", key, record.get("notes"))
+    # Only now is the code spent: a failed store leaves the claim fillable again.
+    claim_flow.complete_claim(record)
 
 
 @app.command(name="get")

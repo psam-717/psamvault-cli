@@ -10,6 +10,8 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+import claim_flow
+import pending_store as store
 import reveal_gate
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
@@ -81,14 +83,17 @@ def _get_session_and_key() -> tuple[dict, bytes]:
 
 @app.command()
 def add(
-    site: str = typer.Argument(..., help="Site name, e.g. github.com"),
-    user: str = typer.Option(..., "--user", "-u", help="Username or email for the site"),
+    site: Optional[str] = typer.Argument(None, help="Site name, e.g. github.com"),
+    user: Optional[str] = typer.Option(None, "--user", "-u", help="Username or email for the site"),
     password: Optional[str] = typer.Option(
         None, "--pass", "-p", help="Password (omit to be prompted securely)"
     ),
     notes: Optional[str] = typer.Option(None, "--notes", "-n", help="Optional notes"),
     login_url: Optional[str] = typer.Option(
         None, "--login-url", help="Login page URL for use with  psamvault open  (e.g. https://github.com/login)"
+    ),
+    claim: Optional[str] = typer.Option(
+        None, "--claim", help="Fill a claim code an agent printed (your own terminal only)"
     ),
 ):
     """
@@ -97,22 +102,72 @@ def add(
     The credentials are encrypted locally before being sent to the server.
     The server never sees your plaintext password.
 
+    From an agent context this command does not prompt and does not accept the
+    password: it prints a claim code, and the human fills that code in their own
+    terminal. The value then never passes through the agent.
+
     \b
     Example:
         psamvault add github.com --user me@example.com --pass secret
         psamvault add github.com --user me@example.com --pass secret --notes "2FA enabled"
         psamvault add github.com --user me@example.com --login-url https://github.com/login
         psamvault add github.com --user me@example.com   (prompts for password)
+        psamvault add github.com                          (agent: prints a claim code)
+        psamvault add --claim PV-4F2K-91QX                (human: fills that claim)
     """
+    if claim:
+        _fill_credential_claim(claim)
+        return
+
+    if not site:
+        typer.echo("Error: a site name is required (or pass --claim CODE to fill a claim).", err=True)
+        raise typer.Exit(code=1)
+
     _validate_site_name(site)
 
     if login_url is not None and not login_url.startswith(("http://", "https://")):
         typer.echo("Error: --login-url must start with http:// or https://", err=True)
         raise typer.Exit(code=1)
 
-    if password is None:
+    verdict = claim_flow.classify()
+
+    if password is not None:
+        try:
+            claim_flow.require_no_argv_secret(
+                verdict, "--pass", site, f"psamvault add {site}", command="add"
+            )
+        except PsamVaultError as exc:
+            exit_error(exc)
+    elif verdict.is_agent:
+        record = claim_flow.create_claim(
+            store.FAMILY_CREDENTIAL,
+            site,
+            notes=notes,
+            login_url=login_url,
+            username=user,
+            verdict=verdict,
+        )
+        claim_flow.print_claim(record)
+        return
+    else:
+        if not user:
+            typer.echo(
+                "Error: --user is required (or pass --claim CODE to fill a claim).", err=True
+            )
+            raise typer.Exit(code=1)
         password = typer.prompt(f"Password for {site}", hide_input=True)
 
+    if not user:
+        typer.echo("Error: --user is required when you supply the password.", err=True)
+        raise typer.Exit(code=1)
+
+    _store_credential(site, user, password, notes, login_url)
+
+
+def _store_credential(
+    site: str, user: str, password: str, notes: Optional[str], login_url: Optional[str]
+) -> None:
+    """Encrypt and store — shared by the human path and the fill path."""
     typer.echo("")
     session, key = _get_session_and_key()
 
@@ -139,13 +194,30 @@ def add(
                 f"\n ✗ Entry for '{site}' already exists in your vault.",
                 err=True,
             )
-            typer.echo(" → Use  psamvault update {site}  to modify it.", err=True)
+            typer.echo(f" → Use  psamvault update {site}  to modify it.", err=True)
             raise typer.Exit(code=1)
         except PsamVaultError as exc:
             print_error(exc)
             raise typer.Exit(code=1)
 
     typer.echo(f" Credential for {site} saved successfully\n")
+
+
+def _fill_credential_claim(code: str) -> None:
+    """The human's half: type the username and password here, and spend the claim."""
+    try:
+        record = claim_flow.resolve_claim(code, store.FAMILY_CREDENTIAL)
+    except PsamVaultError as exc:
+        exit_error(exc)
+
+    claim_flow.print_fill_header(record)
+    user = record.get("username") or typer.prompt(f"Username for {record['name']}")
+    password = typer.prompt(f"Password for {record['name']}", hide_input=True)
+    _store_credential(
+        record["name"], user, password, record.get("notes"), record.get("login_url")
+    )
+    # Only now is the code spent: a failed store leaves the claim fillable again.
+    claim_flow.complete_claim(record)
 
 
 @app.command()
