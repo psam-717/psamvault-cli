@@ -34,7 +34,7 @@ Encrypted free text with a title and an optional category — for the things tha
 
 ## Web dashboard
 
-A local web dashboard for browsing and managing your vault entries and API keys in a browser, started with `pv dashboard` and served at `http://localhost:8500`. Authentication is CLI-only. Switching tabs and searching does not call the API. Passwords, API keys and notes are revealed on demand rather than embedded in the page. If the session expires, the page tells you to run `pv list` and click Retry, or `pv login` if you are logged out. Reach for it when you want to see and edit the whole vault at once instead of one `get` at a time. Full detail: [Web dashboard](guides/web-dashboard.md).
+A local web dashboard for browsing and managing your vault entries and API keys in a browser, started with `pv dashboard` and served at `http://localhost:8500`. Sign in, sign out, a forgotten password (one recovery code), and a new-machine restore (backup passphrase or kit file) are on the page. The password is posted only to this computer. The vault key stays in the local server and the OS keychain. Switching tabs and searching does not call the API. Passwords, API keys and notes are revealed on demand rather than embedded in the page. If the session expires, Retry re-reads the keychain, or you sign in on the notice. Reach for it when you want to see and edit the whole vault at once instead of one `get` at a time. Full detail: [Web dashboard](guides/web-dashboard.md).
 
 ## Recovery codes
 
