@@ -11,6 +11,7 @@
 ## Added
 
 - feat(dashboard): tabs and search stay in the browser, and `pv dashboard` reads the OS keychain once per process instead of on every click
+- feat(dashboard): the logged-out page can sign in, reset a forgotten password with one recovery code, and restore a new or wiped machine from a backup passphrase or a kit file. Sign out revokes the server session as well as the local one. Recovery codes can be replaced after the login password is confirmed, and the new codes are shown once. The vault key and the tokens stay on this computer
 
 ## Changed
 
@@ -18,11 +19,18 @@
 
 ## Fixed
 
-- fix(dashboard): an expired session tells you to run `pv list` and click Retry, or `pv login` if you are logged out. Retry reads the keychain again
+- fix(ak): `ak-get`, `ak-update`, and `ak-delete` accept a project key stored as `project/.env/KEY`. A leaf name resolves to the one live row, including when backup copies share that leaf. `ak-list` groups those keys by project, labels keys stored with no project as `(unscoped)`, and folds backup copies onto the live row
+- fix(dashboard): the Keys tab filters by Standalone, Project-scoped, or Project-unscoped, and shows one type at a time. Project-scoped keys are grouped under their project. Backup copies are marked stale. View, Edit, and Delete send the stored name
+- fix(dashboard): the first load, and an edit dialog while its row is fetched, show a shimmer in the shape of the page or the form. The highlight stays still when reduced motion is on
+- fix(api-client): the API key list walks every server page, so a key past the first page is still found
+- fix(dashboard): an expired session can be retried, or signed in, reset with a recovery code, or restored on the page. Retry still re-reads the keychain
 - fix(session): a refresh that lost the token rotation to another client no longer reports the session as expired - the CLI re-reads the keychain store and retries with the newer token, and only an unchanged store is treated as a dead chain
 
 ## Docs
 
+- docs(commands): `ak-get`, `ak-list`, and `ak-delete` describe project key names and folded stale copies
+- docs(dashboard): the web dashboard guide describes the API key type filter and the loading shimmer
+- docs(dashboard): the web dashboard guide, the feature map, and the dashboard command describe sign-in, a forgotten password, and restore on the page
 - docs(dashboard): the web dashboard guide, the overview and the configuration reference describe the in-memory session and how to restore it with `pv list` or `pv login`
 - docs: the user documentation moved out of the README into `docs/` — overview, installation, a feature map, a guide per feature (backup & recovery, the agent reveal guardrail, upgrading, the web dashboard) and complete command and configuration references, so a site can populate from the repo
 - docs(readme): the README is now a landing page that links the docs tree instead of duplicating it — one source of truth per topic
