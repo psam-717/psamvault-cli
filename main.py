@@ -215,3 +215,8 @@ if __name__ == "__main__":
     start_update_check()
     check_and_show_upgrade_notice()
     app()
+
+@app.command("probe-waiver")
+def probe_waiver():
+    """Temporary: proves the docs gate fails, then the label waives it."""
+    raise SystemExit(0)
