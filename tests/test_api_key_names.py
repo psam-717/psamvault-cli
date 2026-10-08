@@ -137,9 +137,16 @@ def test_ak_delete_sends_the_stored_name_for_a_leaf(monkeypatch):
         deleted["name"] = name
         return {"detail": "deleted"}
 
-    monkeypatch.setattr("session.load_session", lambda: {
+    fake_session = lambda: {
         "access_token": "x", "refresh_token": "x", "vek": "00" * 32,
-    })
+    }
+    monkeypatch.setattr("session.load_session", fake_session)
+    # ``ak_delete`` re-reads the session after the list call through its own
+    # module-level binding (``from session import load_session``), which
+    # monkeypatching ``session.load_session`` does not reach. Without this the
+    # command reads the real keychain and exits 1 wherever nobody is logged in
+    # (CI), while passing on a machine that happens to hold a live session.
+    monkeypatch.setattr("command.api_key_commands.load_session", fake_session)
     monkeypatch.setattr("api_client.list_api_key_entries", lambda **kwargs: {
         "entries": [{"name": STORED}], "total": 1,
     })
