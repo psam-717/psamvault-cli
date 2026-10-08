@@ -130,6 +130,34 @@ CI runs the same script as the `docs` job in `.github/workflows/ci.yml`, so a fa
 there. Why it exists: the docs showed `psamvault setup` for first-run setup — a command that has never
 existed in this CLI — and it stayed there because nothing checked the prose against the registry.
 
+That gate is *absolute*: it asks whether the documentation describes software that exists. The second
+gate is *relative*: did **this** change bring the page that describes it? Run it before opening the PR —
+it compares your branch against the branch it merges into, including your uncommitted work:
+
+```bash
+# macOS / Linux
+./.venv/bin/python scripts/docs-touch-check.py
+```
+
+```powershell
+# Windows (PowerShell)
+.venv\Scripts\python.exe scripts\docs-touch-check.py
+```
+
+It fails when the change **adds** a command, flag or `PSAMVAULT_*` variable that no page names, or
+**removes** one the docs still name — the failure the surface gate cannot see, because every existing
+page stays true while the new surface goes unmentioned.
+
+A behaviour change that touches no page is a warning, not a failure. If it genuinely needs no
+documentation (test-only, pure refactor), record that decision rather than leaving it unsaid:
+
+```bash
+./.venv/bin/python scripts/docs-touch-check.py --allow-no-docs "pure refactor, no user-visible change"
+```
+
+CI runs it as the `docs-with-the-change` job (`Docs change with the code`). A PR that legitimately
+needs no docs carries the **`docs-not-needed`** label — a maintainer's decision, printed in the job log.
+
 ---
 
 ## Commit Message Convention
