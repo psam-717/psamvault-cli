@@ -510,7 +510,8 @@ def test_ak_get_nonexistent_key_shows_friendly_error():
     import errors
     with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
-         patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")):
+         patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")), \
+         patch("api_client.list_api_key_entries", return_value={"entries": [], "total": 0}):
         mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
         result = runner.invoke(app, ["ak-get", "nonexistent-key"])
     assert result.exit_code != 0
@@ -556,7 +557,8 @@ def test_ak_update_nonexistent_key_shows_friendly_error():
     import errors
     with patch("session.load_session") as mock_load, \
          patch("crypto.derive_master_password", return_value=bytes(range(32))), \
-         patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")):
+         patch("api_client.get_api_key_entry", side_effect=errors.NotFoundError("No entry found")), \
+         patch("api_client.list_api_key_entries", return_value={"entries": [], "total": 0}):
         mock_load.return_value = {"access_token": "x", "refresh_token": "x", "vek": "00" * 32}
         result = runner.invoke(app, ["ak-update", "nonexistent-key", "--key", "sk-newval"])
     assert result.exit_code != 0

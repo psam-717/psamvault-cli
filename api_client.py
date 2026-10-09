@@ -1,5 +1,6 @@
 import os
 import time
+from urllib.parse import quote
 
 import httpx
 import typer
@@ -19,6 +20,16 @@ from session import update_tokens
 
 def _base_url() -> str:
     return os.getenv("PSAMVAULT_API_URL", "https://psam-vault-backend.onrender.com")
+
+
+def api_key_item_url(name: str) -> str:
+    """URL for one API key.
+
+    Slashes stay in the path. A project key is stored as ``project/.env/KEY``,
+    and the server matches that whole string with a path parameter. Encoding
+    the slashes would make the route a single segment again.
+    """
+    return f"{_base_url()}/apikeys/{quote(name, safe='/')}"
 
 # internal helpers
 def _auth_headers(access_token: str) -> dict:
@@ -550,7 +561,7 @@ def get_api_key_entry(
     """GET /apikeys/{name} — fetch a single encrypted API key entry."""
     def _call(token: str) -> dict:
         response = _get(
-            f"{_base_url()}/apikeys/{name}",
+            api_key_item_url(name),
             headers=_auth_headers(token)
         )
         if response.status_code == 401:
@@ -569,17 +580,33 @@ def list_api_key_entries(
     access_token: str,
     refresh_token: str,
 ) -> dict:
-    """GET /apikeys — fetch all API key entries as lightweight list items."""
+    """GET /apikeys — fetch all API key entries as lightweight list items.
+
+    The server pages at 100 rows. Walking the pages here means a leaf-name
+    lookup can see a key that would otherwise sit past the first page.
+    """
     def _call(token: str) -> dict:
-        response = _get(
-            f"{_base_url()}/apikeys",
-            headers=_auth_headers(token),
-        )
-        if response.status_code == 401:
-            return None
-        _handle_error(response)
-        return response.json()
- 
+        collected: list = []
+        offset = 0
+        total = 0
+        while True:
+            response = _get(
+                f"{_base_url()}/apikeys",
+                headers=_auth_headers(token),
+                params={"limit": 100, "offset": offset},
+            )
+            if response.status_code == 401:
+                return None
+            _handle_error(response)
+            payload = response.json()
+            batch = payload.get("entries") or []
+            total = payload.get("total", len(batch))
+            collected.extend(batch)
+            offset += len(batch)
+            if not batch or offset >= total:
+                break
+        return {"entries": collected, "total": total}
+
     result = _call(access_token)
     if result is None:
         return _refresh_and_retry(refresh_token, _call)
@@ -605,7 +632,7 @@ def update_api_key_entry(
         if notes is not None:
             body["notes"] = notes
         response = _put(
-            f"{_base_url()}/apikeys/{name}",
+            api_key_item_url(name),
             headers=_auth_headers(token),
             json=body,
         )
@@ -628,7 +655,7 @@ def delete_api_key_entry(
     """DELETE /apikeys/{name} — permanently remove an API key entry."""
     def _call(token: str) -> dict:
         response = _delete(
-            f"{_base_url()}/apikeys/{name}",
+            api_key_item_url(name),
             headers=_auth_headers(token),
         )
         if response.status_code == 401:

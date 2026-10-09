@@ -9,6 +9,10 @@ export type ApiKeyRow = {
   name: string;
   service_hint: string;
   updated_at: string;
+  project: string | null;
+  key_name: string;
+  source: string | null;
+  stale: boolean;
 };
 
 export type Bootstrap = {
@@ -91,23 +95,31 @@ export function addApiKey(payload: Record<string, string>) {
   return request<ApiKeyRow>("/api/api-keys", { method: "POST", body: JSON.stringify(payload) });
 }
 
+// Split first so a project/.env/KEY name stays a multi-segment path.
+// encodeURIComponent would turn the slashes into %2F, and some servers
+// then look up one segment that does not exist.
+function keyPath(name: string, suffix = ""): string {
+  const encoded = name.split("/").map(encodeURIComponent).join("/");
+  return `/api/api-keys/${encoded}${suffix}`;
+}
+
 export function updateApiKey(name: string, payload: Record<string, string>) {
-  return request<ApiKeyRow>(`/api/api-keys/${encodeURIComponent(name)}`, {
+  return request<ApiKeyRow>(keyPath(name), {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
 }
 
 export function deleteApiKey(name: string) {
-  return request<{ ok: boolean }>(`/api/api-keys/${encodeURIComponent(name)}`, { method: "DELETE" });
+  return request<{ ok: boolean }>(keyPath(name), { method: "DELETE" });
 }
 
 export function getApiKey(name: string) {
-  return request<{ name: string; service: string; notes: string }>(`/api/api-keys/${encodeURIComponent(name)}`);
+  return request<{ name: string; service: string; notes: string }>(keyPath(name));
 }
 
 export function revealApiKey(name: string, field: "api_key" | "notes") {
-  return request<Record<string, string>>(`/api/api-keys/${encodeURIComponent(name)}/reveal`, {
+  return request<Record<string, string>>(keyPath(name, "/reveal"), {
     method: "POST",
     body: JSON.stringify({ fields: [field] }),
   });
@@ -115,4 +127,52 @@ export function revealApiKey(name: string, field: "api_key" | "notes") {
 
 export function logout() {
   return request<{ ok: boolean }>("/api/logout", { method: "POST", body: JSON.stringify({}) });
+}
+
+export type AuthResult = {
+  ok: boolean;
+  username: string;
+  has_recovery_codes?: boolean;
+  proof?: string | null;
+  warning?: string | null;
+  recovery_codes?: string[] | null;
+};
+
+export function loginAccount(username: string, password: string) {
+  return request<AuthResult>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function recoverAccount(payload: {
+  username: string;
+  recovery_code: string;
+  new_password: string;
+  confirm: string;
+}) {
+  return request<AuthResult>("/api/auth/recover", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function restoreAccount(payload: {
+  username: string;
+  passphrase: string;
+  new_password: string;
+  confirm: string;
+  kit: string;
+  generate_codes: boolean;
+  replace_session: boolean;
+}) {
+  return request<AuthResult>("/api/auth/restore", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function recoveryCodeCount() {
+  return request<{ remaining: number }>("/api/auth/recovery-codes");
+}
+
+export function issueRecoveryCodes(password: string) {
+  return request<{ codes: string[] }>("/api/auth/recovery-codes", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
 }

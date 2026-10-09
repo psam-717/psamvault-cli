@@ -1,7 +1,7 @@
 import {
+  ChevronDown,
   KeyRound,
   Loader2,
-  Lock,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -23,6 +23,7 @@ import {
   type Entry,
   getApiKey,
   getEntry,
+  type AuthResult,
   loadBootstrap,
   logout,
   revealApiKey,
@@ -31,6 +32,7 @@ import {
   updateEntry,
   ApiError,
 } from "./api";
+import { AuthScreen, CodeList, RecoveryCodesDialog } from "./AuthScreen";
 import {
   Alert,
   AlertDialog,
@@ -45,6 +47,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
   Empty,
   Input,
@@ -80,16 +84,105 @@ function initials(name: string) {
   return name.slice(0, 2).toUpperCase() || "PV";
 }
 
+type KeyKind = "standalone" | "project" | "unscoped";
+
+const KEY_KIND_OPTIONS: { id: KeyKind; label: string }[] = [
+  { id: "standalone", label: "Standalone" },
+  { id: "project", label: "Project-scoped" },
+  { id: "unscoped", label: "Project-unscoped" },
+];
+
+function keyKindOf(row: ApiKeyRow): KeyKind {
+  if (!row.project) return "standalone";
+  if (row.project === "(unscoped)" || row.project.startsWith("(unscoped)/")) return "unscoped";
+  return "project";
+}
+
+function groupKeys(rows: ApiKeyRow[]) {
+  const sections = new Map<string, ApiKeyRow[]>();
+  const standalone: ApiKeyRow[] = [];
+  for (const row of rows) {
+    if (!row.project) {
+      standalone.push(row);
+      continue;
+    }
+    const bucket = sections.get(row.project) ?? [];
+    bucket.push(row);
+    sections.set(row.project, bucket);
+  }
+  const grouped = [...sections.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((label) => ({ label: `Project: ${label}`, rows: sections.get(label) ?? [] }));
+  if (standalone.length) grouped.push({ label: "Standalone keys", rows: standalone });
+  return grouped;
+}
+
+function KeyTables({
+  rows,
+  showHeadings,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  rows: ApiKeyRow[];
+  showHeadings: boolean;
+  onView: (row: ApiKeyRow) => void;
+  onEdit: (row: ApiKeyRow) => void;
+  onDelete: (row: ApiKeyRow) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {groupKeys(rows).map((section) => (
+        <div key={section.label}>
+          {showHeadings && <p className="px-4 pt-4 text-sm font-medium">{section.label}</p>}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Key</TableHead>
+                <TableHead>Service</TableHead>
+                <TableHead className="hidden sm:table-cell">Updated</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.rows.map((row) => (
+                <TableRow key={row.name}>
+                  <TableCell>
+                    <div className="font-medium" title={row.name}>
+                      {row.key_name || row.name}
+                      {row.stale && <Badge className="ml-2">stale</Badge>}
+                    </div>
+                    {row.source && <div className="text-xs text-muted-foreground">{row.source}</div>}
+                  </TableCell>
+                  <TableCell>{row.service_hint}</TableCell>
+                  <TableCell className="hidden text-muted-foreground sm:table-cell">{row.updated_at}</TableCell>
+                  <TableCell>
+                    <RowMenu onView={() => onView(row)} onEdit={() => onEdit(row)} onDelete={() => onDelete(row)} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("entries");
   const [query, setQuery] = useState("");
+  const [keyKind, setKeyKind] = useState<KeyKind>("project");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [sessionHelp, setSessionHelp] = useState(false);
+  const [needsCodes, setNeedsCodes] = useState(false);
+  const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
+  const [codesOpen, setCodesOpen] = useState(false);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   async function refresh(force = false) {
@@ -119,6 +212,13 @@ export function App() {
     void refresh();
   }, []);
 
+  function signedIn(result: AuthResult) {
+    if (result.warning) toast.error(result.warning);
+    if (result.recovery_codes && result.recovery_codes.length > 0) setFreshCodes(result.recovery_codes);
+    setNeedsCodes(result.has_recovery_codes === false);
+    void refresh(true);
+  }
+
   function toggleTheme() {
     const next = !dark;
     setDark(next);
@@ -138,14 +238,22 @@ export function App() {
         entry.username_hint.toLowerCase().includes(needle),
     );
   }, [entries, query]);
+  const kindCounts = useMemo(() => {
+    const counts: Record<KeyKind, number> = { standalone: 0, project: 0, unscoped: 0 };
+    for (const row of keys ?? []) counts[keyKindOf(row)] += 1;
+    return counts;
+  }, [keys]);
   const filteredKeys = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!keys) return [];
-    if (!needle) return keys;
-    return keys.filter(
-      (row) => row.name.toLowerCase().includes(needle) || row.service_hint.toLowerCase().includes(needle),
+    const inKind = (keys ?? []).filter((row) => keyKindOf(row) === keyKind);
+    if (!needle) return inKind;
+    return inKind.filter((row) =>
+      [row.name, row.key_name, row.project, row.source, row.service_hint]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle)),
     );
-  }, [keys, query]);
+  }, [keys, query, keyKind]);
+  const keyKindLabel = KEY_KIND_OPTIONS.find((option) => option.id === keyKind)?.label ?? "API";
 
   async function run(id: string, action: () => Promise<void>) {
     if (pending) return;
@@ -163,11 +271,7 @@ export function App() {
   if (loading) {
     return (
       <Shell username="" dark={dark} onTheme={toggleTheme} onLogout={() => {}}>
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-10 w-64" />
-          <Skeleton className="h-64 w-full" />
-        </div>
+        <DashboardSkeleton />
       </Shell>
     );
   }
@@ -175,25 +279,7 @@ export function App() {
   if (loggedOut || !data) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
-        <Card className="w-full max-w-md p-8">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Lock className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">psamvault</h1>
-              <p className="text-sm text-muted-foreground">You are logged out</p>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Sign-in happens in the terminal. This page has no password field. Run this command, then come back
-            and click the button.
-          </p>
-          <pre className="mt-4 rounded-md bg-muted px-3 py-2 font-mono text-sm">pv login</pre>
-          <Button className="mt-6 w-full" type="button" onClick={() => void refresh(true)}>
-            I've logged in
-          </Button>
-        </Card>
+        <AuthScreen onSignedIn={signedIn} onAlreadySignedIn={() => void refresh(true)} />
       </main>
     );
   }
@@ -206,6 +292,7 @@ export function App() {
       dark={dark}
       onTheme={toggleTheme}
       onLogout={() => setConfirm({ kind: "logout", name: "" })}
+      onCodes={() => setCodesOpen(true)}
     >
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Stat icon={<Vault className="size-4" />} label="Vault entries" value={entries ? String(entries.length) : "—"} />
@@ -230,6 +317,34 @@ export function App() {
             </TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
+            {tab === "keys" && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-52 justify-between px-3 font-normal"
+                    aria-label="Key type"
+                  >
+                    <span className="truncate">
+                      {keyKindLabel}
+                      <span className="text-muted-foreground"> ({kindCounts[keyKind]})</span>
+                    </span>
+                    <ChevronDown className="text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuRadioGroup value={keyKind} onValueChange={(value) => setKeyKind(value as KeyKind)}>
+                    {KEY_KIND_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.id} value={option.id}>
+                        <span className="truncate">{option.label}</span>
+                        <span className="ml-auto text-muted-foreground tabular-nums">{kindCounts[option.id]}</span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <div className="relative min-w-0 flex-1 sm:w-64">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -249,7 +364,19 @@ export function App() {
           </div>
         </div>
 
-        {sessionHelp && <SessionGuide onRetry={() => void refresh(true)} />}
+        {needsCodes && (
+          <Alert className="mb-4">
+            <p className="font-medium">No recovery codes yet</p>
+            <p className="mt-1 text-muted-foreground">
+              If you forget this login password, a recovery code is what gets you back in. Create a set now.
+            </p>
+            <Button className="mt-3" type="button" variant="outline" onClick={() => setCodesOpen(true)}>
+              Create recovery codes
+            </Button>
+          </Alert>
+        )}
+
+        {sessionHelp && <SessionGuide onRetry={() => void refresh(true)} onSignedIn={signedIn} />}
 
         {tab === "entries" && data.entries_error && data.entries_recovery !== "session" && (
           <Alert className="mb-4 border-destructive/40 text-destructive">
@@ -284,11 +411,19 @@ export function App() {
             {tab === "keys" && keys && filteredKeys.length === 0 && (
               <Empty
                 icon={<KeyRound className="size-8" />}
-                title={searching ? "No matching API keys" : "No API keys stored"}
+                title={
+                  searching
+                    ? "No matching API keys"
+                    : keys.length === 0
+                      ? "No API keys stored"
+                      : `No ${keyKindLabel.toLowerCase()} keys`
+                }
                 description={
                   searching
-                    ? "Nothing in the loaded list matches that search."
-                    : "Use psamvault ak-add, or Add, to store a key."
+                    ? "Nothing in this type matches that search."
+                    : keys.length === 0
+                      ? "Use psamvault ak-add, or Add, to store a key."
+                      : "Choose another type in the filter."
                 }
               />
             )}
@@ -321,32 +456,13 @@ export function App() {
               </Table>
             )}
             {tab === "keys" && filteredKeys.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Service</TableHead>
-                    <TableHead className="hidden sm:table-cell">Updated</TableHead>
-                    <TableHead className="w-12" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredKeys.map((row) => (
-                    <TableRow key={row.name}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell>{row.service_hint}</TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">{row.updated_at}</TableCell>
-                      <TableCell>
-                        <RowMenu
-                          onView={() => setDialog({ kind: "view-key", row })}
-                          onEdit={() => setDialog({ kind: "edit-key", name: row.name })}
-                          onDelete={() => setConfirm({ kind: "key", name: row.name })}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <KeyTables
+                rows={filteredKeys}
+                showHeadings={keyKind === "project"}
+                onView={(row) => setDialog({ kind: "view-key", row })}
+                onEdit={(row) => setDialog({ kind: "edit-key", name: row.name })}
+                onDelete={(row) => setConfirm({ kind: "key", name: row.name })}
+              />
             )}
           </ScrollArea>
         </Card>
@@ -439,7 +555,7 @@ export function App() {
             title={confirm.kind === "logout" ? "Sign out?" : `Delete ${confirm.name}?`}
             description={
               confirm.kind === "logout"
-                ? "You will need pv login in the terminal before this page can open the vault again."
+                ? "This signs you out on the server and on this machine. Sign in again before the page can open the vault."
                 : "This removes the item from the vault. It cannot be undone from the dashboard."
             }
             confirmLabel={confirm.kind === "logout" ? "Sign out" : "Delete"}
@@ -474,6 +590,20 @@ export function App() {
           />
         )}
       </AlertDialog>
+      <RecoveryCodesDialog open={codesOpen} onOpenChange={setCodesOpen} />
+      <Dialog open={freshCodes !== null} onOpenChange={(open) => !open && setFreshCodes(null)}>
+        {freshCodes && (
+          <DialogContent title="Write these recovery codes down">
+            <p className="mb-3 text-sm text-muted-foreground">
+              Each code works once. They are shown this once and are not kept in the browser.
+            </p>
+            <CodeList codes={freshCodes} />
+            <Button className="mt-4" type="button" onClick={() => setFreshCodes(null)}>
+              I've saved them
+            </Button>
+          </DialogContent>
+        )}
+      </Dialog>
     </Shell>
   );
 }
@@ -483,12 +613,14 @@ function Shell({
   dark,
   onTheme,
   onLogout,
+  onCodes,
   children,
 }: {
   username: string;
   dark: boolean;
   onTheme: () => void;
   onLogout: () => void;
+  onCodes?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -515,6 +647,11 @@ function Shell({
                 {dark ? <Sun /> : <Moon />}
               </Button>
             </Tooltip>
+            {username && onCodes && (
+              <Button type="button" variant="outline" size="sm" onClick={onCodes}>
+                Recovery codes
+              </Button>
+            )}
             {username && (
               <Button type="button" variant="outline" size="sm" onClick={onLogout}>
                 <LogOut /> Sign out
@@ -528,22 +665,68 @@ function Shell({
   );
 }
 
-function SessionGuide({ onRetry }: { onRetry: () => void }) {
+function SessionGuide({ onRetry, onSignedIn }: { onRetry: () => void; onSignedIn: (result: AuthResult) => void }) {
   return (
     <Alert className="mb-4">
       <p className="font-medium">Your session has expired</p>
       <p className="mt-1 text-muted-foreground">
-        Run this in the terminal to restore it, then click Retry.
+        If another command refreshed the session, click Retry. Otherwise sign in here. A forgotten password uses a
+        recovery code. A new machine uses Restore.
       </p>
-      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv list</pre>
-      <p className="mt-3 text-muted-foreground">
-        If that command says you are logged out, sign in with this instead, then click Retry.
-      </p>
-      <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-sm text-foreground">pv login</pre>
       <Button className="mt-4" type="button" variant="outline" onClick={onRetry}>
         Retry
       </Button>
+      <div className="mt-4">
+        <AuthScreen compact onSignedIn={onSignedIn} />
+      </div>
     </Alert>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading vault">
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        {["entries", "keys", "status"].map((id) => (
+          <Card key={id} className="flex items-center gap-3 p-4">
+            <Skeleton className="size-9 shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-12" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Skeleton className="h-9 w-52" />
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-full sm:w-64" />
+          <Skeleton className="h-9 w-20" />
+        </div>
+      </div>
+      <Card className="space-y-4 p-4">
+        {["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => (
+          <div key={id} className="flex items-center gap-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="hidden h-4 w-28 sm:block" />
+            <Skeleton className="ml-auto h-4 w-16" />
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+function FormSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Loading">
+      {["name", "value", "notes"].map((id) => (
+        <div key={id} className="space-y-1.5">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -669,7 +852,7 @@ function EntryEditor(props: {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.site}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
-        {!initial && !error && <Skeleton className="h-40 w-full" />}
+        {!initial && !error && <FormSkeleton />}
         {initial && (
           <EntryFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
         )}
@@ -756,7 +939,7 @@ function KeyEditor(props: {
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.name}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
-        {!initial && !error && <Skeleton className="h-40 w-full" />}
+        {!initial && !error && <FormSkeleton />}
         {initial && (
           <KeyFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
         )}
