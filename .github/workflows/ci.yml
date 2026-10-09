@@ -6,10 +6,16 @@ on:
   pull_request:
     branches: ["**"]
 
+# One run per ref: a superseded push should not hold a runner or report a stale verdict.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -34,17 +40,29 @@ jobs:
           cache: "pip"
 
       - name: Install package and test dependencies
+        timeout-minutes: 6
         run: |
           pip install --upgrade pip
           pip install -e .
-          pip install pytest pytest-mock pytest-httpx
+          pip install pytest pytest-mock pytest-httpx pytest-timeout
+
+      - name: The package imports from a clean install
+        timeout-minutes: 2
+        run: python -c "import typer; import main; print('import ok')"
 
       - name: Run tests
-        run: pytest tests/ -v
+        timeout-minutes: 12
+        run: |
+          # -u keeps partial output when a run is killed (a killed buffered run reports nothing at all).
+          # The thread timeout method reports a stack blocked in a syscall; the default signal method
+          # does not fire there, so a hang would burn the whole job instead of naming the culprit.
+          timeout 600 python -u -m pytest tests/ -v --timeout=120 --timeout-method=thread
+          echo "pytest exit=$?"
 
   docs:
     name: Docs describe real commands
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     env:
       # The gate imports the typer app, which pulls in config/crypto — same env as the test job.
@@ -63,9 +81,61 @@ jobs:
           cache: "pip"
 
       - name: Install the package (the gate reads the real command registry)
+        timeout-minutes: 6
         run: |
           pip install --upgrade pip
           pip install -e .
 
       - name: Docs must not name a command or flag that does not exist
         run: python scripts/check-docs-surface.py
+
+  docs-with-the-change:
+    # The job above is absolute: does the documentation describe software that exists? This one is
+    # relative: did THIS change bring the page that describes it? A new command, flag or environment
+    # variable that no page names fails here — every existing page stays true, so no other gate can see
+    # it, and that is exactly how the docs fall behind the code.
+    name: Docs change with the code
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      PSAMVAULT_PEPPER: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      PSAMVAULT_API_URL: "https://test.example.com"
+      PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring"
+      BASE_REF: ${{ github.base_ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # The one escape hatch, and it is a deliberate act: the label IS the decision, the log records it.
+      DOCS_NOT_NEEDED: ${{ contains(github.event.pull_request.labels.*.name, 'docs-not-needed') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the gate compares against the PR's base branch
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install the package (the gate reads the real command registry)
+        timeout-minutes: 6
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+
+      - name: Fetch the branch this PR merges into
+        run: git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Docs must move with the code
+        run: |
+          if [ "$DOCS_NOT_NEEDED" = "true" ]; then
+            python scripts/docs-touch-check.py \
+              --base "origin/${BASE_REF}" --head "$HEAD_SHA" --committed-only \
+              --allow-no-docs "PR is labelled docs-not-needed"
+          else
+            python scripts/docs-touch-check.py \
+              --base "origin/${BASE_REF}" --head "$HEAD_SHA" --committed-only
+          fi
