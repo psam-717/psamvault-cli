@@ -221,7 +221,7 @@ Searches **site credentials**, **API keys** and **secure notes**. Matching entri
 |---|---|
 | `query` *(required)* | Search term — matches site name, username, and notes |
 
-Results **print the decrypted password, the key value and the note content** for every match, so `search` is a read of your secrets — use `psamvault list` to see *what* exists without decrypting anything. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it.
+Results print the decrypted password, the key value and the note content — **but only for a caller the [reveal policy](#agent-guardrail-commands) allows to reveal**. A caller that may not (an agent, or a script with no terminal) still gets every match, with `[not displayed for this caller]` where the value would be, and the invocation writes one audited deny row; the value itself stays with `get` / `ak-get` / `note-get` and `approve`. Use `psamvault list` to see *what* exists without decrypting anything at all. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it.
 
 **When to run it:** when you remember what an entry is *about* but not its exact name.
 

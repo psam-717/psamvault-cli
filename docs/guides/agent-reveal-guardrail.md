@@ -26,6 +26,12 @@ them (the clipboard is just as readable). Never gated: `list`, `site-list`,
 `ak-list`, `note-list`, `whoami`, `check_credential_exists` — an agent must
 always be able to see *what* exists.
 
+`search` is the one command in between. It never refuses — an agent can search — but the
+values it matched obey exactly the policy above: an agent gets the entries with
+`[not displayed for this caller]` in place of each password, key value and note content, and
+one audited `deny` row is written per invocation (a `search` never spends an approval, because
+an approval names one entry and a search covers many).
+
 ## Hand an agent one secret, once
 
 ```bash
