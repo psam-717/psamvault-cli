@@ -18,6 +18,7 @@ from api_key_names import (
 from crypto import decrypt_api_key, encrypt_api_key
 from error_ui import exit_error, print_error
 from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
+from secret_prompt import secret_prompt
 from session import load_session
  
 app = typer.Typer(
@@ -173,7 +174,7 @@ def ak_add(
     _validate_entry_name(name)
     
     if key is None:
-        key = typer.prompt(f"API key for {name}", hide_input=True)
+        key = secret_prompt(f"API key for {name}")
     
     typer.echo("")
     session, vek = _get_session_and_key()
