@@ -97,7 +97,9 @@ psamvault login
 
 Decrypts your VEK locally using your login password. All sensitive session data — tokens, VEK, and kdf_salt — are stored in the **OS keychain**, not on disk. A lightweight presence marker (`~/.psamvault/session.json`) lets psamvault detect that you are logged in without reading any secrets from disk. All vault commands use this session — you won't be prompted for your password again until the session expires.
 
-On a **new machine** your password alone is not enough: this device has its own pepper, so the login cannot derive the key that opens your vault, and `login` says so instead of blaming the network. Run `psamvault configure` and then `psamvault restore` — see [Backup and recovery](../guides/backup-and-recovery.md).
+A failed login is not always a new machine, and `login` no longer says it is. The derived password can miss for three different reasons: a typo (a leading or trailing space is a *different* password — psamvault never trims one), an account password replaced by a restore on another machine, or a pepper that changed on this machine (`psamvault configure` run again, or a replaced keychain pepper). The failure text names all of them and the way out: on a machine with no access yet, `psamvault configure` then `psamvault restore`; on a machine that still holds a session, `psamvault restore --force` — or `psamvault logout` first, then `psamvault login` — see [Backup and recovery](../guides/backup-and-recovery.md).
+
+If a session is already saved on this machine, `login` checks it before it asks anything. A session that can still refresh gets one confirmation that signing in again replaces it; answering no keeps it and prints `psamvault logout` as the way to drop it. A session that can no longer refresh — expired, or revoked by a restore — goes straight to the username and password prompts instead of claiming you are already logged in.
 
 **When to run it:** on a machine that has already been configured and whose session has expired or been logged out. Every vault command needs a session.
 
@@ -666,6 +668,8 @@ psamvault restore --force                                      # overwrite an ex
 ```
 
 You need: your username, your backup passphrase (or a kit file), and a new login password. Your entries are not touched — only the key wrap is replaced.
+
+That replacement is **account-wide**, and the command says so before it changes anything: the server holds one credential per account, so the new login password applies everywhere and every other machine is signed out. Those machines need `psamvault login` with the new password, or `psamvault restore` again from a backup. The same warning prints again in the success text.
 
 | Option | What it does |
 |---|---|
