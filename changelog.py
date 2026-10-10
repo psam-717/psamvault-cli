@@ -12,7 +12,7 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
-    "0.7.0": [
+    "0.7.1": [
         "New:   the web dashboard is a React screen on the same local server — tabs and search stay in the",
         "       browser, and `pv dashboard` reads the OS keychain once per process instead of on every click",
         "New:   the logged-out dashboard signs in, resets a forgotten password with one recovery code, and",
@@ -35,6 +35,11 @@ CHANGELOG: dict[str, list[str]] = {
         "Fixed: a refresh that lost the token rotation to another client no longer reports the session as",
         "       expired — the client re-reads the keychain store and retries with the newer token",
         "Fixed: the API key list walks every server page, so a key past the first page is still found",
+        "Fixed: the API KEYS section of `list` groups keys under their project and folds backup",
+        "       copies onto the live row, with the same renderer `ak-list` uses; a backup-only row no",
+        "       longer pushes the date out of line",
+        "Fixed: `search` names an API key match by its leaf, project and source instead of the stored",
+        "       `project/.env/KEY` string",
         "Changed: the dashboard Keys tab filters by Standalone, Project-scoped or Project-unscoped, marks",
         "       backup copies stale, and shimmers in the shape of the page while the first load is in flight;",
         "       passwords, API keys and notes stay hidden until Reveal or Copy",
@@ -43,6 +48,9 @@ CHANGELOG: dict[str, list[str]] = {
         "       guardrail, upgrading, the web dashboard) and complete command and configuration references",
         "Docs:  the command and configuration references record the account-wide effect of a restore, the",
         "       real login-failure causes, project key names and PSAMVAULT_SHOW_SECRETS",
+        "Docs:  the `list` entry records its three sections and the API key grouping it shares with",
+        "       `ak-list`; the `search` entry records what it matches and that its results print the",
+        "       decrypted values",
     ],
     "0.6.0": [
         "New:   Backup and recovery — `backup create|verify|status|rotate|revoke` stores the vault key under a",
