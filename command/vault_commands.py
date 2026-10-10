@@ -11,7 +11,7 @@ from cryptography.exceptions import InvalidTag
 
 import api_client
 import reveal_gate
-from api_key_names import prepare_list_items
+from api_key_names import parse_api_key_name, prepare_list_items
 from api_key_view import print_api_key_groups
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
@@ -794,7 +794,11 @@ def search(
     if ak_results:
         typer.echo(" API KEYS")
         for entry in ak_results:
-            typer.echo(f"\n  Name:     {entry['name']}")
+            parsed = parse_api_key_name(entry["name"])
+            typer.echo(f"\n  Name:     {parsed['key_name']}")
+            if parsed["namespaced"]:
+                typer.echo(f"  Project:  {parsed['display_project']}")
+                typer.echo(f"  Source:   {parsed['source']}")
             typer.echo(f"  Service:  {entry['service']}")
             typer.echo(f"  Key:      {entry['api_key']}")
             if entry.get("notes"):
