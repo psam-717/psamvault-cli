@@ -283,6 +283,63 @@ def test_restore_offers_fresh_recovery_codes(httpx_mock):
     assert payload["codes"][0]["code_hash"].startswith("$argon2")
 
 
+# ── the account-wide warning (issue #68 finding 1) ────────────────────────────
+
+
+ACCOUNT_WIDE = (
+    "replaces the login password for the whole account and signs out every other machine"
+)
+
+
+def _mock_the_restore_network(httpx_mock):
+    """Mock the whole server leg of a passphrase restore — no real server."""
+    wrapped, iv, salt = wrap_vek_with_passphrase(PASSPHRASE, VEK)
+    httpx_mock.add_response(
+        method="POST", url=f"{BASE}/auth/key-envelope/begin",
+        json={
+            "slot_id": SLOT_ID, "wrapped_vek": wrapped, "iv": iv,
+            "kdf_salt": salt, "account_kdf_salt": ACCOUNT_SALT,
+        },
+        status_code=200,
+    )
+    httpx_mock.add_response(
+        method="POST", url=f"{BASE}/auth/key-envelope/restore",
+        json={"detail": "ok", "slot_id": SLOT_ID, "active_slots": 1}, status_code=200,
+    )
+    httpx_mock.add_response(
+        method="POST", url=f"{BASE}/auth/login",
+        json={
+            "access_token": "t", "refresh_token": "r", "token_type": "bearer",
+            "kdf_salt": ACCOUNT_SALT, "encrypted_vek": "dd" * 48, "vek_iv": "ee" * 12,
+            "has_recovery_codes": True,
+        },
+        status_code=200,
+    )
+    entry = _entry_for("github.com", "alice", "hunter2")
+    httpx_mock.add_response(
+        method="GET", url=f"{BASE}/vault", json={"entries": [entry], "total": 1}, status_code=200,
+    )
+    httpx_mock.add_response(
+        method="GET", url=f"{BASE}/vault/github.com", json=entry, status_code=200,
+    )
+
+
+def test_restore_warns_before_and_after_that_the_account_password_changes(httpx_mock):
+    """The fact only `docs/guides/backup-and-recovery.md` recorded must reach the CLI."""
+    _mock_the_restore_network(httpx_mock)
+
+    result, _ = _invoke([], input=f"psam\n{PASSPHRASE}\n{NEW_PASSWORD}\n{NEW_PASSWORD}\nn\n")
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    # Twice: before anything is replaced, and again in the success text.
+    assert out.count(ACCOUNT_WIDE) == 2
+    first = out.index(ACCOUNT_WIDE)
+    second = out.index(ACCOUNT_WIDE, first + 1)
+    assert first < out.index("Set a new login password")
+    assert second > out.index("Restored and logged in as psam")
+
+
 # ── the kit path ──────────────────────────────────────────────────────────────
 
 
