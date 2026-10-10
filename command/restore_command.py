@@ -29,8 +29,19 @@ from crypto import (
 )
 from error_ui import print_error
 from errors import PsamVaultError, SessionExpiredError
+from secret_prompt import secret_prompt
 from session import is_logged_in, load_session, save_session
 from spinner import Spinner
+
+
+# Printed before the restore changes anything and again in the success text: the
+# server holds ONE credential per account, so replacing this machine's key wrap
+# replaces the login password everywhere and revokes every other live session.
+# `docs/guides/backup-and-recovery.md` has always recorded this; the command did not.
+ACCOUNT_WIDE_WARNING = (
+    "  ⚠  This replaces the login password for the whole account and signs out every other machine.\n"
+    "     They must log in again with the new password, or restore again from a backup.\n"
+)
 
 
 def _password_errors(password: str) -> list[str]:
@@ -48,7 +59,7 @@ def _password_errors(password: str) -> list[str]:
 def _prompt_new_password() -> str:
     typer.echo("\n  Set a new login password for this machine\n")
     while True:
-        password = typer.prompt("  New login password", hide_input=True)
+        password = secret_prompt("  New login password")
         errors = _password_errors(password)
         if errors:
             typer.echo("\n  Error: password does not meet the requirements:", err=True)
@@ -56,7 +67,7 @@ def _prompt_new_password() -> str:
                 typer.echo(f"    • {error}", err=True)
             typer.echo("", err=True)
             continue
-        confirm = typer.prompt("  Confirm new login password", hide_input=True)
+        confirm = secret_prompt("  Confirm new login password")
         if password != confirm:
             typer.echo("\n  Error: passwords do not match\n", err=True)
             continue
@@ -160,6 +171,7 @@ def restore(
         "  This machine gets access back using your backup passphrase."
         "\n  Your entries are not re-encrypted or re-uploaded.\n"
     )
+    typer.echo(ACCOUNT_WIDE_WARNING)
 
     # ── 1. obtain the VEK + the account salt the new login key needs ────────────
     if from_kit is not None:
@@ -212,7 +224,7 @@ def restore(
                 typer.echo(f"  Warning: could not check the kit ({exc}). Continuing.\n")
 
         typer.echo(f"  Account: {username}")
-        passphrase = typer.prompt("  Backup passphrase for this kit", hide_input=True)
+        passphrase = secret_prompt("  Backup passphrase for this kit")
         try:
             vek = unwrap_vek_with_passphrase(
                 passphrase,
@@ -228,7 +240,7 @@ def restore(
             raise typer.Exit(code=1)
     else:
         username = typer.prompt(" Username")
-        passphrase = typer.prompt(" Backup passphrase", hide_input=True)
+        passphrase = secret_prompt(" Backup passphrase")
         with Spinner("Verifying backup passphrase"):
             try:
                 begun = api_client.begin_key_envelope_restore(username, passphrase)
@@ -313,4 +325,5 @@ def restore(
             _offer_recovery_codes(vek, session["access_token"])
 
     typer.echo("  Your entries are unchanged — nothing was re-encrypted or moved.")
-    typer.echo("  Run  psamvault list  to see them.\n")
+    typer.echo("  Run  psamvault list  to see them.")
+    typer.echo(ACCOUNT_WIDE_WARNING)
