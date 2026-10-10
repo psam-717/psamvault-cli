@@ -211,17 +211,19 @@ psamvault search "work email"
 psamvault vault search 2FA
 ```
 
-Searches across both **site credentials** and **API keys**. Matching entries are decrypted and filtered locally — passwords and API key values are never searched. Matches are case-insensitive and checked against:
+Searches **site credentials**, **API keys** and **secure notes**. Matching entries are decrypted and filtered locally — a password or key value is never part of the match. Matches are case-insensitive and checked against:
 
-- **Site name** or **API key name**
-- **Username** or **service**
-- **Notes**
+- **Site name**, **API key name** or **note title**
+- **Username**, **service** or **note category**
+- **Notes** and **note content**
 
 | Argument | What it does |
 |---|---|
 | `query` *(required)* | Search term — matches site name, username, and notes |
 
-**When to run it:** when you remember what an entry is *about* but not its exact name. Note that matching entries are decrypted, so it is a read of your secrets — but nothing is printed.
+Results **print the decrypted password, the key value and the note content** for every match, so `search` is a read of your secrets — use `psamvault list` to see *what* exists without decrypting anything. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it.
+
+**When to run it:** when you remember what an entry is *about* but not its exact name.
 
 ### psamvault update
 
