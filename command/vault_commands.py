@@ -775,13 +775,18 @@ def search(
 
     typer.echo(f"\n Search results for '{query}' ({total} entr{'y' if total == 1 else 'ies'} found):\n")
 
+    reveal = reveal_gate.DiscoveryReveal("search")
+
     # Site credentials
     if site_results:
         typer.echo(" SITE CREDENTIALS")
         for entry in site_results:
             typer.echo(f"\n  Site:      {entry['site_name']}")
             typer.echo(f"  Username:  {entry['username']}")
-            typer.echo(f"  Password:  {entry['password']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Password:  {entry['password']}")
+            else:
+                typer.echo(f"  Password:  {reveal_gate.DiscoveryReveal.HIDDEN}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:     {entry['notes']}")
             if entry.get("login_url"):
@@ -800,7 +805,10 @@ def search(
                 typer.echo(f"  Project:  {parsed['display_project']}")
                 typer.echo(f"  Source:   {parsed['source']}")
             typer.echo(f"  Service:  {entry['service']}")
-            typer.echo(f"  Key:      {entry['api_key']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Key:      {entry['api_key']}")
+            else:
+                typer.echo(f"  Key:      {reveal_gate.DiscoveryReveal.HIDDEN}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:    {entry['notes']}")
         typer.echo()
@@ -812,5 +820,11 @@ def search(
             typer.echo(f"\n  Title:    {entry['title']}")
             if entry.get("category"):
                 typer.echo(f"  Category: {entry['category']}")
-            typer.echo(f"  Content:  {entry['content']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Content:  {entry['content']}")
+            else:
+                typer.echo(f"  Content:  {reveal_gate.DiscoveryReveal.HIDDEN}")
         typer.echo()
+    reveal.close()
+    if reveal.withheld:
+        typer.echo(f"\n  → {reveal.hint()}\n")
