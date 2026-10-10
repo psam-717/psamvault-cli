@@ -183,11 +183,11 @@ List all entries.
 psamvault list
 ```
 
-Shows all stored entries in two labelled sections — **Site Credentials** and **API Keys** — with name/username hint and last-updated date. Does not decrypt entries.
+Shows every stored entry in three labelled sections — **Site Credentials**, **API Keys** and **Secure Notes** — with the last-updated date. Does not decrypt entries.
 
-> The command's own `--help` describes it as listing site credentials, API keys **and secure notes** (`psamvault note-list` for notes only). Either way it decrypts nothing.
+The **API Keys** section renders exactly what `psamvault ak-list` renders: keys grouped under their project (`(unscoped)` when stored with no project), the leaf name instead of the stored `project/.env/KEY` string, and backup copies of a key folded onto the live `.env` row as `(+N stale)`. Standalone keys come last, with service and notes.
 
-**When to run it:** to see what exists before a `get`, or to check that an `add`/`import` landed.
+**When to run it:** to see everything that exists before a `get`, or to check that an `add`/`import` landed. For one entry type on its own use `psamvault site-list`, `psamvault ak-list` or `psamvault note-list`.
 
 ### psamvault site-list
 
