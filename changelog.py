@@ -12,7 +12,7 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
-    "0.7.1": [
+    "0.7.2": [
         "New:   the web dashboard is a React screen on the same local server — tabs and search stay in the",
         "       browser, and `pv dashboard` reads the OS keychain once per process instead of on every click",
         "New:   the logged-out dashboard signs in, resets a forgotten password with one recovery code, and",
@@ -40,6 +40,9 @@ CHANGELOG: dict[str, list[str]] = {
         "       longer pushes the date out of line",
         "Fixed: `search` names an API key match by its leaf, project and source instead of the stored",
         "       `project/.env/KEY` string",
+        "Fixed: `search` no longer prints a decrypted value to a caller the policy would refuse a",
+        "       reveal for - it shows the entries it matched and withholds the value, writing one",
+        "       audited deny row per invocation and never spending an approval",
         "Changed: the dashboard Keys tab filters by Standalone, Project-scoped or Project-unscoped, marks",
         "       backup copies stale, and shimmers in the shape of the page while the first load is in flight;",
         "       passwords, API keys and notes stay hidden until Reveal or Copy",
@@ -51,6 +54,8 @@ CHANGELOG: dict[str, list[str]] = {
         "Docs:  the `list` entry records its three sections and the API key grouping it shares with",
         "       `ak-list`; the `search` entry records what it matches and that its results print the",
         "       decrypted values",
+        "Docs:  the guardrail guide and the search reference record what `search` does with a value",
+        "       the caller may not see",
     ],
     "0.6.0": [
         "New:   Backup and recovery — `backup create|verify|status|rotate|revoke` stores the vault key under a",
