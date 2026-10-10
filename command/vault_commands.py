@@ -11,6 +11,8 @@ from cryptography.exceptions import InvalidTag
 
 import api_client
 import reveal_gate
+from api_key_names import prepare_list_items
+from api_key_view import print_api_key_groups
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
 from error_ui import exit_error, print_error
@@ -440,19 +442,14 @@ def list_entries():
         typer.echo(f"\n  {site_total} site entr{'y' if site_total == 1 else 'ies'}.")
 
     # ── API keys ──────────────────────────────────────────────────────────────
+    # Same renderer as `ak-list`: project groups, folded backup copies, standalone last.
     typer.echo(f"\n  API KEYS")
     typer.echo(f"  {'─'*80}")
 
     if ak_total == 0:
         typer.echo("  No API keys stored. Use  psamvault ak-add  to store one.")
     else:
-        typer.echo(f"  {'NAME':<30} {'SERVICE':<25} {'UPDATED'}")
-        typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
-        for entry in ak_entries:
-            updated = entry["updated_at"][:10]
-            service = entry["service_hint"] or "-"
-            typer.echo(f"  {entry['name']:<30} {service:<25} {updated}")
-        typer.echo(f"\n  {ak_total} API key entr{'y' if ak_total == 1 else 'ies'}.")
+        print_api_key_groups(prepare_list_items(ak_entries))
 
     # ── Notes ───────────────────────────────────────────────────────────────────
     typer.echo(f"\n  SECURE NOTES")
