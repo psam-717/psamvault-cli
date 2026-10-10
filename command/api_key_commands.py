@@ -15,6 +15,7 @@ from api_key_names import (
     prepare_list_items,
     resolve_api_key_name,
 )
+from api_key_view import print_api_key_groups
 from crypto import decrypt_api_key, encrypt_api_key
 from error_ui import exit_error, print_error
 from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
@@ -295,27 +296,6 @@ def ak_get(
 
 
 
-def _source_label(item: dict) -> str:
-    source = item.get("source") or "-"
-    if item.get("stale_only"):
-        extra = item.get("stale_count") or 0
-        suffix = f" +{extra} more" if extra else ""
-        return f"{source} (stale){suffix}"
-    extra = item.get("stale_count") or 0
-    if extra:
-        return f"{source} (+{extra} stale)"
-    return source
-
-
-def _print_project_keys(project: str, rows: list[dict]) -> None:
-    typer.echo(f"  Project: {project}")
-    typer.echo(f"    {'KEY':<28} {'SOURCE':<28} {'UPDATED'}")
-    typer.echo(f"    {'-'*28} {'-'*28} {'-'*20}")
-    for item in rows:
-        typer.echo(f"    {item['key_name']:<28} {_source_label(item):<28} {item['updated']}")
-    typer.echo()
-
-
 @app.command(name="list")
 def ak_list(
     project_name: Optional[str] = typer.Option(
@@ -355,34 +335,9 @@ def ak_list(
     if project_name and prepared["stored"] == 0:
         typer.echo(f"No API keys found for project '{project_name}'.\n")
         return
-
     typer.echo()
-    for proj_name, proj_items in prepared["projects"].items():
-        _print_project_keys(proj_name, proj_items)
+    print_api_key_groups(prepared, project_name)
 
-    standalone = prepared["standalone"]
-    if standalone:
-        typer.echo("  Standalone Keys")
-        typer.echo(f"    {'NAME':<28} {'SERVICE':<22} {'NOTES':<30} {'UPDATED'}")
-        typer.echo(f"    {'-'*28} {'-'*22} {'-'*30} {'-'*20}")
-        for item in standalone:
-            notes_display = (item['notes'] or '')[:27] + '...' if item['notes'] and len(item['notes']) > 30 else (item['notes'] or '')
-            typer.echo(f"    {item['key_name']:<28} {item['service_hint']:<22} {notes_display:<30} {item['updated']}")
-        typer.echo()
-
-    stored = prepared["stored"]
-    shown = prepared["shown"]
-    if project_name:
-        typer.echo(
-            f"  {shown} entr{'y' if shown == 1 else 'ies'} in project '{project_name}'.\n"
-        )
-        return
-    if shown != stored:
-        typer.echo(f"  {stored} stored, {shown} shown (stale copies folded).\n")
-        return
-    typer.echo(f"  {shown} entr{'y' if shown == 1 else 'ies'} found.\n")
-    
-    
 @app.command(name="update")
 def ak_update(
     name: str = typer.Argument(..., help="Label of the API key to update"),
