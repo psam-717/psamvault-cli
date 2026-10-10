@@ -11,6 +11,8 @@ from cryptography.exceptions import InvalidTag
 
 import api_client
 import reveal_gate
+from api_key_names import parse_api_key_name, prepare_list_items
+from api_key_view import print_api_key_groups
 from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
 from error_ui import exit_error, print_error
@@ -440,19 +442,14 @@ def list_entries():
         typer.echo(f"\n  {site_total} site entr{'y' if site_total == 1 else 'ies'}.")
 
     # ── API keys ──────────────────────────────────────────────────────────────
+    # Same renderer as `ak-list`: project groups, folded backup copies, standalone last.
     typer.echo(f"\n  API KEYS")
     typer.echo(f"  {'─'*80}")
 
     if ak_total == 0:
         typer.echo("  No API keys stored. Use  psamvault ak-add  to store one.")
     else:
-        typer.echo(f"  {'NAME':<30} {'SERVICE':<25} {'UPDATED'}")
-        typer.echo(f"  {'-'*30} {'-'*25} {'-'*20}")
-        for entry in ak_entries:
-            updated = entry["updated_at"][:10]
-            service = entry["service_hint"] or "-"
-            typer.echo(f"  {entry['name']:<30} {service:<25} {updated}")
-        typer.echo(f"\n  {ak_total} API key entr{'y' if ak_total == 1 else 'ies'}.")
+        print_api_key_groups(prepare_list_items(ak_entries))
 
     # ── Notes ───────────────────────────────────────────────────────────────────
     typer.echo(f"\n  SECURE NOTES")
@@ -778,13 +775,18 @@ def search(
 
     typer.echo(f"\n Search results for '{query}' ({total} entr{'y' if total == 1 else 'ies'} found):\n")
 
+    reveal = reveal_gate.DiscoveryReveal("search")
+
     # Site credentials
     if site_results:
         typer.echo(" SITE CREDENTIALS")
         for entry in site_results:
             typer.echo(f"\n  Site:      {entry['site_name']}")
             typer.echo(f"  Username:  {entry['username']}")
-            typer.echo(f"  Password:  {entry['password']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Password:  {entry['password']}")
+            else:
+                typer.echo(f"  Password:  {reveal_gate.DiscoveryReveal.HIDDEN}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:     {entry['notes']}")
             if entry.get("login_url"):
@@ -797,9 +799,16 @@ def search(
     if ak_results:
         typer.echo(" API KEYS")
         for entry in ak_results:
-            typer.echo(f"\n  Name:     {entry['name']}")
+            parsed = parse_api_key_name(entry["name"])
+            typer.echo(f"\n  Name:     {parsed['key_name']}")
+            if parsed["namespaced"]:
+                typer.echo(f"  Project:  {parsed['display_project']}")
+                typer.echo(f"  Source:   {parsed['source']}")
             typer.echo(f"  Service:  {entry['service']}")
-            typer.echo(f"  Key:      {entry['api_key']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Key:      {entry['api_key']}")
+            else:
+                typer.echo(f"  Key:      {reveal_gate.DiscoveryReveal.HIDDEN}")
             if entry.get("notes"):
                 typer.echo(f"  Notes:    {entry['notes']}")
         typer.echo()
@@ -811,5 +820,11 @@ def search(
             typer.echo(f"\n  Title:    {entry['title']}")
             if entry.get("category"):
                 typer.echo(f"  Category: {entry['category']}")
-            typer.echo(f"  Content:  {entry['content']}")
+            if reveal.value_allowed():
+                typer.echo(f"  Content:  {entry['content']}")
+            else:
+                typer.echo(f"  Content:  {reveal_gate.DiscoveryReveal.HIDDEN}")
         typer.echo()
+    reveal.close()
+    if reveal.withheld:
+        typer.echo(f"\n  → {reveal.hint()}\n")

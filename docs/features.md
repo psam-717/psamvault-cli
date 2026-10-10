@@ -22,7 +22,7 @@ Encrypted free text with a title and an optional category — for the things tha
 
 ## Search
 
-`psamvault search <query>` looks across site credentials, API keys and notes, matching case-insensitively against the site/entry name, the username or service, and the notes. Matching entries are decrypted and filtered **locally** — passwords and API key values are never searched. Reach for it when you remember the shape of an entry but not its exact name. Full detail: [Search](reference/commands.md#psamvault-search).
+`psamvault search <query>` looks across site credentials, API keys and notes, matching case-insensitively against the site/entry name, the username or service, and the notes. Matching entries are decrypted and filtered **locally** — passwords and API key values are never searched. Matching values are printed for a caller the reveal policy allows; an agent gets the matches with `[not displayed for this caller]` in place of the value. Reach for it when you remember the shape of an entry but not its exact name. Full detail: [Search](reference/commands.md#psamvault-search).
 
 ## Secure password generation
 

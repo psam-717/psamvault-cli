@@ -183,11 +183,11 @@ List all entries.
 psamvault list
 ```
 
-Shows all stored entries in two labelled sections — **Site Credentials** and **API Keys** — with name/username hint and last-updated date. Does not decrypt entries.
+Shows every stored entry in three labelled sections — **Site Credentials**, **API Keys** and **Secure Notes** — with the last-updated date. Does not decrypt entries.
 
-> The command's own `--help` describes it as listing site credentials, API keys **and secure notes** (`psamvault note-list` for notes only). Either way it decrypts nothing.
+The **API Keys** section renders exactly what `psamvault ak-list` renders: keys grouped under their project (`(unscoped)` when stored with no project), the leaf name instead of the stored `project/.env/KEY` string, and backup copies of a key folded onto the live `.env` row as `(+N stale)`. Standalone keys come last, with service and notes.
 
-**When to run it:** to see what exists before a `get`, or to check that an `add`/`import` landed.
+**When to run it:** to see everything that exists before a `get`, or to check that an `add`/`import` landed. For one entry type on its own use `psamvault site-list`, `psamvault ak-list` or `psamvault note-list`.
 
 ### psamvault site-list
 
@@ -211,17 +211,19 @@ psamvault search "work email"
 psamvault vault search 2FA
 ```
 
-Searches across both **site credentials** and **API keys**. Matching entries are decrypted and filtered locally — passwords and API key values are never searched. Matches are case-insensitive and checked against:
+Searches **site credentials**, **API keys** and **secure notes**. Matching entries are decrypted and filtered locally — a password or key value is never part of the match. Matches are case-insensitive and checked against:
 
-- **Site name** or **API key name**
-- **Username** or **service**
-- **Notes**
+- **Site name**, **API key name** or **note title**
+- **Username**, **service** or **note category**
+- **Notes** and **note content**
 
 | Argument | What it does |
 |---|---|
 | `query` *(required)* | Search term — matches site name, username, and notes |
 
-**When to run it:** when you remember what an entry is *about* but not its exact name. Note that matching entries are decrypted, so it is a read of your secrets — but nothing is printed.
+Results print the decrypted password, the key value and the note content — **but only for a caller the [reveal policy](#agent-guardrail-commands) allows to reveal**. A caller that may not (an agent, or a script with no terminal) still gets every match, with `[not displayed for this caller]` where the value would be, and the invocation writes one audited deny row; the value itself stays with `get` / `ak-get` / `note-get` and `approve`. Use `psamvault list` to see *what* exists without decrypting anything at all. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it.
+
+**When to run it:** when you remember what an entry is *about* but not its exact name.
 
 ### psamvault update
 

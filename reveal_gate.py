@@ -150,3 +150,61 @@ def require_reveal(
         signals=list(verdict.signals),
         reason="policy",
     )
+class DiscoveryReveal:
+    """The value half of a discovery command such as ``search``.
+
+    ``search`` matches many entries at once and stays useful without their secrets, so it
+    cannot use :func:`require_reveal`: that refuses the whole command and spends an approval
+    named for one entry. The decision is taken once per invocation instead, at caller level,
+    and the command prints each entry with the value it may not show replaced by a marker.
+    The withheld values are counted, and the invocation writes ONE audit row — the attempt is
+    the trail, not one line per match.
+    """
+
+    HIDDEN = "[not displayed for this caller]"
+    HINT = (
+        "the value needs a reveal: run the matching get / ak-get / note-get in your own "
+        "terminal, or  psamvault approve <entry> --for-agent, or a capability "
+        "(use_credential, run_with_credential, browser_login)"
+    )
+
+    def __init__(
+        self,
+        action: str,
+        *,
+        policy: policy_module.Policy | None = None,
+        verdict: caller.CallerVerdict | None = None,
+        with_ancestry: bool = True,
+    ) -> None:
+        self.action = action
+        self.policy = policy if policy is not None else policy_module.load()
+        self.verdict = verdict if verdict is not None else caller.classify(with_ancestry=with_ancestry)
+        decision = policy_module.decide(self.policy, self.verdict.verdict, None)
+        self.allowed = decision != policy_module.DENY
+        self.withheld = 0
+
+    def value_allowed(self) -> bool:
+        """True when this caller may see a matched value here; counts the ones they may not.
+
+        The per-entry allowlist is deliberately not consulted: an allowlist entry is a
+        one-entry reveal, and a search covers every match at once.
+        """
+        if self.allowed:
+            return True
+        self.withheld += 1
+        return False
+
+    def hint(self) -> str:
+        return self.HINT
+
+    def close(self) -> None:
+        """Write the single audit row for this invocation."""
+        audit.record(
+            command=self.action,
+            decision=audit.DECISION_DENY if self.withheld else audit.DECISION_ALLOW,
+            caller=self.verdict.verdict,
+            entry=None,
+            signals=list(self.verdict.signals),
+            tty=self.verdict.tty,
+            policy_mode=self.policy.reveal,
+        )
