@@ -21,6 +21,9 @@ def _invoke(monkeypatch, api_key_rows, command):
     from main import app
 
     monkeypatch.setattr("command.vault_commands._get_session_and_key", lambda: (dict(SESSION), bytes(32)))
+    # The name the command actually calls: vault_commands does
+    # `from session import load_session`, so patching the session module is not enough.
+    monkeypatch.setattr("command.vault_commands.load_session", lambda: dict(SESSION))
     monkeypatch.setattr("session.load_session", lambda: dict(SESSION))
     monkeypatch.setattr("command.vault_commands._search_credentials", lambda *a, **k: [])
     monkeypatch.setattr("command.vault_commands._search_notes", lambda *a, **k: [])
@@ -31,7 +34,12 @@ def _invoke(monkeypatch, api_key_rows, command):
     with patch("main.start_update_check"), \
          patch("main.check_and_show_upgrade_notice"), \
          patch("main.print_update_notice"):
-        return runner.invoke(app, command)
+        result = runner.invoke(app, command)
+    assert "not logged in" not in result.output.lower(), (
+        "this harness reached the real session path - patch the name the command calls "
+        "(command.vault_commands.load_session), not the defining module"
+    )
+    return result
 
 
 def test_search_names_a_project_key_by_its_leaf_and_project(monkeypatch):

@@ -43,6 +43,9 @@ def _invoke(monkeypatch, psamvault_agent, audit_rows):
     monkeypatch.setattr("session.consume_approval",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("approval spent")))
     monkeypatch.setattr("command.vault_commands._get_session_and_key", lambda: (dict(SESSION), bytes(32)))
+    # The name the command actually calls: vault_commands does
+    # `from session import load_session`, so patching the session module is not enough.
+    monkeypatch.setattr("command.vault_commands.load_session", lambda: dict(SESSION))
     monkeypatch.setattr("session.load_session", lambda: dict(SESSION))
     monkeypatch.setattr("command.vault_commands._search_credentials", lambda *a, **k: SITE_ROWS)
     monkeypatch.setattr("command.vault_commands._search_api_keys", lambda *a, **k: AK_ROWS)
@@ -53,7 +56,12 @@ def _invoke(monkeypatch, psamvault_agent, audit_rows):
     with patch("main.start_update_check"), \
          patch("main.check_and_show_upgrade_notice"), \
          patch("main.print_update_notice"):
-        return runner.invoke(app, ["search", "e"])
+        result = runner.invoke(app, ["search", "e"])
+    assert "not logged in" not in result.output.lower(), (
+        "this harness reached the real session path - patch the name the command calls "
+        "(command.vault_commands.load_session), not the defining module"
+    )
+    return result
 
 
 def test_an_agent_sees_what_matched_but_no_values(monkeypatch):
