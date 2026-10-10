@@ -119,7 +119,7 @@ psamvault login
 
 Decrypts your VEK locally using your login password. All sensitive session data — tokens, VEK, and kdf_salt — are stored in the **OS keychain**, not on disk. A lightweight presence marker (`~/.psamvault/session.json`) lets psamvault detect that you are logged in without reading any secrets from disk. All vault commands use this session — you won't be prompted for your password again until the session expires.
 
-On a **new machine** your password alone is not enough: this device has its own pepper, so the login cannot derive the key that opens your vault, and `login` says so instead of blaming the network. Run `psamvault configure` and then `psamvault restore` — see [Backup and recovery](guides/backup-and-recovery.md).
+On a **new machine** your password alone is not enough: this device has its own pepper, so the login cannot derive the key that opens your vault. That is one of three reasons a login fails — the other two are a typo (a leading or trailing space is a different password) and an account password replaced by a restore on another machine — and `login` names all three instead of blaming the network. On a machine with no access yet, run `psamvault configure` and then `psamvault restore`; on a machine that still holds a session, `psamvault restore --force` — see [Backup and recovery](guides/backup-and-recovery.md).
 
 ### 4. Check who's logged in
 

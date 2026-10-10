@@ -15,6 +15,7 @@ from command.api_key_commands import _search_api_keys
 from crypto import decrypt_credentials, encrypt_credentials
 from error_ui import exit_error, print_error
 from errors import ConflictError, NotFoundError, PsamVaultError, RevealBlockedError
+from secret_prompt import secret_prompt
 from session import load_session
 
 app = typer.Typer(
@@ -111,7 +112,7 @@ def add(
         raise typer.Exit(code=1)
 
     if password is None:
-        password = typer.prompt(f"Password for {site}", hide_input=True)
+        password = secret_prompt(f"Password for {site}")
 
     typer.echo("")
     session, key = _get_session_and_key()

@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+
 import typer
 
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
@@ -7,7 +9,14 @@ import api_client
 from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
 from error_ui import print_error
 from errors import NetworkError, PsamVaultError, SessionExpiredError
-from session import clear_session, is_logged_in, load_session, save_session
+from secret_prompt import secret_prompt
+from session import (
+    clear_session,
+    get_access_token_expiry,
+    is_logged_in,
+    load_session,
+    save_session,
+)
 
 from spinner import Spinner
 
@@ -163,7 +172,7 @@ def signup(
         "\n  • At least one uppercase letter"
         "\n  • At least one digit\n"
     )
-    login_password = typer.prompt("Login password", hide_input=True)
+    login_password = secret_prompt("Login password")
 
     # Validate password rules client-side — the server accepts any 64-char hex master
     # password, so validation must happen here before the user sees a confusing error.
@@ -182,7 +191,7 @@ def signup(
         typer.echo("", err=True)
         raise typer.Exit(code=1)
 
-    login_password_confirm = typer.prompt("Confirm login password", hide_input=True)
+    login_password_confirm = secret_prompt("Confirm login password")
     if login_password != login_password_confirm:
         typer.echo("Error: Passwords do not match", err=True)
         raise typer.Exit(code=1)
@@ -308,6 +317,40 @@ def _offer_vault_backup(username: str, master: str, no_backup: bool) -> None:
     typer.echo(f"  You are signed in as {username}.")
 
 
+def _saved_session_usable() -> bool:
+    """Can the session saved on this machine still authenticate? (login path only.)
+
+    ``is_logged_in`` is a presence-marker check and stays one — every other command
+    wants that cheap local answer. The marker alone proves nothing about the tokens
+    behind it: it survives an expiry and a revoked refresh token, which is how
+    "already logged in" outlives a session that ``psamvault restore`` killed. So ask
+    the session itself, and refresh it when its access token has already run out. A
+    successful refresh is persisted, because the server rotates a single-use token —
+    not persisting it would strand the session we just proved works.
+    """
+    try:
+        saved = load_session()
+    except typer.Exit:
+        return False
+    except Exception:  # noqa: BLE001 - anything that fails to load is not usable
+        return False
+
+    expiry = get_access_token_expiry(saved.get("access_token", ""))
+    if expiry is not None and expiry > time.time():
+        return True
+
+    try:
+        new_access, new_refresh = api_client.refresh_session_tokens(
+            saved.get("refresh_token")
+        )
+    except PsamVaultError:
+        return False
+    except Exception:  # noqa: BLE001 - never let a session probe break `login`
+        return False
+    api_client.update_tokens(new_access, new_refresh)
+    return True
+
+
 @app.command()
 def login():
     """
@@ -327,16 +370,28 @@ def login():
         raise typer.Exit(code=1)
 
     if is_logged_in():
-        overwrite = typer.confirm(
-            "You are already logged in. Log in as a different user?"
-        )
-        if not overwrite:
-            raise typer.Exit()
+        if _saved_session_usable():
+            replace = typer.confirm(
+                "  A saved session is already on this machine — signing in again"
+                " will replace it. Continue?"
+            )
+            if not replace:
+                typer.echo(
+                    "\n  Kept the saved session on this machine. Nothing was changed."
+                    "\n  → Run  psamvault logout  to drop it, then  psamvault login"
+                    "  to sign in as a different user.\n"
+                )
+                raise typer.Exit(code=0)
+        else:
+            typer.echo(
+                "\n  The saved session on this machine can no longer be refreshed,"
+                "\n  so signing in again will replace it.\n"
+            )
 
     typer.echo("Log in to psamvault\n")
 
     username = typer.prompt("Username")
-    login_password = typer.prompt("Login password", hide_input=True)
+    login_password = secret_prompt("Login password")
 
     typer.echo("")
 
@@ -351,16 +406,36 @@ def login():
         typer.echo(f"  → {exc.hint or 'Check your internet connection and PSAMVAULT_API_URL'}", err=True)
         raise typer.Exit(code=1)
     except SessionExpiredError:
-        # A 401 from /auth/login means the credentials did not match. On a fresh machine
-        # that has a *different* device pepper, the same password can never match — which
-        # is exactly the case `psamvault restore` exists for.
+        # A 401 from /auth/login means the derived password did not match the account.
+        # That is not only "a new machine": the same 401 appears after a typo, after a
+        # restore on another machine replaced the account password, and after this
+        # machine's pepper changed. Name every cause — and the way out of the stale
+        # session `login` itself leaves behind, since `restore` refuses without --force.
         typer.echo("\n  ✗ Login failed: wrong username or password.", err=True)
         typer.echo(
-            "  → On a NEW machine your login password alone is not enough (this device",
+            "  → Check for a typo: a leading or trailing space is a different password.",
             err=True,
         )
         typer.echo(
-            "     has its own key). If you backed up your vault, run:  psamvault restore\n",
+            "  → If the password is right, the account no longer matches this machine:",
+            err=True,
+        )
+        typer.echo(
+            "     • a restore on another machine replaced the account password",
+            err=True,
+        )
+        typer.echo(
+            "     • this machine's pepper changed — psamvault configure was run again,",
+            err=True,
+        )
+        typer.echo("       or the keychain pepper was replaced", err=True)
+        typer.echo("  → Get back in with your backup:  psamvault restore", err=True)
+        typer.echo(
+            "     Already have a session stored here?  psamvault restore --force",
+            err=True,
+        )
+        typer.echo(
+            "     — or  psamvault logout  first, then  psamvault login.\n",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -430,7 +505,7 @@ def migrate():
     )
 
     username = typer.prompt(" Username")
-    old_password = typer.prompt(" Current login password", hide_input=True)
+    old_password = secret_prompt(" Current login password")
 
     typer.echo("")
 

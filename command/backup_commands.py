@@ -27,6 +27,7 @@ from crypto import (
 )
 from errors import PsamVaultError, SessionExpiredError
 from error_ui import print_error
+from secret_prompt import secret_prompt
 from session import is_logged_in, load_session
 from spinner import Spinner
 
@@ -103,7 +104,7 @@ def _prompt_passphrase(confirm: bool = True) -> str:
         "\n  Store it somewhere DIFFERENT from the kit file.\n"
     )
     while True:
-        passphrase = typer.prompt("  Backup passphrase", hide_input=True)
+        passphrase = secret_prompt("  Backup passphrase")
         if len(passphrase) < BACKUP_PASSPHRASE_MIN_LENGTH:
             typer.echo(
                 f"  Error: use at least {BACKUP_PASSPHRASE_MIN_LENGTH} characters.\n", err=True
@@ -111,7 +112,7 @@ def _prompt_passphrase(confirm: bool = True) -> str:
             continue
         if not confirm:
             return passphrase
-        again = typer.prompt("  Confirm passphrase", hide_input=True)
+        again = secret_prompt("  Confirm passphrase")
         if passphrase != again:
             typer.echo("  Error: passphrases do not match.\n", err=True)
             continue
@@ -222,7 +223,7 @@ def backup_verify(
             typer.echo(f"  Error: {exc}", err=True)
             raise typer.Exit(code=1)  # pylint: disable=raise-missing-from
 
-        passphrase = typer.prompt("  Backup passphrase for this kit", hide_input=True)
+        passphrase = secret_prompt("  Backup passphrase for this kit")
         try:
             recovered = unwrap_vek_with_passphrase(
                 passphrase,
@@ -241,7 +242,7 @@ def backup_verify(
             raise typer.Exit(code=1)
         slot_label = parsed.get("slot_id")
     else:
-        passphrase = typer.prompt("  Backup passphrase", hide_input=True)
+        passphrase = secret_prompt("  Backup passphrase")
         account = _account_name(session)
         try:
             with Spinner("Checking the server-side slot"):

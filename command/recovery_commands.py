@@ -14,6 +14,7 @@ from crypto import (
     hash_recovery_code
 )
 
+from secret_prompt import secret_prompt
 from session import load_session, save_session, is_logged_in
 from spinner import Spinner
 
@@ -124,10 +125,7 @@ def generate_codes():
     
     typer.echo("")
     
-    login_password = typer.prompt(
-        "  Confirm your current login password",
-        hide_input=True
-    )
+    login_password = secret_prompt("  Confirm your current login password")
 
     # Verify the password by attempting to decrypt the stored VEK.
     # If decryption succeeds, the password is correct and we have the VEK.
@@ -264,8 +262,8 @@ def recover():
     # Step 3 — set a new login password
     typer.echo(" Set a new login password\n")
     
-    new_login_password = typer.prompt(" New login password", hide_input=True)
-    new_login_password_confirm = typer.prompt(" Confirm new login password", hide_input=True)
+    new_login_password = secret_prompt(" New login password")
+    new_login_password_confirm = secret_prompt(" Confirm new login password")
     
     if new_login_password != new_login_password_confirm:
         typer.echo(" \n Error: Passwords do not match", err=True)
