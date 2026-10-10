@@ -12,6 +12,7 @@
 
 - feat(dashboard): tabs and search stay in the browser, and `pv dashboard` reads the OS keychain once per process instead of on every click
 - feat(dashboard): the logged-out page can sign in, reset a forgotten password with one recovery code, and restore a new or wiped machine from a backup passphrase or a kit file. Sign out revokes the server session as well as the local one. Recovery codes can be replaced after the login password is confirmed, and the new codes are shown once. The vault key and the tokens stay on this computer
+- feat(prompts): one helper reads every hidden secret prompt, and `PSAMVAULT_SHOW_SECRETS=1` makes the login password, the backup passphrase and the other fifteen hidden prompts visible instead of hidden
 
 ## Changed
 
@@ -25,6 +26,10 @@
 - fix(api-client): the API key list walks every server page, so a key past the first page is still found
 - fix(dashboard): an expired session can be retried, or signed in, reset with a recovery code, or restored on the page. Retry still re-reads the keychain
 - fix(session): a refresh that lost the token rotation to another client no longer reports the session as expired - the CLI re-reads the keychain store and retries with the newer token, and only an unchanged store is treated as a dead chain
+- fix(login): a failed login names the real causes - a typo (a leading or trailing space is a different password), an account password replaced by a restore on another machine, or a pepper changed on this machine - and the way out, `psamvault restore --force` or `psamvault logout` first, instead of presuming a new machine
+- fix(login): the saved session is checked before anything is asked - one that can no longer refresh goes straight to the username and password prompts, and declining to replace a working one prints what was kept plus `psamvault logout`, instead of exiting 0 in silence
+- fix(restore): the warning that a restore replaces the login password for the whole account and signs out every other machine now prints before the first change and again in the success text
+- fix(prompts): a hidden prompt with no terminal to read from fails immediately with a non-zero exit and says it cannot be answered, instead of blocking for ever printing nothing
 
 ## Docs
 
@@ -37,3 +42,4 @@
 - docs(guides): a backup & recovery runbook that states what a new machine needs and does not need, what restore changes, and how to prove a backup without a destructive real restore
 - docs(fix): the docs showed `psamvault setup` for first-run setup — the command is `psamvault configure`
 - docs(fix): the source-install instructions said `cd psamvault-cli/cli`; the clone root is the package root
+- docs(reference): the command reference records the account-wide effect of a restore and the real login-failure causes, and the configuration reference documents `PSAMVAULT_SHOW_SECRETS`
