@@ -19,6 +19,7 @@ from command.export_command import app as export_app
 from command.note_commands import app as note_app
 from command.note_commands import note_add, note_get, note_list, note_delete, note_update
 from command.backup_commands import app as backup_app
+from command.claim_commands import pending as pending_cmd
 from command.restore_command import restore
 
 from update_check import start_update_check, print_update_notice
@@ -210,6 +211,7 @@ app.command("note-delete")(note_delete)
 app.command("note-update")(note_update)
 app.command("restore")(restore)
 app.command("approve")(approve_cmd)
+app.command("pending")(pending_cmd)
 
 if __name__ == "__main__":
     start_update_check()

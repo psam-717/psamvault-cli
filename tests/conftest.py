@@ -11,6 +11,7 @@ import pytest
 import ancestry
 import audit
 import caller
+import pending_store
 import policy
 import session
 
@@ -59,6 +60,10 @@ def _guardrail_safe_environment(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(policy, "POLICY_FILE", tmp_path / "policy.json")
     monkeypatch.setattr(audit, "AUDIT_FILE", tmp_path / "audit.jsonl")
+    # Pending claims are created by the ingress tests, so the directory has to
+    # point somewhere disposable too — otherwise a "creates a claim" test writes
+    # a real claim into the user's own ~/.psamvault/pending.
+    monkeypatch.setattr(pending_store, "PENDING_DIR", tmp_path / "pending")
 
 
 @pytest.fixture
