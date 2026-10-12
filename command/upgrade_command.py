@@ -11,7 +11,15 @@ from update_check import (
     is_source_install,
     _get_git_root,
 )
-from upgrade_utils import git_repo_state, is_pipx_editable, snapshot_state, stash_and_pull
+from upgrade_utils import (
+    git_repo_state,
+    is_pipx_editable,
+    pipx_installed_version,
+    pipx_main_package,
+    running_from_pipx_venv,
+    snapshot_state,
+    stash_and_pull,
+)
 
 app = typer.Typer(name="upgrade", help="Upgrade psamvault to the latest version")
 
@@ -153,7 +161,45 @@ def _upgrade_source() -> None:
     typer.echo("  Done. Run  psamvault changelog  to see what's new.\n")
 
 
-# ── PyPI track (pipx upgrade) ───────────────────────────────────────────
+# ── PyPI track (pipx, in place) ─────────────────────────────────────────────
+
+
+def _run_pipx(args: list[str]):
+    """Run pipx, returning None when pipx is not installed at all."""
+    try:
+        return subprocess.run(["pipx", *args], check=False)
+    except FileNotFoundError:
+        return None
+
+
+def _pinned_reinstall(latest: str, *, reason: str) -> None:
+    """Reinstall the pinned version from PyPI — the venv-RECREATING route.
+
+    Safe only from outside the venv it rebuilds: a caller running from that venv
+    cannot replace its own interpreter (Windows locks the running image), so
+    there the command is printed for a human to run once this process exits.
+    """
+    if running_from_pipx_venv("psamvault"):
+        typer.echo(
+            f"\n  Error: {reason},\n"
+            "  and the pinned reinstall cannot run from here either: it recreates\n"
+            "  the venv psamvault is running from.\n"
+            "  Run this once, after this command exits:\n"
+            f"    pipx install --force psamvault=={latest}\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\n  Retrying with a pinned reinstall:  pipx install --force psamvault=={latest}")
+    result = _run_pipx(["install", "--force", f"psamvault=={latest}"])
+    if result is None or result.returncode != 0:
+        how = "pipx is not available" if result is None else f"exit code {result.returncode}"
+        typer.echo(
+            f"\n  Error: the pinned reinstall failed ({how}).\n"
+            f"  Retry manually:  pipx install --force psamvault=={latest}\n",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 def _upgrade_pypi() -> None:
@@ -195,16 +241,15 @@ def _upgrade_pypi() -> None:
         raise typer.Exit()
 
     typer.echo("")
-    typer.echo(f"  Installing psamvault=={latest} from PyPI (pinned force install)...")
+    # Upgrade IN PLACE, never by recreating the venv. This process runs from the
+    # very venv a reinstall would rebuild, and Windows locks a running image, so
+    # `pipx install --force psamvault==<latest>` rewrites <venv>\Scripts\python.exe
+    # and dies on "os error 32 - being used by another process".
+    typer.echo("  Upgrading in place (pipx upgrade psamvault)...")
 
-    try:
-        result = subprocess.run(
-            ["pipx", "install", "--force", f"psamvault=={latest}"],
-            capture_output=False,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
+    result = _run_pipx(["upgrade", "psamvault"])
+
+    if result is None:
         typer.echo(
             "  Error: pipx is not installed or not on your PATH.\n"
             "  To upgrade manually:\n"
@@ -215,12 +260,18 @@ def _upgrade_pypi() -> None:
         raise typer.Exit(code=1)
 
     if result.returncode != 0:
-        typer.echo(
-            f"\n  Error: pipx install failed (exit code {result.returncode}).\n"
-            f"  Retry manually:  pipx install --force psamvault=={latest}\n",
-            err=True,
+        _pinned_reinstall(latest, reason=f"pipx upgrade failed (exit code {result.returncode})")
+
+    landed = pipx_installed_version("psamvault")
+    if not landed or version_tuple(landed) < version_tuple(latest):
+        source = pipx_main_package("psamvault").get("package_or_url") or "unknown"
+        _pinned_reinstall(
+            latest,
+            reason=(
+                f"pipx still reports v{landed or 'unknown'} after the in-place upgrade "
+                f"(recorded source: {source})"
+            ),
         )
-        raise typer.Exit(code=1)
 
     set_last_seen_version(latest)
     typer.echo(f"\n  psamvault upgraded to v{latest} successfully.\n")
