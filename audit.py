@@ -38,6 +38,8 @@ DECISION_ALLOW = "allow"
 DECISION_DENY = "deny"
 DECISION_APPROVED = "approved"
 DECISION_MINTED = "minted"
+# A discovery command ran and revealed nothing; the row records who asked.
+DECISION_DISCOVERY = "discovery"
 
 
 def _rotate(path: Path) -> None:
