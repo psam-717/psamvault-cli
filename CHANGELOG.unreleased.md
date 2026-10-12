@@ -10,14 +10,15 @@
 
 ## Fixed
 
-- fix(upgrade): the PyPI track upgrades in place (`pipx upgrade psamvault`) instead of a pinned force install — the force install recreated the venv, rewriting the `python.exe` psamvault was running from, and failed on Windows with `os error 32`; the pinned reinstall now runs only from outside that venv, or is printed to run once the process exits
-- fix(upgrade): the upgrade is confirmed by reading the version back from pipx, so an install whose recorded source is not the PyPI registry reports what it found instead of reporting success
+- fix(upgrade): the registry track upgrades in place through the tool that owns the install — `pipx upgrade psamvault`, or `uv tool upgrade psamvault` for a uv tool install — instead of a pinned force install that rebuilt the environment, which on Windows either died on the locked interpreter (pipx, `os error 32`) or left psamvault unimportable (uv, `os error 5`)
+- fix(upgrade): an install that neither pipx nor uv tool owns is refused with guidance instead of being re-installed with pipx, which left two copies of the command shadowing each other on PATH
+- fix(upgrade): the upgrade is confirmed by reading the version back from the owning tool, so a recorded source that is not the PyPI registry — or a uv install uv reports as pinned, where uv prints nothing to upgrade and exits 0 — is reported instead of passed off as success
 
 ## Tests
 
-- test(upgrade): pin the in-place pipx track — no venv-recreating install from inside the venv, the after-exit command, and the version read-back
-- test(upgrade): cover the pipx introspection helpers (recorded version, venv dir, running from the venv)
+- test(upgrade): pin both in-place routes (pipx and uv tool) and the guard that stops the environment from being rebuilt while psamvault is running from it
+- test(upgrade): cover install-manager detection, the version read-back and the environment guard
 
 ## Docs
 
-- docs(upgrading): document the in-place pipx track, the `os error 32` cause, and the two situations where the pinned reinstall is still reached
+- docs(upgrading): document the registry track (pipx / uv tool), the `os error 32` and `os error 5` causes, and the situations in which the rebuilding reinstall is reached
