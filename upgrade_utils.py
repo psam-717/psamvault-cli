@@ -12,9 +12,11 @@ Hermes-style upgrade behaviour for source installs:
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 BACKUP_DIR_NAME = "backups"
@@ -184,7 +186,56 @@ def stash_and_pull(repo_root: Path) -> dict:
     return {"ok": True, "stashed": stashed, "conflict": False, "message": ""}
 
 
-# ── pipx introspection (PyPI track) ─────────────────────────────────────────
+# ── install-manager introspection (PyPI track) ──────────────────────────────
+
+MANAGER_PIPX = "pipx"
+MANAGER_UV = "uv"
+
+_UV_TOOL_LINE = re.compile(r"^(?P<name>\S+)\s+v(?P<version>\S+)(?:\s+\((?P<dir>.+)\))?$")
+
+
+@dataclass(frozen=True)
+class InstallInfo:
+    """Which tool owns this psamvault install, and what that tool records.
+
+    ``venv_dir`` is the environment the owning tool would rebuild, which is what
+    decides whether a recreating reinstall may run at all (see
+    :func:`running_from_venv`).
+    """
+
+    manager: str | None = None  # MANAGER_PIPX | MANAGER_UV | None
+    version: str | None = None
+    venv_dir: Path | None = None
+    editable: bool = False
+    source: str = ""  # the recorded requirement / package_or_url
+
+    @property
+    def known(self) -> bool:
+        return self.manager is not None
+
+
+def in_place_upgrade_argv(manager: str, package: str = "psamvault") -> list[str]:
+    """The command that upgrades IN PLACE — installs into the existing environment."""
+    if manager == MANAGER_PIPX:
+        return ["pipx", "upgrade", package]
+    if manager == MANAGER_UV:
+        return ["uv", "tool", "upgrade", package]
+    raise ValueError(f"unknown install manager: {manager!r}")
+
+
+def recreate_install_command(manager: str, version: str, package: str = "psamvault") -> str:
+    """The command that REBUILDS the environment from the registry.
+
+    Never runnable from inside the environment it replaces: pipx cannot overwrite
+    the running ``python.exe`` (os error 32), and uv removes the environment
+    directory before reinstalling and gives up part-way (os error 5), leaving the
+    tool broken. Print it, or run it from a process outside that environment.
+    """
+    if manager == MANAGER_PIPX:
+        return f"pipx install --force {package}=={version}"
+    if manager == MANAGER_UV:
+        return f"uv tool install --force {package}=={version}"
+    raise ValueError(f"unknown install manager: {manager!r}")
 
 
 def _pipx_json() -> dict:
@@ -209,31 +260,8 @@ def pipx_main_package(package: str = "psamvault") -> dict:
         return {}
 
 
-def is_pipx_editable(package: str = "psamvault") -> bool:
-    """Return True when pipx reports the package as an editable/source install.
-
-    ``pipx upgrade`` cannot upgrade an editable install in place — it fails or
-    silently drops the source link. Detect first so the CLI can explain.
-    """
-    main_pkg = pipx_main_package(package)
-    if main_pkg.get("editable"):
-        return True
-    package_or_url = str(main_pkg.get("package_or_url", ""))
-    return package_or_url.startswith(("file://", "git+file://"))
-
-
-def pipx_installed_version(package: str = "psamvault") -> str | None:
-    """The version pipx records for the package — read back, never assumed.
-
-    Read from pipx, not from this process's own metadata: the interpreter that
-    ran an upgrade still has the pre-upgrade distribution on sys.path.
-    """
-    version = pipx_main_package(package).get("package_version")
-    return str(version) if version else None
-
-
-def pipx_venv_dir(package: str = "psamvault") -> Path | None:
-    """The venv pipx keeps for `package`, or None when pipx cannot say."""
+def _pipx_home_venv(package: str) -> Path | None:
+    """`<PIPX_HOME>/venvs/<package>`, the fallback when no app path is recorded."""
     try:
         r = subprocess.run(
             ["pipx", "environment", "--value", "PIPX_HOME"],
@@ -246,33 +274,101 @@ def pipx_venv_dir(package: str = "psamvault") -> Path | None:
             return Path(home) / "venvs" / package
     except Exception:
         pass
-    for entry in pipx_main_package(package).get("app_paths") or []:
-        raw = entry.get("__Path__") if isinstance(entry, dict) else entry
-        if raw:
-            return Path(str(raw)).parent.parent
     return None
 
 
-def running_from_pipx_venv(
-    package: str = "psamvault", *, executable: Path | None = None
-) -> bool:
-    """True when this process runs from the pipx venv a reinstall would rebuild.
+def _pipx_info(package: str = "psamvault") -> InstallInfo:
+    main = pipx_main_package(package)
+    if not main:
+        return InstallInfo()
+    source = str(main.get("package_or_url", ""))
+    venv_dir = None
+    for entry in main.get("app_paths") or []:
+        raw = entry.get("__Path__") if isinstance(entry, dict) else entry
+        if raw:
+            venv_dir = Path(str(raw)).parent.parent
+            break
+    if venv_dir is None:
+        venv_dir = _pipx_home_venv(package)
+    return InstallInfo(
+        manager=MANAGER_PIPX,
+        version=str(main["package_version"]) if main.get("package_version") else None,
+        venv_dir=venv_dir,
+        editable=bool(main.get("editable")) or source.startswith(("file://", "git+file://")),
+        source=source,
+    )
 
-    Windows locks a running executable's image, so ``pipx install --force`` —
-    the route that recreates the venv and rewrites ``Scripts\\python.exe`` —
-    dies with "os error 32, being used by another process" when the CLI that
-    triggered it runs from that same venv. False when pipx cannot say: the
-    caller then reports the failure instead of guessing.
+
+def uv_tool_info(package: str = "psamvault") -> InstallInfo:
+    """What `uv tool list --show-paths` records for `package` (empty when uv has no such tool)."""
+    try:
+        r = subprocess.run(
+            ["uv", "tool", "list", "--show-paths"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            return InstallInfo()
+        for line in (r.stdout or "").splitlines():
+            match = _UV_TOOL_LINE.match(line.strip())
+            if match and match.group("name") == package:
+                raw_dir = match.group("dir")
+                return InstallInfo(
+                    manager=MANAGER_UV,
+                    version=match.group("version"),
+                    venv_dir=Path(raw_dir) if raw_dir else None,
+                )
+    except Exception:
+        return InstallInfo()
+    return InstallInfo()
+
+
+def install_info(package: str = "psamvault") -> InstallInfo:
+    """Which manager owns this install — pipx first, then uv tool ({} when neither)."""
+    info = _pipx_info(package)
+    return info if info.known else uv_tool_info(package)
+
+
+def manager_version(manager: str, package: str = "psamvault") -> str | None:
+    """The version the owning manager records — a read-back after an upgrade.
+
+    Read from the manager, never from this process's own metadata: the
+    interpreter that ran an upgrade still has the pre-upgrade distribution on
+    sys.path, so an in-process read reports the version that was there before.
     """
-    venv = pipx_venv_dir(package)
-    if venv is None:
+    if manager == MANAGER_PIPX:
+        return _pipx_info(package).version
+    if manager == MANAGER_UV:
+        return uv_tool_info(package).version
+    return None
+
+
+def is_pipx_editable(package: str = "psamvault") -> bool:
+    """Return True when pipx reports the package as an editable/source install.
+
+    ``pipx upgrade`` cannot upgrade an editable install in place — it fails or
+    silently drops the source link. Detect first so the CLI can explain.
+    """
+    return _pipx_info(package).editable
+
+
+def running_from_venv(venv_dir: Path | None, *, executable: Path | None = None) -> bool:
+    """True when this process's interpreter lives inside `venv_dir`.
+
+    A recreating reinstall must not run then: Windows locks a running image, so
+    the rebuild either cannot replace ``Scripts\\python.exe`` or — uv — removes
+    the environment first and leaves the tool unimportable. False when the
+    environment is unknown, so callers report instead of guessing.
+    """
+    if venv_dir is None:
         return False
     candidate = Path(executable) if executable is not None else Path(sys.executable)
     try:
         candidate = candidate.resolve()
-        venv = venv.resolve()
+        venv_dir = venv_dir.resolve()
     except OSError:
         pass
     inside = os.path.normcase(os.path.normpath(str(candidate)))
-    root = os.path.normcase(os.path.normpath(str(venv)))
+    root = os.path.normcase(os.path.normpath(str(venv_dir)))
     return inside == root or inside.startswith(root.rstrip("\\/") + os.sep)
