@@ -16,7 +16,8 @@ Gated actions: ``get``, ``ak-get``, ``note-get``, ``export --plaintext``, plus
 ``--copy`` on any of them (the same call site covers both — the clipboard is a
 reveal). Discovery is never gated: ``list``, ``site-list``, ``ak-list``,
 ``note-list``, ``whoami`` and ``check_credential_exists`` stay open, because an
-agent must be able to see *what* exists.
+agent must be able to see *what* exists — and ``search`` reveals no value to anyone
+at all (:class:`Discovery`), so it needs no gate.
 
 What this is and is not: a guardrail, not a boundary. An agent that already has
 a shell *and* the user's keychain can read Windows Credential Manager, import
@@ -150,61 +151,71 @@ def require_reveal(
         signals=list(verdict.signals),
         reason="policy",
     )
-class DiscoveryReveal:
-    """The value half of a discovery command such as ``search``.
+class Discovery:
+    """The value rule for a discovery command such as ``search``.
 
-    ``search`` matches many entries at once and stays useful without their secrets, so it
-    cannot use :func:`require_reveal`: that refuses the whole command and spends an approval
-    named for one entry. The decision is taken once per invocation instead, at caller level,
-    and the command prints each entry with the value it may not show replaced by a marker.
-    The withheld values are counted, and the invocation writes ONE audit row — the attempt is
-    the trail, not one line per match.
+    A discovery command matches many entries at once and stays useful without their
+    secrets, so it never prints one — for any caller, under any policy mode. The value
+    needs the reveal path for that entry (``get`` / ``ak-get`` / ``note-get``), which is
+    decided and audited per entry; a search is not a bulk reveal.
+
+    The invocation writes ONE audit row naming the caller. No policy decision is taken
+    here, because nothing is revealed either way — which is also why an approval token
+    can never be spent by a search: an approval names one entry, and a search covers many.
     """
 
-    HIDDEN = "[not displayed for this caller]"
-    HINT = (
-        "the value needs a reveal: run the matching get / ak-get / note-get in your own "
-        "terminal, or  psamvault approve <entry> --for-agent, or a capability "
+    #: Which command reveals a match, per kind of entry.
+    REVEAL_COMMAND = {"site": "get", "api-key": "ak-get", "note": "note-get"}
+
+    #: The marker for a secondary free-text field, where the entry's own value line has
+    #: already named the command that reveals it.
+    HIDDEN = "hidden"
+
+    #: Printed once, only for a caller that cannot run the reveal path itself.
+    AGENT_FOOTER = (
+        "→ to use a value without revealing it: the psamvault MCP capabilities "
         "(use_credential, run_with_credential, browser_login)"
     )
 
     def __init__(
         self,
-        action: str,
+        action: str = "search",
         *,
-        policy: policy_module.Policy | None = None,
         verdict: caller.CallerVerdict | None = None,
         with_ancestry: bool = True,
     ) -> None:
         self.action = action
-        self.policy = policy if policy is not None else policy_module.load()
         self.verdict = verdict if verdict is not None else caller.classify(with_ancestry=with_ancestry)
-        decision = policy_module.decide(self.policy, self.verdict.verdict, None)
-        self.allowed = decision != policy_module.DENY
-        self.withheld = 0
 
-    def value_allowed(self) -> bool:
-        """True when this caller may see a matched value here; counts the ones they may not.
+    @property
+    def is_agent(self) -> bool:
+        return self.verdict.verdict == caller.VERDICT_AGENT
 
-        The per-entry allowlist is deliberately not consulted: an allowlist entry is a
-        one-entry reveal, and a search covers every match at once.
+    def hidden_line(self, kind: str, name: str) -> str:
+        """Stand-in for a value: how THIS entry is revealed, phrased for this caller.
+
+        An agent is told to hand it to the human, because the command is refused for an
+        agent — a hint that names a command the caller cannot run is a dead end.
         """
-        if self.allowed:
-            return True
-        self.withheld += 1
-        return False
-
-    def hint(self) -> str:
-        return self.HINT
+        command = f"psamvault {self.REVEAL_COMMAND[kind]} {_argument(name)}"
+        if self.is_agent:
+            return f"{self.HIDDEN} — the human runs  {command}"
+        return f"{self.HIDDEN} — run  {command}"
 
     def close(self) -> None:
-        """Write the single audit row for this invocation."""
+        """Write the single audit row for this invocation: it revealed nothing."""
+        policy = policy_module.load()
         audit.record(
             command=self.action,
-            decision=audit.DECISION_DENY if self.withheld else audit.DECISION_ALLOW,
+            decision=audit.DECISION_DISCOVERY,
             caller=self.verdict.verdict,
             entry=None,
             signals=list(self.verdict.signals),
             tty=self.verdict.tty,
-            policy_mode=self.policy.reveal,
+            policy_mode=policy.reveal,
         )
+
+
+def _argument(name: str) -> str:
+    """An entry name as a copy-pasteable command argument, quoted when it needs it."""
+    return f'"{name}"' if any(character.isspace() for character in name) else name
