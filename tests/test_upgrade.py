@@ -255,12 +255,13 @@ def test_running_from_venv_false_when_the_environment_is_unknown():
     assert upgrade_utils.running_from_venv(None) is False
 
 
-def test_uv_tool_info_reads_the_version_and_the_environment(monkeypatch):
+def test_uv_tool_info_reads_the_version_and_the_environment(tmp_path, monkeypatch):
+    tool_dir = tmp_path / "tools" / "psamvault"
     payload = (
-        "psamvault v0.5.6 (C:\\tools\\psamvault)\n"
-        "- psamvault (C:\\bin\\psamvault.exe)\n"
-        "- pv (C:\\bin\\pv.exe)\n"
-        "twine v7.0.0 (C:\\tools\\twine)\n"
+        f"psamvault v0.5.6 ({tool_dir})\n"
+        "- psamvault (/bin/psamvault)\n"
+        "- pv (/bin/pv)\n"
+        "twine v7.0.0 (/tools/twine)\n"
     )
     monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_env(payload))
 
@@ -268,7 +269,7 @@ def test_uv_tool_info_reads_the_version_and_the_environment(monkeypatch):
 
     assert info.manager == "uv"
     assert info.version == "0.5.6"
-    assert info.venv_dir == Path("C:/tools/psamvault")
+    assert info.venv_dir == tool_dir
 
 
 def test_uv_tool_info_empty_when_uv_does_not_own_the_package(monkeypatch):
@@ -281,31 +282,34 @@ def test_uv_tool_info_empty_when_uv_is_missing(monkeypatch):
     assert upgrade_utils.uv_tool_info().known is False
 
 
-def test_install_info_reads_pipx_environment_from_the_recorded_app_path(monkeypatch):
+def test_install_info_reads_pipx_environment_from_the_recorded_app_path(tmp_path, monkeypatch):
+    venv_dir = tmp_path / "pipx" / "venvs" / "psamvault"
     payload = json.dumps({"venvs": {"psamvault": {"metadata": {"main_package": {
         "package_or_url": "psamvault", "package_version": "0.5.6",
-        "app_paths": [{"__Path__": "C:\\pipx\\venvs\\psamvault\\Scripts\\psamvault.exe"}]}}}}})
+        "app_paths": [{"__Path__": str(venv_dir / "Scripts" / "psamvault.exe")}]}}}}})
     monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run(payload))
 
     info = upgrade_utils.install_info()
 
     assert info.manager == "pipx"
     assert info.version == "0.5.6"
-    assert info.venv_dir == Path("C:/pipx/venvs/psamvault")
+    assert info.venv_dir == venv_dir
 
 
-def test_install_info_falls_back_to_uv_when_pipx_does_not_know_the_package(monkeypatch):
+def test_install_info_falls_back_to_uv_when_pipx_does_not_know_the_package(tmp_path, monkeypatch):
+    tool_dir = tmp_path / "tools" / "psamvault"
+
     def _run(cmd, **kwargs):
         if list(cmd)[:2] == ["pipx", "list"]:
             return subprocess.CompletedProcess(cmd, 0, json.dumps({"venvs": {}}), "")
-        return subprocess.CompletedProcess(cmd, 0, "psamvault v0.5.6 (C:\\tools\\psamvault)\n", "")
+        return subprocess.CompletedProcess(cmd, 0, f"psamvault v0.5.6 ({tool_dir})\n", "")
     monkeypatch.setattr("upgrade_utils.subprocess.run", _run)
 
     info = upgrade_utils.install_info()
 
     assert info.manager == "uv"
     assert info.version == "0.5.6"
-    assert info.venv_dir == Path("C:/tools/psamvault")
+    assert info.venv_dir == tool_dir
 
 
 def test_install_info_unknown_when_no_manager_owns_it(monkeypatch):
