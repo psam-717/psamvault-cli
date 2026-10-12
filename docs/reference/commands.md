@@ -221,9 +221,9 @@ Searches **site credentials**, **API keys** and **secure notes**. Matching entri
 |---|---|
 | `query` *(required)* | Search term — matches site name, username, and notes |
 
-Results print the decrypted password, the key value and the note content — **but only for a caller the [reveal policy](#agent-guardrail-commands) allows to reveal**. A caller that may not (an agent, or a script with no terminal) still gets every match, with `[not displayed for this caller]` where the value would be, and the invocation writes one audited deny row; the value itself stays with `get` / `ak-get` / `note-get` and `approve`. Use `psamvault list` to see *what* exists without decrypting anything at all. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it.
+**Results never print a value, for any caller.** A discovery command shows *what* matched; the value needs the reveal path — `get`, `ak-get` or `note-get` — which is decided and audited per entry. Each hidden line names that command (`hidden — run  psamvault get github.com`; a name containing a space is quoted). An agent is told to hand it to the human instead, because the reveal path is refused for an agent. Free-text fields obey the same rule, so a break-glass code kept in an entry's notes is not printed either. Each invocation writes one audited `discovery` row naming the caller, and never spends an approval. Use `psamvault list` to see *what* exists without decrypting anything at all. An API key stored as `project/.env/KEY` is named by its leaf with its project and source, the same way `ak-list` names it — and the reveal hint names the full stored name, which `ak-get` always accepts.
 
-**When to run it:** when you remember what an entry is *about* but not its exact name.
+**When to run it:** when you remember what an entry is *about* but not its exact name — then reveal the match with the `get` / `ak-get` / `note-get` command it prints.
 
 ### psamvault update
 
