@@ -11,8 +11,10 @@ Hermes-style upgrade behaviour for source installs:
 """
 import datetime
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 BACKUP_DIR_NAME = "backups"
@@ -182,7 +184,29 @@ def stash_and_pull(repo_root: Path) -> dict:
     return {"ok": True, "stashed": stashed, "conflict": False, "message": ""}
 
 
-# ── pipx editable detection (PyPI track) ────────────────────────────────────
+# ── pipx introspection (PyPI track) ─────────────────────────────────────────
+
+
+def _pipx_json() -> dict:
+    """Parsed `pipx list --json`, or {} when pipx cannot answer."""
+    try:
+        r = subprocess.run(
+            ["pipx", "list", "--json"], capture_output=True, text=True, timeout=30
+        )
+        if r.returncode != 0:
+            return {}
+        return json.loads(r.stdout or "{}")
+    except Exception:
+        return {}
+
+
+def pipx_main_package(package: str = "psamvault") -> dict:
+    """pipx's recorded main-package metadata for `package` ({} when unknown)."""
+    try:
+        meta = _pipx_json().get("venvs", {}).get(package, {}).get("metadata", {}) or {}
+        return meta.get("main_package", {}) or {}
+    except Exception:
+        return {}
 
 
 def is_pipx_editable(package: str = "psamvault") -> bool:
@@ -191,18 +215,64 @@ def is_pipx_editable(package: str = "psamvault") -> bool:
     ``pipx upgrade`` cannot upgrade an editable install in place — it fails or
     silently drops the source link. Detect first so the CLI can explain.
     """
+    main_pkg = pipx_main_package(package)
+    if main_pkg.get("editable"):
+        return True
+    package_or_url = str(main_pkg.get("package_or_url", ""))
+    return package_or_url.startswith(("file://", "git+file://"))
+
+
+def pipx_installed_version(package: str = "psamvault") -> str | None:
+    """The version pipx records for the package — read back, never assumed.
+
+    Read from pipx, not from this process's own metadata: the interpreter that
+    ran an upgrade still has the pre-upgrade distribution on sys.path.
+    """
+    version = pipx_main_package(package).get("package_version")
+    return str(version) if version else None
+
+
+def pipx_venv_dir(package: str = "psamvault") -> Path | None:
+    """The venv pipx keeps for `package`, or None when pipx cannot say."""
     try:
         r = subprocess.run(
-            ["pipx", "list", "--json"], capture_output=True, text=True, timeout=30
+            ["pipx", "environment", "--value", "PIPX_HOME"],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
-        if r.returncode != 0:
-            return False
-        data = json.loads(r.stdout or "{}")
-        meta = data.get("venvs", {}).get(package, {}).get("metadata", {})
-        main_pkg = meta.get("main_package", {}) or {}
-        if main_pkg.get("editable"):
-            return True
-        package_or_url = str(main_pkg.get("package_or_url", ""))
-        return package_or_url.startswith(("file://", "git+file://"))
+        home = (r.stdout or "").strip()
+        if r.returncode == 0 and home:
+            return Path(home) / "venvs" / package
     except Exception:
+        pass
+    for entry in pipx_main_package(package).get("app_paths") or []:
+        raw = entry.get("__Path__") if isinstance(entry, dict) else entry
+        if raw:
+            return Path(str(raw)).parent.parent
+    return None
+
+
+def running_from_pipx_venv(
+    package: str = "psamvault", *, executable: Path | None = None
+) -> bool:
+    """True when this process runs from the pipx venv a reinstall would rebuild.
+
+    Windows locks a running executable's image, so ``pipx install --force`` —
+    the route that recreates the venv and rewrites ``Scripts\\python.exe`` —
+    dies with "os error 32, being used by another process" when the CLI that
+    triggered it runs from that same venv. False when pipx cannot say: the
+    caller then reports the failure instead of guessing.
+    """
+    venv = pipx_venv_dir(package)
+    if venv is None:
         return False
+    candidate = Path(executable) if executable is not None else Path(sys.executable)
+    try:
+        candidate = candidate.resolve()
+        venv = venv.resolve()
+    except OSError:
+        pass
+    inside = os.path.normcase(os.path.normpath(str(candidate)))
+    root = os.path.normcase(os.path.normpath(str(venv)))
+    return inside == root or inside.startswith(root.rstrip("\\/") + os.sep)
