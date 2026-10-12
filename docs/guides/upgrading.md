@@ -1,6 +1,6 @@
 ---
 title: Upgrading
-description: The pipx and source upgrade paths, pre-update state snapshots, stashing, rollback hints, and the data-vs-key distinction.
+description: The registry (pipx / uv tool) and source upgrade paths, pre-update state snapshots, stashing, rollback hints, and the data-vs-key distinction.
 order: 60
 ---
 
@@ -14,49 +14,67 @@ Check for and install the latest version from PyPI.
 psamvault upgrade
 ```
 
-Uses `pipx` under the hood. If pipx is not on your PATH, instructions are printed instead.
+Upgrades in place through the tool that owns the install — pipx, or `uv tool`. If the owning tool is not on your PATH, instructions are printed instead.
 
-`psamvault upgrade` detects your install type automatically and takes one of two paths.
+`psamvault upgrade` detects your install type automatically: the registry track (pipx or `uv tool`), or the source track.
 
-## The pipx track (PyPI install)
+## The registry track (pipx or `uv tool`)
 
-This is the path for a `pipx install psamvault` install.
+This is the path for a `pipx install psamvault` or a `uv tool install psamvault` install.
+`psamvault upgrade` asks pipx first, then `uv tool`, which of them owns the install.
 
 1. It reads the installed version and asks PyPI for the latest one. If PyPI cannot be reached, it says so and stops.
 2. If the installed version is already current, it says `psamvault is already up to date (v…).` and stops.
-3. Otherwise it names the move (`Update available: v<installed> → v<latest>`), asks `Proceed with upgrade?`, and then upgrades **in place**: `pipx upgrade psamvault`.
-4. It reads the version back from pipx and only reports success when the install really moved. If it did not — the recorded source is not the PyPI registry (a URL or a TestPyPI index, say), so the upgrade resolved to itself — it names that source and offers the reinstall below.
-5. If pipx is missing from your PATH, it prints the manual equivalent instead of failing silently:
+3. Otherwise it names the move (`Update available: v<installed> → v<latest>`), asks `Proceed with upgrade?`, and upgrades **in place** through the tool that owns the install:
+
+   | Owner | Command it runs |
+   |---|---|
+   | pipx | `pipx upgrade psamvault` |
+   | `uv tool` | `uv tool upgrade psamvault` |
+
+4. It reads the version back from that same tool and only reports success when the install really moved. If it did not — the recorded source is not the PyPI registry (a URL or a TestPyPI index, say) — it names what it found and offers the reinstall below.
+5. If neither pipx nor `uv tool` owns the install, it says so and stops, naming `pip install --upgrade psamvault` for an install made by plain pip. It never installs a second copy with a different tool: two installs of the same command shadow each other on `PATH`.
+6. If the owning tool is missing from your PATH, the manual equivalent is printed instead of failing silently:
 
    ```bash
    pip install --upgrade pipx
    pipx install --force psamvault==<latest>
    ```
 
-### Why in place — and why the reinstall is not run from here
+### Why in place — and why the rebuild is not run from here
 
-`pipx install --force psamvault==<latest>` deletes and rebuilds the venv. `psamvault upgrade`
-is itself running from that venv, and Windows locks a running executable's image, so the
-rebuild stalls on the interpreter it is trying to replace:
+`pipx install --force psamvault==<latest>` and `uv tool install --force psamvault==<latest>`
+both **rebuild the environment**, and `psamvault upgrade` is itself running from that
+environment. On Windows a running executable's image is locked, so the rebuild cannot
+replace the interpreter it is trying to replace:
 
-```
-error: Failed to create virtual environment
-  cause: failed to copy file from ...\venvlauncher.exe to ...\venvs\psamvault\Scripts\python.exe:
-         The process cannot access the file because it is being used by another process. (os error 32)
-```
+- **pipx** dies copying it, and leaves the previous install in place:
 
-`pipx upgrade` installs into the **existing** venv instead, so nothing has to replace the
-running interpreter and the upgrade works from inside it.
+  ```
+  error: Failed to create virtual environment
+    cause: failed to copy file from ...\venvlauncher.exe to ...\venvs\psamvault\Scripts\python.exe:
+           The process cannot access the file because it is being used by another process. (os error 32)
+  ```
 
-The pinned reinstall is still reached in two situations:
+- **uv** removes the environment directory first and then fails, which leaves `psamvault` unimportable until it is reinstalled:
+
+  ```
+  error: failed to remove directory `...\tools\psamvault\Scripts`: Access is denied. (os error 5)
+  ```
+
+`pipx upgrade` and `uv tool upgrade` install into the **existing** environment instead, so
+nothing has to replace the running interpreter and both work from inside it.
+
+The rebuilding reinstall is still reached in two situations:
 
 | Situation | What happens |
 |---|---|
-| Something **outside** that venv runs the upgrade (a source checkout upgrading a pipx install) | The reinstall runs automatically — the rebuild is safe there |
-| The upgrade is running **from** that venv, and the in-place route failed or the version did not move | It explains what happened and prints the command to run **after this process exits** |
+| Something **outside** that environment runs the upgrade (a source checkout upgrading a pipx install) | The reinstall runs automatically — the rebuild is safe there |
+| The upgrade is running **from** that environment and the in-place route failed, or the version did not move | It explains what happened and prints the tool's own command to run **after this process exits** |
 
 ```bash
-pipx install --force psamvault==<latest>
+pipx install --force psamvault==<latest>      # for a pipx install
+uv tool install --force psamvault==<latest>   # for a uv tool install
 ```
 
 **Editable/source-linked installs are refused on this track.** If pipx reports psamvault as an editable install, `pipx upgrade` would break that link or fail, so the command stops and tells you:
