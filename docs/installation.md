@@ -37,7 +37,7 @@ Then restart your terminal and run `pipx install psamvault`.
 
 ### Not using pipx?
 
-psamvault is published on PyPI, so any PyPI-aware installer works — `pip install psamvault`, or `uv tool install psamvault`. pipx remains the documented and supported path: it is what `psamvault upgrade` drives on the PyPI track (see [Upgrading](guides/upgrading.md)).
+psamvault is published on PyPI, so any PyPI-aware installer works — `pip install psamvault`, or `uv tool install psamvault`. `psamvault upgrade` drives whichever of pipx or `uv tool` owns the install, and pipx remains the documented default (see [Upgrading](guides/upgrading.md)).
 
 ## Install from source
 
@@ -158,9 +158,9 @@ The full layout, the keychain keys, the environment variables and the per-OS pat
 psamvault upgrade
 ```
 
-Uses `pipx` under the hood. If pipx is not on your PATH, instructions are printed instead.
+Upgrades in place through the tool that owns the install — pipx, or `uv tool`. If the owning tool is not on your PATH, instructions are printed instead.
 
-After every `pipx upgrade psamvault`, the changelog for any new versions is shown automatically on the next command you run — you never need to remember to check. The two upgrade tracks, pre-update snapshots and rollback hints are documented in [Upgrading](guides/upgrading.md).
+After every upgrade — `psamvault upgrade`, `pipx upgrade psamvault` or `uv tool upgrade psamvault` — the changelog for any new versions is shown automatically on the next command you run — you never need to remember to check. The upgrade tracks, pre-update snapshots and rollback hints are documented in [Upgrading](guides/upgrading.md).
 
 ## Uninstall
 

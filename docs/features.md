@@ -58,7 +58,7 @@ Failures are typed (`PsamVaultError`, `SessionExpiredError`) and printed as a me
 
 ## Safe upgrades
 
-`psamvault upgrade` detects whether you are on a pipx install or a source checkout and takes the matching path. On the source track it snapshots your `~/.psamvault` state first, stashes local changes, pulls, restores the stash — leaving it parked with instructions if it conflicts — then reinstalls and smoke-tests the result. Reach for it when a new version is out; the changelog for any new versions is shown automatically on the next command you run. Full detail: [Upgrading](guides/upgrading.md).
+`psamvault upgrade` detects whether you are on a pipx install, a `uv tool` install or a source checkout and takes the matching path. On the source track it snapshots your `~/.psamvault` state first, stashes local changes, pulls, restores the stash — leaving it parked with instructions if it conflicts — then reinstalls and smoke-tests the result. Reach for it when a new version is out; the changelog for any new versions is shown automatically on the next command you run. Full detail: [Upgrading](guides/upgrading.md).
 
 ## Changelog
 
