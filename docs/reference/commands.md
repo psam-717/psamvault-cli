@@ -804,7 +804,7 @@ psamvault changelog show 0.3.0   # specific version
 
 **When to run it:** after an upgrade (though the notice is automatic — see below), or before one, to see what you would be getting.
 
-After every `pipx upgrade psamvault`, the changelog for any new versions is shown automatically on the next command you run — you never need to remember to check.
+After every upgrade — `psamvault upgrade`, `pipx upgrade psamvault` or `uv tool upgrade psamvault` — the changelog for any new versions is shown automatically on the next command you run — you never need to remember to check.
 
 ### psamvault upgrade
 
@@ -814,9 +814,9 @@ Check for and install the latest version from PyPI.
 psamvault upgrade
 ```
 
-Uses `pipx` under the hood. If pipx is not on your PATH, instructions are printed instead.
+Upgrades in place through the tool that owns the install — pipx, or `uv tool`. If the owning tool is not on your PATH, instructions are printed instead.
 
-The command detects whether you are on a pipx install or a source checkout and takes the matching path — including a pre-update snapshot of your psamvault state, stashing of local changes, and rollback hints. See [Upgrading](../guides/upgrading.md).
+The command detects whether you are on a pipx install, a `uv tool` install or a source checkout and takes the matching path — including a pre-update snapshot of your psamvault state, stashing of local changes, and rollback hints. See [Upgrading](../guides/upgrading.md).
 
 **When to run it:** when a new version is out, or when the update notice tells you one is.
 
