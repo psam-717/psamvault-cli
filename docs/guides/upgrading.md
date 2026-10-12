@@ -24,13 +24,40 @@ This is the path for a `pipx install psamvault` install.
 
 1. It reads the installed version and asks PyPI for the latest one. If PyPI cannot be reached, it says so and stops.
 2. If the installed version is already current, it says `psamvault is already up to date (v…).` and stops.
-3. Otherwise it names the move (`Update available: v<installed> → v<latest>`), asks `Proceed with upgrade?`, and then runs a **pinned force install**: `pipx install --force psamvault==<latest>`.
-4. If pipx is missing from your PATH, it prints the manual equivalent instead of failing silently:
+3. Otherwise it names the move (`Update available: v<installed> → v<latest>`), asks `Proceed with upgrade?`, and then upgrades **in place**: `pipx upgrade psamvault`.
+4. It reads the version back from pipx and only reports success when the install really moved. If it did not — the recorded source is not the PyPI registry (a URL or a TestPyPI index, say), so the upgrade resolved to itself — it names that source and offers the reinstall below.
+5. If pipx is missing from your PATH, it prints the manual equivalent instead of failing silently:
 
    ```bash
    pip install --upgrade pipx
    pipx install --force psamvault==<latest>
    ```
+
+### Why in place — and why the reinstall is not run from here
+
+`pipx install --force psamvault==<latest>` deletes and rebuilds the venv. `psamvault upgrade`
+is itself running from that venv, and Windows locks a running executable's image, so the
+rebuild stalls on the interpreter it is trying to replace:
+
+```
+error: Failed to create virtual environment
+  cause: failed to copy file from ...\venvlauncher.exe to ...\venvs\psamvault\Scripts\python.exe:
+         The process cannot access the file because it is being used by another process. (os error 32)
+```
+
+`pipx upgrade` installs into the **existing** venv instead, so nothing has to replace the
+running interpreter and the upgrade works from inside it.
+
+The pinned reinstall is still reached in two situations:
+
+| Situation | What happens |
+|---|---|
+| Something **outside** that venv runs the upgrade (a source checkout upgrading a pipx install) | The reinstall runs automatically — the rebuild is safe there |
+| The upgrade is running **from** that venv, and the in-place route failed or the version did not move | It explains what happened and prints the command to run **after this process exits** |
+
+```bash
+pipx install --force psamvault==<latest>
+```
 
 **Editable/source-linked installs are refused on this track.** If pipx reports psamvault as an editable install, `pipx upgrade` would break that link or fail, so the command stops and tells you:
 
@@ -85,7 +112,7 @@ Because the sensitive material lives in the keychain rather than in `~/.psamvaul
   ```
 
 - **The dependency install fails:** the code was pulled but the package may be inconsistent; re-run `psamvault upgrade` to retry.
-- **pipx track rollback:** `pipx reinstall psamvault`, or pin a known-good version with `pipx install --force psamvault==<version>`.
+- **pipx track rollback:** `pipx reinstall psamvault`, or pin a known-good version with `pipx install --force psamvault==<version>`. Both rebuild the venv, so run them from a plain shell — not from a `psamvault` process that is using it.
 
 ## After an upgrade
 
