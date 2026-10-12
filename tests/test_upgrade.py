@@ -229,3 +229,40 @@ def test_is_pipx_editable_false_for_pypi_install(monkeypatch):
 def test_is_pipx_editable_false_when_pipx_missing(monkeypatch):
     monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run("", rc=127))
     assert upgrade_utils.is_pipx_editable() is False
+
+
+# ── pipx introspection (PyPI track) ─────────────────────────────────────────
+
+def _fake_pipx_env(value: str, rc: int = 0):
+    def _run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, rc, value, "")
+    return _run
+
+
+def test_pipx_installed_version_reads_the_recorded_version(monkeypatch):
+    payload = json.dumps({"venvs": {"psamvault": {"metadata": {"main_package": {
+        "package_or_url": "psamvault", "package_version": "0.5.6"}}}}})
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run(payload))
+    assert upgrade_utils.pipx_installed_version() == "0.5.6"
+
+
+def test_pipx_installed_version_is_none_when_pipx_cannot_say(monkeypatch):
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_run("", rc=127))
+    assert upgrade_utils.pipx_installed_version() is None
+
+
+def test_running_from_pipx_venv_true_for_the_venvs_own_interpreter(tmp_path, monkeypatch):
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_env(str(tmp_path)))
+    inside = tmp_path / "venvs" / "psamvault" / "Scripts" / "python.exe"
+    assert upgrade_utils.running_from_pipx_venv(executable=inside) is True
+
+
+def test_running_from_pipx_venv_false_for_an_interpreter_outside_it(tmp_path, monkeypatch):
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_env(str(tmp_path)))
+    outside = tmp_path / "other-place" / "python.exe"
+    assert upgrade_utils.running_from_pipx_venv(executable=outside) is False
+
+
+def test_running_from_pipx_venv_false_when_pipx_cannot_say(monkeypatch):
+    monkeypatch.setattr("upgrade_utils.subprocess.run", _fake_pipx_env("", rc=127))
+    assert upgrade_utils.running_from_pipx_venv() is False
