@@ -23,7 +23,7 @@ psamvault --version     # or -V — show the installed version
 - **Vault credentials** — site logins (username, password, notes, login URL) encrypted locally before they reach the server. [Guide](docs/reference/commands.md#vault-entry-commands)
 - **API keys** — the same sealed storage for service tokens, with service hints, notes and project grouping. [Guide](docs/reference/commands.md#api-key-commands)
 - **Secure notes** — encrypted free text for the secrets that are not a username/password pair. [Guide](docs/reference/commands.md#secure-note-commands)
-- **Search** — find an entry by site, username/service or notes; matching entries are decrypted and filtered locally, and passwords are never searched. [Guide](docs/reference/commands.md#psamvault-search)
+- **Search** — find an entry by site, username/service or notes. Nothing is searchable but the name, the username, the service, the title and the notes; matched values are never printed, and each match names the `get` / `ak-get` / `note-get` command that reveals it. [Guide](docs/reference/commands.md#psamvault-search)
 - **Secure password generation** — `secrets`-based passwords with length/symbol/digit control, and an option to store the result in one step. [Guide](docs/reference/commands.md#psamvault-generate)
 - **Browser autofill** — open the site's login page and type the saved credentials into the form, leaving the window open for 2FA. [Guide](docs/reference/commands.md#psamvault-open)
 - **Web dashboard** — browse and edit the whole vault in a browser, after authenticating through your existing CLI session. [Guide](docs/guides/web-dashboard.md)
@@ -31,7 +31,7 @@ psamvault --version     # or -V — show the installed version
 - **Backup & recovery** — a passphrase-protected copy of the vault key, stored as a server slot *and* a portable kit file, with verification that proves it restores your actual vault. [Runbook](docs/guides/backup-and-recovery.md)
 - **Export & import** — the other artifact: a data dump of the entries themselves, for server-side data loss, a deleted account, a migration or a handoff. [Guide](docs/reference/commands.md#export-and-import)
 - **Agent reveal guardrail** — the four commands that print a secret classify their caller and refuse when the caller is a program, with capabilities and a one-shot human approval as the way through. [Guide](docs/guides/agent-reveal-guardrail.md)
-- **Safe upgrades** — install-type detection, a pre-update snapshot of your state, stashed local changes and rollback hints. [Guide](docs/guides/upgrading.md)
+- **Safe upgrades** — upgrades through pipx or `uv tool` in place, without ever rebuilding the environment it is running from; pre-update snapshot of your state, stashed local changes and rollback hints. [Guide](docs/guides/upgrading.md)
 - **Typed errors** — network failures, expired sessions and wrong passphrases each say what they are and what to do next, with `-v` for the underlying detail. [Guide](docs/reference/commands.md#global-options)
 - **Command groups** — every root command also works under its group (`psamvault auth login`, `psamvault vault add`, `psamvault ak get`, …). [Guide](docs/reference/commands.md#command-groups)
 - **Changelog** — the latest version, the full history, or one specific version, plus an automatic notice after every upgrade. [Guide](docs/reference/commands.md#maintenance-and-upgrade-commands)
@@ -86,7 +86,7 @@ The threat model, the key-material table, the guardrail's measured limits and th
 | [docs/features.md](docs/features.md) | The feature map — what each capability is, and when you reach for it |
 | [docs/guides/backup-and-recovery.md](docs/guides/backup-and-recovery.md) | The runbook for a new machine or a wiped laptop, and the failure modes |
 | [docs/guides/agent-reveal-guardrail.md](docs/guides/agent-reveal-guardrail.md) | Who may print a secret, the three policy modes, and the measured limits |
-| [docs/guides/upgrading.md](docs/guides/upgrading.md) | The pipx and source upgrade tracks, state snapshots, stashing and rollback |
+| [docs/guides/upgrading.md](docs/guides/upgrading.md) | The registry (pipx / `uv tool`) and source upgrade tracks, state snapshots, stashing and rollback |
 | [docs/guides/web-dashboard.md](docs/guides/web-dashboard.md) | The dashboard: features, login flow and how it interacts with the keychain |
 | [docs/reference/commands.md](docs/reference/commands.md) | Every command and subcommand, with flags, examples and when to run it |
 | [docs/reference/configuration.md](docs/reference/configuration.md) | Every file, path and environment variable |
