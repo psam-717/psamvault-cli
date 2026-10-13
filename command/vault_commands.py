@@ -775,7 +775,7 @@ def search(
 
     typer.echo(f"\n Search results for '{query}' ({total} entr{'y' if total == 1 else 'ies'} found):\n")
 
-    reveal = reveal_gate.DiscoveryReveal("search")
+    discovery = reveal_gate.Discovery("search")
 
     # Site credentials
     if site_results:
@@ -783,12 +783,9 @@ def search(
         for entry in site_results:
             typer.echo(f"\n  Site:      {entry['site_name']}")
             typer.echo(f"  Username:  {entry['username']}")
-            if reveal.value_allowed():
-                typer.echo(f"  Password:  {entry['password']}")
-            else:
-                typer.echo(f"  Password:  {reveal_gate.DiscoveryReveal.HIDDEN}")
+            typer.echo(f"  Password:  {discovery.hidden_line('site', entry['site_name'])}")
             if entry.get("notes"):
-                typer.echo(f"  Notes:     {entry['notes']}")
+                typer.echo(f"  Notes:     {reveal_gate.Discovery.HIDDEN}")
             if entry.get("login_url"):
                 _url = entry["login_url"]
                 link = f"\033]8;;{_url}\033\\{_url}\033]8;;\033\\"
@@ -805,12 +802,10 @@ def search(
                 typer.echo(f"  Project:  {parsed['display_project']}")
                 typer.echo(f"  Source:   {parsed['source']}")
             typer.echo(f"  Service:  {entry['service']}")
-            if reveal.value_allowed():
-                typer.echo(f"  Key:      {entry['api_key']}")
-            else:
-                typer.echo(f"  Key:      {reveal_gate.DiscoveryReveal.HIDDEN}")
+            # Reveal by the STORED name: a leaf only resolves when it is unambiguous.
+            typer.echo(f"  Key:      {discovery.hidden_line('api-key', entry['name'])}")
             if entry.get("notes"):
-                typer.echo(f"  Notes:    {entry['notes']}")
+                typer.echo(f"  Notes:    {reveal_gate.Discovery.HIDDEN}")
         typer.echo()
 
     # Secure notes
@@ -820,11 +815,8 @@ def search(
             typer.echo(f"\n  Title:    {entry['title']}")
             if entry.get("category"):
                 typer.echo(f"  Category: {entry['category']}")
-            if reveal.value_allowed():
-                typer.echo(f"  Content:  {entry['content']}")
-            else:
-                typer.echo(f"  Content:  {reveal_gate.DiscoveryReveal.HIDDEN}")
+            typer.echo(f"  Content:  {discovery.hidden_line('note', entry['title'])}")
         typer.echo()
-    reveal.close()
-    if reveal.withheld:
-        typer.echo(f"\n  → {reveal.hint()}\n")
+    discovery.close()
+    if discovery.is_agent:
+        typer.echo(f"\n  {reveal_gate.Discovery.AGENT_FOOTER}\n")

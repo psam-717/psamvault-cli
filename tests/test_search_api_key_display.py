@@ -2,8 +2,10 @@
 
 A match on a project-scoped key used to print the stored name verbatim
 (`atlas054probe/.env/my_custom_key`) — the storage detail, not the entry. It now prints
-the leaf name plus the project and source that identify the row, which is also what
-`ak-get` and `ak-delete` accept.
+the leaf name plus the project and source that identify the row.
+
+The value itself is never printed (see `test_search_reveal_policy.py`), and the reveal hint
+names the STORED name — `ak-get` resolves a leaf only when it is unambiguous.
 """
 
 from unittest.mock import patch
@@ -48,18 +50,19 @@ def test_search_names_a_project_key_by_its_leaf_and_project(monkeypatch):
     ], ["search", "custom"])
     assert result.exit_code == 0, result.output
 
-    assert STORED not in result.output, "the raw stored name is still printed"
+    assert f"Name:     {STORED}" not in result.output, "the stored name is not the display name"
     assert "Name:     my_custom_key" in result.output
     assert "Project:  atlas054probe" in result.output
     assert "Source:   .env" in result.output
 
 
-def test_search_still_prints_the_key_value(monkeypatch):
-    """The display change must not turn search into a lister."""
+def test_search_never_prints_the_key_value(monkeypatch):
+    """The value is not a discovery fact — the hint names the command that reveals it."""
     result = _invoke(monkeypatch, [
         {"name": STORED, "service": "scan", "api_key": "sk-live-value", "notes": None},
     ], ["search", "custom"])
-    assert "sk-live-value" in result.output
+    assert "sk-live-value" not in result.output
+    assert f"ak-get {STORED}" in result.output
 
 
 def test_search_leaves_a_standalone_key_alone(monkeypatch):
@@ -78,4 +81,4 @@ def test_search_shows_an_unscoped_key_under_its_unscoped_project(monkeypatch):
     ], ["search", "resend"])
     assert "Name:     resend_api_key" in result.output
     assert "Project:  (unscoped)" in result.output
-    assert "env/.env/resend_api_key" not in result.output
+    assert "Name:     env/.env/resend_api_key" not in result.output

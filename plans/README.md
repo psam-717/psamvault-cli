@@ -27,6 +27,8 @@ tables below. Plans are committed with their feature's PR, not on their own.
 | [PLAN_dashboard_ui.md](active/PLAN_dashboard_ui.md) | Dashboard speed and UI — stop per-click keychain and API work, then use coss ui (Origin UI) and ReUI components | dashboard | built on `feat/dashboard-speed-and-ui`, not merged | Move to `shipped/` when the PR merges |
 | [PLAN_session_resilience.md](active/PLAN_session_resilience.md) | Session resilience — refresh-race hardening, session profiles (default + `cron`), honest failure surfaces | auth / session lifecycle | **decisions locked 2026-09-28 (4/4), no code** | Wave 1 = server row lock + client re-read-and-retry · Wave 2 = `--session`/`PSAMVAULT_SESSION` profiles and scoped `logout` · Wave 3 = `run_with_credential` error fidelity + a session-health detector |
 
+| [PLAN_search_discovery.md](active/PLAN_search_discovery.md) | `search` is a discovery command — it prints no value or free-text field for any caller; each match names the command that reveals it | agent security / CLI UX | **decisions locked 2026-10-12, build starting** | Build = chokepoint `reveal_gate.Discovery` + the `search` display, then docs |
+
 ## shipped/ — implemented
 
 | Plan | Feature | Domain | Evidence (verified) |

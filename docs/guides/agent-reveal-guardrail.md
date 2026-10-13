@@ -26,11 +26,13 @@ them (the clipboard is just as readable). Never gated: `list`, `site-list`,
 `ak-list`, `note-list`, `whoami`, `check_credential_exists` — an agent must
 always be able to see *what* exists.
 
-`search` is the one command in between. It never refuses — an agent can search — but the
-values it matched obey exactly the policy above: an agent gets the entries with
-`[not displayed for this caller]` in place of each password, key value and note content, and
-one audited `deny` row is written per invocation (a `search` never spends an approval, because
-an approval names one entry and a search covers many).
+`search` reveals nothing, to anyone — it is the discovery half of the vault, and it never
+refuses. Every match prints with the command that reveals it (`get`, `ak-get`, `note-get`),
+and no policy mode changes that: the value needs the reveal path, which is decided and
+audited per entry. A search writes one `discovery` row per invocation naming the caller, and
+never spends an approval, because an approval names one entry and a search covers many. The
+same rule covers free text, so a break-glass code kept in an entry's notes is not printed
+either — the one exception that existed before 2026-10-12 was exactly that field.
 
 ## Hand an agent one secret, once
 

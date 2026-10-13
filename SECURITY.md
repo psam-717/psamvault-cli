@@ -104,8 +104,8 @@ program. The design is deliberately layered, because each layer was measured to 
 **What it stops.** A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
 running `psamvault get` gets exit code 1 and a message naming the capability alternatives
 (`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
-(`psamvault approve <entry> --for-agent`). Every decision, allow or deny, appends a row to
-`~/.psamvault/audit.jsonl` naming the caller, the matched signal and the outcome. An agent cannot
+(`psamvault approve <entry> --for-agent`). Every decision — `allow`, `deny`, or `discovery` for a search that revealed nothing — appends a
+row to `~/.psamvault/audit.jsonl` naming the caller, the matched signal and the outcome. An agent cannot
 approve itself: `approve` requires a real terminal (both stdin and stdout on a TTY), and an
 approval covers exactly one entry for exactly one reveal.
 
