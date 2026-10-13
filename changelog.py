@@ -12,6 +12,32 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
+    "0.8.0": [
+        "New:   `psamvault upgrade` upgrades in place through whichever tool owns the install — pipx or",
+        "       `uv tool` — and detects which one it is; a `uv tool install` used to be upgraded with pipx,",
+        "       which left a second copy of `pv` and `psamvault` shadowing the first on PATH",
+        "Fixed: `psamvault upgrade` no longer rebuilds the environment it is running from: `pipx install",
+        "       --force` died on the locked interpreter (os error 32 on Windows) and `uv tool install --force`",
+        "       removed the environment and left psamvault unimportable (os error 5). The rebuilding reinstall",
+        "       runs only from outside that environment, or is printed for you to run once the command exits",
+        "Fixed: an upgrade is confirmed by reading the version back from the owning tool, so a recorded source",
+        "       that is not the PyPI registry — or a uv install uv reports as pinned, where uv prints nothing to",
+        "       upgrade and exits 0 — is reported instead of passed off as success",
+        "Changed: `search` prints no value and no free-text field, for any caller: each match names the command",
+        "       that reveals it (`get` / `ak-get` / `note-get`), so discovery and reveal are separate commands",
+        "       and every reveal is audited against one entry — a visible change to `search` output",
+        "Fixed: `search` printed the site and API-key `Notes:` field to every caller, agents included — free",
+        "       text the query itself matches, which is where break-glass codes and fallback tokens get written",
+        "Fixed: `search` printed the password, the key value and the note content for any caller the reveal",
+        "       policy allowed, which made it a bulk reveal beside the per-entry `get` / `ak-get` / `note-get`",
+        "       paths it was meant to sit beside",
+        "Tests: search is pinned for both callers — no value, no free text, a runnable hint per entry kind, the",
+        "       stored name for `ak-get`, one discovery row per invocation — and the upgrade covers both in-place",
+        "       routes plus the guard that stops the environment being rebuilt while psamvault runs from it",
+        "Docs:  the registry (pipx / uv tool) and source upgrade tracks, the os error 32 and os error 5 causes,",
+        "       search's reveal rule in the command reference and the guardrail guide, and the audit trail's",
+        "       third decision in SECURITY.md",
+    ],
     "0.7.2": [
         "New:   the web dashboard is a React screen on the same local server — tabs and search stay in the",
         "       browser, and `pv dashboard` reads the OS keychain once per process instead of on every click",
