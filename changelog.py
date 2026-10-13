@@ -12,7 +12,7 @@ from session import get_last_seen_version, set_last_seen_version
 
 
 CHANGELOG: dict[str, list[str]] = {
-    "0.8.0": [
+    "0.7.3": [
         "New:   `psamvault upgrade` upgrades in place through whichever tool owns the install — pipx or",
         "       `uv tool` — and detects which one it is; a `uv tool install` used to be upgraded with pipx,",
         "       which left a second copy of `pv` and `psamvault` shadowing the first on PATH",
