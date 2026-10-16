@@ -43,6 +43,9 @@ psamvault configure
  API URL [https://psam-vault-backend.onrender.com]:
  Generating a secure pepper for your vault...
  Configuration saved.
+ API URL : https://psam-vault-backend.onrender.com
+ Config  : ~/.psamvault/config.env (API URL only)
+ Pepper  : stored in the OS keychain
 ```
 
 > ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper, so your login password alone will not get you in there. Keep your recovery codes up to date, and set up a vault backup (`psamvault backup create`) — either one gets you back in on a new machine. See [Backup and recovery](../guides/backup-and-recovery.md).
@@ -297,10 +300,13 @@ Opens a Chromium browser, navigates to the stored login URL, and types your save
 
 If no login URL is stored for the site, psamvault automatically scans the page for a sign-in link, navigates to it, and saves the discovered URL for future runs. If no link can be found, a warning is shown with a tip to set it manually via `psamvault update <site> --login-url <url>`. You can also store the URL upfront when adding or updating an entry with `--login-url`.
 
-> **One-time setup:** After installing psamvault, run the following once to download the Chromium browser binary:
+> **One-time setup:** After `pipx install psamvault`, `playwright` is not on `PATH` (`playwright install chromium` exits `command not found`). Run the binary inside the pipx environment — it is the Playwright the CLI imports:
+>
 > ```bash
-> playwright install chromium
+> "$(pipx environment --value PIPX_LOCAL_VENVS)/psamvault/bin/playwright" install chromium
 > ```
+>
+> Windows (PowerShell): `& "$(pipx environment --value PIPX_LOCAL_VENVS)\psamvault\Scripts\playwright.exe" install chromium`. A virtualenv uses `python -m playwright install chromium` from that environment. A bare Linux server may also need `playwright install-deps chromium` via the same binary, with sudo. See [Browser autofill setup](../installation.md#browser-autofill-setup-one-time).
 
 | Argument / option | What it does |
 |---|---|

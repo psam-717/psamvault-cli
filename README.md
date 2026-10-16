@@ -105,7 +105,7 @@ The pages are grouped the way you would use them: **Introduction** (what it is, 
 
 - **Python 3.11 or higher**
 - [pipx](https://pipx.pypa.io) — the recommended installer
-- An OS keychain psamvault can write to — Windows Credential Manager, macOS Keychain or Linux Secret Service
+- An OS keychain psamvault can write to — Windows Credential Manager, macOS Keychain or Linux Secret Service. `--version` and `--help` do not need it. A headless Linux host needs a Secret Service session; the steps are on the [installation page](docs/installation.md#linux-secret-service)
 - The Chromium browser binary if you want browser autofill (a one-time step covered in the [installation page](docs/installation.md))
 
 ## Contributing

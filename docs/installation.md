@@ -26,14 +26,29 @@ psamvault --version
 pv --version              # same thing, shorter to type
 ```
 
-If you don't have pipx yet:
+If you don't have pipx yet, Debian, Ubuntu and other [PEP 668](https://peps.python.org/pep-0668/) distributions refuse `pip install pipx` (`externally-managed-environment`). Install the distro package instead:
+
+```bash
+sudo apt install pipx
+pipx ensurepath
+```
+
+On a distribution that still allows user-site installs:
 
 ```bash
 pip install pipx
 pipx ensurepath
 ```
 
-Then restart your terminal and run `pipx install psamvault`.
+If there is no distro package and pip refuses, bootstrap pipx in its own virtual environment:
+
+```bash
+python3 -m venv ~/.pipx-bootstrap
+~/.pipx-bootstrap/bin/pip install pipx
+~/.pipx-bootstrap/bin/pipx ensurepath
+```
+
+Then restart your terminal and run `pipx install psamvault`. Do not pass `--break-system-packages`.
 
 ### Not using pipx?
 
@@ -49,12 +64,51 @@ pipx install -e .
 
 A source checkout gets its own upgrade track — `psamvault upgrade` detects the install type automatically. See [Upgrading](guides/upgrading.md).
 
-## Browser autofill setup (one-time)
+## Linux Secret Service
 
-**Browser autofill setup (one-time):** if you plan to use `psamvault open`, install the Chromium browser binary after installation:
+The pepper and the session tokens live in the OS keychain. `--version` and `--help` do not need it, and neither do `psamvault changelog` or `psamvault generate` (without `--save`). Any command that reads or writes a secret does.
+
+Linux uses the Secret Service (gnome-keyring over D-Bus). A desktop session usually starts one and unlocks it at login. A headless machine, a container, or an SSH login does not. Without a service, or with the collection still locked, the command stops on one line instead of a traceback or a prompt that never returns:
+
+```text
+✗ No OS keychain is available — on Linux install gnome-keyring, dbus-user-session and libsecret-tools, start a D-Bus session and unlock the keyring; on macOS or Windows unlock the login keychain (see the installation guide)
+```
+
+```text
+✗ The OS keychain is locked — unlock it and run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; see the installation guide)
+```
+
+psamvault does not write the pepper or the tokens to a file when the keychain cannot take them.
+
+A headless setup that works on Debian and Ubuntu:
 
 ```bash
-playwright install chromium
+sudo apt install gnome-keyring dbus-user-session libsecret-tools
+export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
+echo -n '<unlock-password>' | gnome-keyring-daemon --unlock --components=secrets
+python3 -c 'import keyring; print(keyring.get_keyring())'
+```
+
+`python3 -c` should print `keyring.backends.SecretService.Keyring`. Export `DBUS_SESSION_BUS_ADDRESS` in every shell that runs psamvault; without it the keyring is not found and the "no OS keychain" line comes back. If `XDG_RUNTIME_DIR` is unset (a non-login shell), the daemon falls back to `~/.cache/keyring-*`. After `psamvault configure`, `secret-tool search --all service psamvault` shows the pepper entry.
+
+## Browser autofill setup (one-time)
+
+**Browser autofill setup (one-time):** if you plan to use `psamvault open`, install the Chromium browser binary after installation. pipx only puts `psamvault` and `pv` on `PATH`. The `playwright` executable stays inside the pipx environment, so `playwright install chromium` fails with `command not found`. Run that environment's binary — it is the same Playwright the installed CLI imports:
+
+```bash
+"$(pipx environment --value PIPX_LOCAL_VENVS)/psamvault/bin/playwright" install chromium
+```
+
+```powershell
+& "$(pipx environment --value PIPX_LOCAL_VENVS)\psamvault\Scripts\playwright.exe" install chromium
+```
+
+A virtualenv or a plain `pip install` uses that environment's Python instead: `python -m playwright install chromium`.
+
+On a bare Linux server the browser also needs system libraries:
+
+```bash
+sudo "$(pipx environment --value PIPX_LOCAL_VENVS)/psamvault/bin/playwright" install-deps chromium
 ```
 
 ## Version check
@@ -81,6 +135,9 @@ psamvault configure
  API URL [https://psam-vault-backend.onrender.com]:
  Generating a secure pepper for your vault...
  Configuration saved.
+ API URL : https://psam-vault-backend.onrender.com
+ Config  : ~/.psamvault/config.env (API URL only)
+ Pepper  : stored in the OS keychain
 ```
 
 > ⚠️ **Your pepper is stored in the OS keychain** (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is tied to this device — configuring psamvault on a new machine generates a different pepper, so your login password alone will not get you in there. Keep your recovery codes up to date, and set up a vault backup (`psamvault backup create`) — either one gets you back in on a new machine. See [Backup and recovery](guides/backup-and-recovery.md).
