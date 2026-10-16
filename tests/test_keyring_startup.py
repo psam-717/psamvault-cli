@@ -403,6 +403,54 @@ def test_legacy_pepper_moves_to_the_keyring_and_leaves_the_file(monkeypatch, iso
     assert os.environ["PSAMVAULT_PEPPER"] == legacy
 
 
+def test_legacy_pepper_that_disagrees_with_the_keychain_is_kept(monkeypatch, isolated_config, capsys):
+    legacy = "d" * 64
+    stored = "e" * 64
+    path = isolated_config.joinpath("config.env")
+    path.write_text(
+        "PSAMVAULT_API_URL=https://example.test\n"
+        f"PSAMVAULT_PEPPER={legacy}\n"
+    )
+    memory = _Memory()
+    memory.data[("psamvault", "config.pepper")] = stored
+    monkeypatch.setattr(config.keyring, "get_password", memory.get_password)
+    monkeypatch.setattr(config.keyring, "set_password", memory.set_password)
+    config.load_pepper()
+    text = path.read_text()
+    assert legacy in text
+    assert memory.data[("psamvault", "config.pepper")] == stored
+    assert os.environ["PSAMVAULT_PEPPER"] == stored
+    notice = capsys.readouterr().err
+    assert "different pepper" in notice
+    assert "left in place" in notice
+    assert " — " in notice
+    assert legacy not in notice
+    assert stored not in notice
+
+
+def test_disagreeing_legacy_pepper_does_not_override_the_environment(
+    monkeypatch, isolated_config, capsys
+):
+    legacy = "d" * 64
+    stored = "e" * 64
+    env_pepper = "f" * 64
+    path = isolated_config.joinpath("config.env")
+    path.write_text(f"PSAMVAULT_PEPPER={legacy}\n")
+    memory = _Memory()
+    memory.data[("psamvault", "config.pepper")] = stored
+    monkeypatch.setattr(config.keyring, "get_password", memory.get_password)
+    monkeypatch.setenv("PSAMVAULT_PEPPER", env_pepper)
+    config.load_pepper()
+    assert legacy in path.read_text()
+    assert os.environ["PSAMVAULT_PEPPER"] == env_pepper
+    assert memory.data[("psamvault", "config.pepper")] == stored
+    notice = capsys.readouterr().err
+    assert "different pepper" in notice
+    assert legacy not in notice
+    assert stored not in notice
+    assert env_pepper not in notice
+
+
 def test_legacy_pepper_stays_in_the_file_when_the_keyring_discards_it(monkeypatch, isolated_config):
     legacy = "e" * 64
     path = isolated_config.joinpath("config.env")

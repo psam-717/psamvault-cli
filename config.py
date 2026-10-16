@@ -57,6 +57,22 @@ def _legacy_pepper() -> str | None:
     return None
 
 
+def _notice_pepper_disagrees() -> None:
+    """The file pepper and the keychain pepper are both real, and they differ.
+
+    The file line stays. The notice does not include either value.
+    """
+    import typer
+
+    typer.echo(
+        "\n⚠ The OS keychain already holds a different pepper from the "
+        "PSAMVAULT_PEPPER line in config.env — the keychain pepper is the one "
+        "in use, and the file line was left in place. Remove that line only "
+        "after you have confirmed which pepper this machine should keep.\n",
+        err=True,
+    )
+
+
 def _remove_pepper_from_config_file() -> None:
     """Rewrite config.env without the PSAMVAULT_PEPPER line (migration helper)."""
     lines = CONFIG_FILE.read_text().splitlines()
@@ -93,7 +109,9 @@ def load_pepper() -> None:
     Migrates a legacy config.env pepper first: the keychain write has to
     read back the same value before the line is removed from the file. If
     the keychain cannot keep it, the line stays and the command stops.
-    The pepper is never copied to a new file.
+    If the keychain already holds a different pepper, the file line stays
+    and a notice is printed — that line is not discarded. The pepper is
+    never copied to a new file.
 
     A ``PSAMVAULT_PEPPER`` already in the environment wins over the keychain
     once any legacy file line has been migrated. The environment variable
@@ -108,10 +126,19 @@ def load_pepper() -> None:
             if existing != legacy:
                 # Nothing was stored. Leave the file line so the only copy is not deleted.
                 keychain.abort(keychain.NOT_KEPT)
-        # The keychain holds a pepper (the migrated one, or one already there).
-        # Only then is the plaintext line removed.
+            _remove_pepper_from_config_file()
+            if not os.environ.get("PSAMVAULT_PEPPER"):
+                os.environ["PSAMVAULT_PEPPER"] = existing
+            return
+        if existing != legacy:
+            # The keychain pepper is the one this install has been using.
+            # Deleting the file line would throw away the only other copy.
+            _notice_pepper_disagrees()
+            if not os.environ.get("PSAMVAULT_PEPPER"):
+                os.environ["PSAMVAULT_PEPPER"] = existing
+            return
         _remove_pepper_from_config_file()
-        if existing and not os.environ.get("PSAMVAULT_PEPPER"):
+        if not os.environ.get("PSAMVAULT_PEPPER"):
             os.environ["PSAMVAULT_PEPPER"] = existing
         return
 
