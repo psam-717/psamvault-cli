@@ -59,11 +59,11 @@ def configure():
     current_url = DEFAULT_API_URL
     if is_configured():
         current = get_config()
-        pepper = current["PSAMVAULT_PEPPER"]
         current_url = current["PSAMVAULT_API_URL"]
         typer.echo(" Current configuration:")
         typer.echo(f"   API URL : {current_url}")
-        typer.echo(f"   Pepper  : {pepper[:8]}...{pepper[-4:]}")
+        typer.echo("   Pepper  : stored in the OS keychain")
+        typer.echo("   Config  : ~/.psamvault/config.env (API URL only)")
         typer.echo("")
         overwrite = typer.confirm(" Overwrite existing configuration?")
         if not overwrite:
@@ -86,27 +86,34 @@ def configure():
     pepper = generate_pepper()
 
     typer.echo("")
+    reachable = True
     with Spinner("Verifying connection to server"):
         try:
             import httpx
             response = httpx.get(f"{api_url}/health", timeout=10)
             response.raise_for_status()
         except Exception:
-            typer.echo(f"\n Warning: could not reach {api_url}/health")
-            typer.echo(" The config was saved anyway - check the URL if the commands fail. \n")
-
+            reachable = False
 
     save_config(api_url, pepper)
 
     typer.echo(
-        f"  Configuration saved to ~/.psamvault/config.env"
+        "  Configuration saved."
         f"\n  API URL : {api_url}"
-        f"\n  Pepper  : {pepper[:8]}...{pepper[-4:]}\n"
+        "\n  Config  : ~/.psamvault/config.env (API URL only)"
+        "\n  Pepper  : stored in the OS keychain\n"
     )
     typer.echo(
-        "  Important: your pepper is stored in ~/.psamvault/config.env"
-        "\n  Back up this file — losing it means losing access to your vault.\n"
+        "  Important: the pepper is in the OS keychain"
+        " (macOS Keychain, Windows Credential Manager, or Linux Secret Service),"
+        " not in ~/.psamvault/config.env."
+        "\n  Backing up config.env does not back up the pepper."
+        "\n  On a new machine the pepper is different, so keep recovery codes"
+        " and run  psamvault backup create  to get back in.\n"
     )
+    if not reachable:
+        typer.echo(f" Warning: could not reach {api_url}/health")
+        typer.echo(" The config was saved anyway - check the URL if the commands fail.\n")
     typer.echo("  You are ready. Run  psamvault signup  to create your account.\n")
 
 
@@ -128,13 +135,11 @@ def config_show():
         raise typer.Exit(code=1)
 
     current = get_config()
-    pepper = current["PSAMVAULT_PEPPER"]
-    masked = f"{pepper[:8]}...{pepper[-4:]}"
 
     typer.echo(
         f"\n  API URL  :  {current['PSAMVAULT_API_URL']}"
-        f"\n  Pepper   :  {masked}"
-        f"\n  Config   :   ~/.psamvault/config.env\n"
+        f"\n  Pepper   :  stored in the OS keychain"
+        f"\n  Config   :  ~/.psamvault/config.env (API URL only)\n"
     )
 
 
