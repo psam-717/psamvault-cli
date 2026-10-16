@@ -9,6 +9,8 @@ import keyring
 import keyring.errors
 import typer
 
+import keychain
+
 import api_client
 from config import CONFIG_DIR, CONFIG_FILE, is_configured
 from crypto import (
@@ -67,13 +69,13 @@ def _clear_local_data() -> None:
     # Clear keychain session entries
     for key in _SESSION_KEYS:
         try:
-            keyring.delete_password(_SERVICE, key)
+            keychain.call(keyring.delete_password, _SERVICE, key)
         except keyring.errors.PasswordDeleteError:
             pass
 
     # Clear pepper from keychain
     try:
-        keyring.delete_password(_SERVICE, "config.pepper")
+        keychain.call(keyring.delete_password, _SERVICE, "config.pepper")
     except keyring.errors.PasswordDeleteError:
         pass
 
