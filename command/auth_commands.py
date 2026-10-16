@@ -6,6 +6,7 @@ import typer
 
 from crypto import derive_key, derive_master_password, decrypt_vek, encrypt_vek, generate_vek
 import api_client
+import keychain
 from config import DEFAULT_API_URL, generate_pepper, get_config, is_configured, save_config
 from error_ui import print_error
 from errors import NetworkError, PsamVaultError, SessionExpiredError
@@ -335,6 +336,10 @@ def _saved_session_usable() -> bool:
     """
     try:
         saved = load_session()
+    except keychain.KeychainUnavailable:
+        # A locked or missing keychain is not a dead session. Swallowing it
+        # here made login say the session could no longer be refreshed.
+        raise
     except typer.Exit:
         return False
     except Exception:  # noqa: BLE001 - anything that fails to load is not usable

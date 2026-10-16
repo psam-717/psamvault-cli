@@ -428,6 +428,31 @@ def test_legacy_pepper_that_disagrees_with_the_keychain_is_kept(monkeypatch, iso
     assert stored not in notice
 
 
+def test_pepper_mismatch_notice_prints_once_when_the_command_loads_twice(
+    monkeypatch, isolated_config, capsys
+):
+    """configure and config-show call is_configured() and then get_config()."""
+    legacy = "d" * 64
+    stored = "e" * 64
+    path = isolated_config.joinpath("config.env")
+    path.write_text(
+        "PSAMVAULT_API_URL=https://example.test\n"
+        f"PSAMVAULT_PEPPER={legacy}\n"
+    )
+    memory = _Memory()
+    memory.data[("psamvault", "config.pepper")] = stored
+    monkeypatch.setattr(config.keyring, "get_password", memory.get_password)
+    monkeypatch.delenv("PSAMVAULT_API_URL", raising=False)
+    assert config.is_configured() is True
+    assert config.get_config()["PSAMVAULT_PEPPER"] == stored
+    config.load_pepper()
+    notice = capsys.readouterr().err
+    assert notice.count("different pepper") == 1
+    assert legacy in path.read_text()
+    assert legacy not in notice
+    assert stored not in notice
+
+
 def test_disagreeing_legacy_pepper_does_not_override_the_environment(
     monkeypatch, isolated_config, capsys
 ):
@@ -733,6 +758,26 @@ def test_probe_reconnects_once_when_the_cached_connection_fails(monkeypatch):
     keychain.reset_probe_cache()
     assert keychain._probe_secret_service() is keychain._Probe.READY
     assert opened["n"] == 2
+
+
+def test_login_reports_a_locked_keychain_instead_of_a_dead_session(monkeypatch, tmp_path):
+    """A keychain failure while checking a saved session is not 'log in again'."""
+    session_file = tmp_path / "session.json"
+    session_file.write_text("{}")
+    monkeypatch.setattr(session, "SESSION_FILE", session_file)
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "absent.env")
+
+    def boom(*_args, **_kwargs):
+        raise keyring.errors.KeyringLocked("Failed to unlock the collection!")
+
+    monkeypatch.setattr(session.keyring, "get_password", boom)
+    result = runner.invoke(app, ["login"], input="psam\nPassword1\n")
+    assert result.exit_code == 1
+    _assert_actionable(result.output, "locked")
+    assert "can no longer be refreshed" not in result.output
+    assert "not logged in" not in result.output.lower()
+    assert "Log in to psamvault" not in result.output
 
 
 def test_whoami_reports_a_missing_keyring(monkeypatch, tmp_path):

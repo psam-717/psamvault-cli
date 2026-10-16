@@ -57,11 +57,28 @@ def _legacy_pepper() -> str | None:
     return None
 
 
+# One notice per process. configure and config-show each call load_pepper
+# twice (is_configured, then get_config), and a second copy of the same
+# warning reads as a second problem.
+_pepper_mismatch_noted = False
+
+
+def reset_pepper_notice() -> None:
+    """Allow the mismatch notice to print again. Tests call this between cases."""
+    global _pepper_mismatch_noted
+    _pepper_mismatch_noted = False
+
+
 def _notice_pepper_disagrees() -> None:
     """The file pepper and the keychain pepper are both real, and they differ.
 
-    The file line stays. The notice does not include either value.
+    The file line stays. The notice does not include either value. A process
+    prints it once, even when the pepper is loaded again in the same command.
     """
+    global _pepper_mismatch_noted
+    if _pepper_mismatch_noted:
+        return
+    _pepper_mismatch_noted = True
     import typer
 
     typer.echo(

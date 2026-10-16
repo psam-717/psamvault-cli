@@ -17,6 +17,7 @@ import pytest
 import ancestry
 import audit
 import caller
+import config
 import keychain
 import policy
 import session
@@ -34,8 +35,10 @@ TEST_REFRESH_TOKEN = "test_refresh_token"
 def _reset_keychain_probe():
     """A cached Secret Service connection must not leak from one test into the next."""
     keychain.reset_probe_cache()
+    config.reset_pepper_notice()
     yield
     keychain.reset_probe_cache()
+    config.reset_pepper_notice()
 
 
 @pytest.fixture(autouse=True)
