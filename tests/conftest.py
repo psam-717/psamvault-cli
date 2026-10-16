@@ -17,6 +17,7 @@ import pytest
 import ancestry
 import audit
 import caller
+import keychain
 import policy
 import session
 
@@ -28,6 +29,14 @@ TEST_REFRESH_TOKEN = "test_refresh_token"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _reset_keychain_probe():
+    """A cached Secret Service connection must not leak from one test into the next."""
+    keychain.reset_probe_cache()
+    yield
+    keychain.reset_probe_cache()
+
 
 @pytest.fixture(autouse=True)
 def _guardrail_safe_environment(monkeypatch, tmp_path):

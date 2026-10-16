@@ -434,7 +434,7 @@ def test_save_config_does_not_write_a_file_when_the_keyring_discards_the_pepper(
 
 
 def test_locked_collection_does_not_call_the_keyring_operation(monkeypatch):
-    monkeypatch.setattr(keychain, "_probe_secret_service_locked", lambda: True)
+    monkeypatch.setattr(keychain, "_probe_secret_service", lambda: keychain._Probe.LOCKED)
     called = {"n": 0}
 
     def operation(*_args, **_kwargs):
@@ -512,8 +512,179 @@ def test_probe_does_not_create_a_missing_collection(monkeypatch):
     monkeypatch.setattr(secretstorage, "dbus_init", lambda: _Connection())
     monkeypatch.setattr(secretstorage, "Collection", _collection)
     monkeypatch.setattr(secretstorage, "get_default_collection", _create)
-    assert keychain._probe_secret_service_locked() is False
+    monkeypatch.setattr(secretstorage, "create_collection", _create)
+    assert keychain._probe_secret_service() is keychain._Probe.NO_DEFAULT
     assert created["n"] == 0
+
+
+def _install_secret_service(monkeypatch, collection):
+    """Point the probe at a stand-in Secret Service. Returns the create counter."""
+    secretstorage = pytest.importorskip("secretstorage")
+
+    class _Backend:
+        pass
+
+    _Backend.__module__ = "keyring.backends.SecretService"
+    monkeypatch.setattr(keychain.keyring, "get_keyring", lambda: _Backend())
+
+    class _Connection:
+        def close(self):
+            return None
+
+    created = {"n": 0}
+
+    def _create(*_args, **_kwargs):
+        created["n"] += 1
+        raise AssertionError("created")
+
+    monkeypatch.setattr(secretstorage, "dbus_init", lambda: _Connection())
+    monkeypatch.setattr(secretstorage, "Collection", collection)
+    monkeypatch.setattr(secretstorage, "get_default_collection", _create)
+    monkeypatch.setattr(secretstorage, "create_collection", _create)
+    return created
+
+
+@pytest.mark.timeout(5)
+def test_missing_default_collection_does_not_run_the_keyring_call(monkeypatch, capsys):
+    """A fresh daemon with no login keyring must not reach create_collection."""
+    from secretstorage.exceptions import ItemNotFoundException
+
+    def _collection(_connection):
+        raise ItemNotFoundException("no default collection")
+
+    created = _install_secret_service(monkeypatch, _collection)
+    called = {"n": 0}
+
+    def _hang(*_args, **_kwargs):
+        called["n"] += 1
+        import time
+
+        time.sleep(_HANG_SECONDS)
+
+    with pytest.raises(typer.Exit) as exc:
+        keychain.call(_hang)
+    assert exc.value.exit_code == 1
+    assert called["n"] == 0
+    assert created["n"] == 0
+    _assert_actionable(capsys.readouterr().err, "no default collection")
+
+
+@pytest.mark.timeout(5)
+def test_configure_exits_when_the_default_collection_is_missing(monkeypatch, tmp_path):
+    from secretstorage.exceptions import ItemNotFoundException
+
+    def _collection(_connection):
+        raise ItemNotFoundException("no default collection")
+
+    created = _install_secret_service(monkeypatch, _collection)
+    monkeypatch.delenv("PSAMVAULT_PEPPER", raising=False)
+    monkeypatch.delenv("PSAMVAULT_API_URL", raising=False)
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.env")
+
+    def _hang(*_args, **_kwargs):
+        import time
+
+        time.sleep(_HANG_SECONDS)
+
+    monkeypatch.setattr(config.keyring, "get_password", _hang)
+    monkeypatch.setattr(config.keyring, "set_password", _hang)
+    result = runner.invoke(app, ["configure"], input="\n")
+    assert result.exit_code == 1
+    _assert_actionable(result.output, "no default collection")
+    assert "Traceback" not in result.output
+    assert "Configuration saved" not in result.output
+    assert created["n"] == 0
+    assert not (tmp_path / "config.env").exists()
+
+
+def test_unlocked_default_collection_still_runs_the_operation(monkeypatch):
+    class _Collection:
+        def __init__(self, _connection):
+            return None
+
+        def is_locked(self):
+            return False
+
+        def unlock(self):
+            raise AssertionError("unlock")
+
+    created = _install_secret_service(monkeypatch, _Collection)
+    assert keychain.call(lambda: "stored") == "stored"
+    assert created["n"] == 0
+    assert keychain._probe_secret_service() is keychain._Probe.READY
+
+
+def test_probe_reuses_one_dbus_connection_across_session_reads(monkeypatch):
+    """load_session reads six secrets. The probe should not open six buses."""
+    secretstorage = pytest.importorskip("secretstorage")
+    opened = {"n": 0}
+
+    class _Backend:
+        pass
+
+    _Backend.__module__ = "keyring.backends.SecretService"
+    monkeypatch.setattr(keychain.keyring, "get_keyring", lambda: _Backend())
+
+    class _Connection:
+        def close(self):
+            return None
+
+    class _Collection:
+        def __init__(self, _connection):
+            return None
+
+        def is_locked(self):
+            return False
+
+    def dbus_init():
+        opened["n"] += 1
+        return _Connection()
+
+    monkeypatch.setattr(secretstorage, "dbus_init", dbus_init)
+    monkeypatch.setattr(secretstorage, "Collection", _Collection)
+    keychain.reset_probe_cache()
+    for _ in range(7):
+        assert keychain.call(lambda: "ok") == "ok"
+    assert opened["n"] == 1
+
+
+def test_probe_reconnects_once_when_the_cached_connection_fails(monkeypatch):
+    secretstorage = pytest.importorskip("secretstorage")
+    from secretstorage.exceptions import SecretStorageException
+
+    opened = {"n": 0}
+
+    class _Backend:
+        pass
+
+    _Backend.__module__ = "keyring.backends.SecretService"
+    monkeypatch.setattr(keychain.keyring, "get_keyring", lambda: _Backend())
+
+    class _Connection:
+        def __init__(self, good: bool):
+            self.good = good
+
+        def close(self):
+            return None
+
+    class _Collection:
+        def __init__(self, connection):
+            if not connection.good:
+                raise SecretStorageException("stale")
+
+        def is_locked(self):
+            return False
+
+    def dbus_init():
+        opened["n"] += 1
+        return _Connection(opened["n"] > 1)
+
+    monkeypatch.setattr(secretstorage, "dbus_init", dbus_init)
+    monkeypatch.setattr(secretstorage, "Collection", _Collection)
+    keychain.reset_probe_cache()
+    assert keychain._probe_secret_service() is keychain._Probe.READY
+    assert opened["n"] == 2
 
 
 def test_whoami_reports_a_missing_keyring(monkeypatch, tmp_path):
@@ -537,7 +708,7 @@ def test_whoami_reports_a_locked_keyring_without_calling_it_when_the_probe_says_
     session_file = tmp_path / "session.json"
     session_file.write_text("{}")
     monkeypatch.setattr(session, "SESSION_FILE", session_file)
-    monkeypatch.setattr(keychain, "_probe_secret_service_locked", lambda: True)
+    monkeypatch.setattr(keychain, "_probe_secret_service", lambda: keychain._Probe.LOCKED)
     called = {"n": 0}
 
     def boom(*_args, **_kwargs):

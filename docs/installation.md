@@ -78,7 +78,15 @@ Linux uses the Secret Service (gnome-keyring over D-Bus). A desktop session usua
 ✗ The OS keychain is locked — unlock it and run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; see the installation guide)
 ```
 
-psamvault does not write the pepper or the tokens to a file when the keychain cannot take them.
+```text
+✗ The OS keychain has no default collection — create and unlock a login keyring, then run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; see the installation guide)
+```
+
+psamvault does not write the pepper or the tokens to a file when the keychain cannot take them. A gnome-keyring daemon that is running but has never had a login keyring — an empty data directory, and no unlock yet — is the third line. keyring would otherwise create a collection, and that creation blocks on a GUI prompt. The unlock command creates the login keyring when it does not exist, then unlocks it. If a daemon is already running against that empty store, add `--replace` so this process is the one that creates it:
+
+```bash
+echo -n '<unlock-password>' | gnome-keyring-daemon --replace --unlock --components=secrets
+```
 
 A headless setup that works on Debian and Ubuntu:
 
