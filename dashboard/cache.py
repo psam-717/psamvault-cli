@@ -15,6 +15,7 @@ import threading
 import time
 
 import api_client
+import keychain
 import session as session_store
 
 # Short enough that a change made from the CLI shows up on refresh, long
@@ -83,6 +84,10 @@ def ensure_auth() -> dict | None:
             return None
         try:
             loaded = session_store.load_session()
+        except keychain.KeychainUnavailable:
+            # Not "logged out". The request handler turns this into the
+            # same sentence the CLI prints.
+            raise
         except (SystemExit, Exception):
             return None
         CACHE.auth = loaded

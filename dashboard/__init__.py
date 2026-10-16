@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, abort, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
+
+import keychain
 
 from dashboard.cache import install_token_hook
 
@@ -44,6 +46,12 @@ def create_app() -> Flask:
     # No cookie session. Tokens and the VEK stay in process memory after one
     # keychain read (dashboard.cache). A signed cookie is not required.
     app.secret_key = "unused-dashboard-has-no-cookie-session"
+
+    @app.errorhandler(keychain.KeychainUnavailable)
+    def _keychain_unavailable(exc: keychain.KeychainUnavailable):
+        # The CLI already printed the same sentence. Here the browser needs
+        # it as JSON; an unhandled typer.Exit would be an HTML 500.
+        return jsonify({"error": exc.message}), 503
 
     from dashboard.api import bp
 
