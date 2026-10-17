@@ -54,7 +54,36 @@ Run once after setup to generate your local pepper and point to the API:
 psamvault configure
 ```
 
-> ⚠️ The `~/.psamvault/config.env` file contains your pepper — never commit it. It is already listed in `.gitignore`.
+> ⚠️ `~/.psamvault/config.env` holds the API URL only. The pepper is in the OS keychain, not in that file. Never commit `config.env`. It is already listed in `.gitignore`.
+
+---
+
+## Running the tests
+
+The suite needs pytest and three environment variables. `tests/conftest.py` sets them when they are unset, so a local `pytest` does not touch your OS keychain and does not need a Secret Service. CI (`.github/workflows/ci.yml`) sets the same three:
+
+| Variable | Value |
+|---|---|
+| `PYTHON_KEYRING_BACKEND` | `keyring.backends.null.Keyring` |
+| `PSAMVAULT_PEPPER` | 64 `a` characters |
+| `PSAMVAULT_API_URL` | `https://test.example.com` |
+
+The null backend discards secrets. It is for the test run only. Do not point a real install at it: `psamvault configure` refuses to pretend the pepper was saved.
+
+Install the test tools. They are listed in the `dev` dependency group in `pyproject.toml`, next to `build` and `twine`:
+
+```bash
+pip install -e .
+pip install pytest pytest-mock pytest-httpx pytest-timeout
+```
+
+pip 25.1 and later can install that group directly: `pip install -e . --group dev`.
+
+```bash
+python -m pytest tests/ -q --timeout=120 --timeout-method=thread
+```
+
+That is the command CI runs (CI adds `-v` and a `timeout` wrapper). `--timeout-method=thread` is what reports a stack when a test blocks in a syscall.
 
 ---
 

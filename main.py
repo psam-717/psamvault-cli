@@ -1,5 +1,10 @@
-from config import load_config
-load_config()
+from config import load_public_config
+
+# Non-secret config only. The pepper and the session live in the OS keychain;
+# reading it here made --version and --help crash or hang on Linux before
+# argparse ever saw the flag. Commands that need a secret load the pepper
+# themselves (config.is_configured / config.get_config).
+load_public_config()
 import importlib.metadata
 import os
 from typing import Annotated, Optional

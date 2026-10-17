@@ -1,8 +1,14 @@
 import os
 
 # Set env vars before any CLI module is imported during test collection.
-# load_config() only overwrites env vars that aren't already set, so these
-# take precedence over anything in config.env or the OS keychain.
+# load_public_config() only fills env vars that aren't already set, so these
+# take precedence over anything in config.env. The null keyring is the CI
+# backend: tests must not read or write the developer's OS keychain. A real
+# install must not use it — it discards secrets, and configure refuses to
+# pretend a pepper was saved.
+os.environ.setdefault(
+    "PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring"
+)
 os.environ.setdefault("PSAMVAULT_PEPPER", "a" * 64)
 os.environ.setdefault("PSAMVAULT_API_URL", "https://test.example.com")
 
@@ -11,6 +17,8 @@ import pytest
 import ancestry
 import audit
 import caller
+import config
+import keychain
 import policy
 import session
 
@@ -22,6 +30,16 @@ TEST_REFRESH_TOKEN = "test_refresh_token"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _reset_keychain_probe():
+    """A cached Secret Service connection must not leak from one test into the next."""
+    keychain.reset_probe_cache()
+    config.reset_pepper_notice()
+    yield
+    keychain.reset_probe_cache()
+    config.reset_pepper_notice()
+
 
 @pytest.fixture(autouse=True)
 def _guardrail_safe_environment(monkeypatch, tmp_path):

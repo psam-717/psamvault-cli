@@ -6,6 +6,8 @@ from pathlib import Path
 import keyring
 import keyring.errors
 
+import keychain
+
 _SERVICE = "psamvault"
 
 _SESSION_KEYS = [
@@ -21,6 +23,18 @@ _SESSION_KEYS = [
 # After the keyring migration it holds only an empty presence marker {}.
 SESSION_DIR = Path.home() / ".psamvault"
 SESSION_FILE = SESSION_DIR / "session.json"
+
+
+def _get_password(key: str) -> str | None:
+    return keychain.call(keyring.get_password, _SERVICE, key)
+
+
+def _set_password(key: str, value: str) -> None:
+    keychain.call(keyring.set_password, _SERVICE, key, value)
+
+
+def _delete_password(key: str) -> None:
+    keychain.call(keyring.delete_password, _SERVICE, key)
 
 
 def save_session(
@@ -58,7 +72,7 @@ def save_session(
         "session.vek_iv": vek_iv,
     }
     for key, value in values.items():
-        keyring.set_password(_SERVICE, key, value)
+        _set_password(key, value)
 
     # Empty presence marker — no secrets on disk
     SESSION_FILE.write_text("{}")
@@ -100,14 +114,14 @@ def load_session() -> dict:
             for key in _SESSION_KEYS:
                 field = key.split(".", 1)[1]  # "session.access_token" → "access_token"
                 if field in old_data:
-                    keyring.set_password(_SERVICE, key, old_data[field])
+                    _set_password(key, old_data[field])
             SESSION_FILE.write_text("{}")
             os.chmod(SESSION_FILE, 0o600)
 
     session = {}
     for key in _SESSION_KEYS:
         field = key.split(".", 1)[1]
-        value = keyring.get_password(_SERVICE, key)
+        value = _get_password(key)
         if value is None:
             import typer
             typer.echo(
@@ -126,8 +140,8 @@ def update_tokens(access_token: str, refresh_token: str) -> None:
     without this the old revoked refresh token gets reused on the next
     request, causing a permanent 401 loop.
     """
-    keyring.set_password(_SERVICE, "session.access_token", access_token)
-    keyring.set_password(_SERVICE, "session.refresh_token", refresh_token)
+    _set_password("session.access_token", access_token)
+    _set_password("session.refresh_token", refresh_token)
 
 
 
@@ -140,7 +154,7 @@ def update_access_token(access_token: str) -> None:
     Args:
         access_token: The new JWT returned by POST /auth/refresh.
     """
-    keyring.set_password(_SERVICE, "session.access_token", access_token)
+    _set_password("session.access_token", access_token)
 
 
 def clear_session() -> None:
@@ -153,7 +167,7 @@ def clear_session() -> None:
     """
     for key in _SESSION_KEYS:
         try:
-            keyring.delete_password(_SERVICE, key)
+            _delete_password(key)
         except keyring.errors.PasswordDeleteError:
             pass
     if SESSION_FILE.exists():
@@ -205,7 +219,7 @@ APPROVAL_TOKEN_BYTES = 8  # 16 hex chars — matches a terminal-wide handover
 
 
 def _approval_index() -> list[str]:
-    raw = keyring.get_password(_SERVICE, _APPROVAL_INDEX_KEY)
+    raw = _get_password(_APPROVAL_INDEX_KEY)
     if not raw:
         return []
     try:
@@ -217,16 +231,16 @@ def _approval_index() -> list[str]:
 
 def _save_approval_index(ids: list[str]) -> None:
     if ids:
-        keyring.set_password(_SERVICE, _APPROVAL_INDEX_KEY, json.dumps(ids))
+        _set_password(_APPROVAL_INDEX_KEY, json.dumps(ids))
         return
     try:
-        keyring.delete_password(_SERVICE, _APPROVAL_INDEX_KEY)
+        _delete_password(_APPROVAL_INDEX_KEY)
     except keyring.errors.PasswordDeleteError:
         pass
 
 
 def _read_approval(token_id: str) -> "dict | None":
-    raw = keyring.get_password(_SERVICE, _APPROVAL_PREFIX + token_id)
+    raw = _get_password(_APPROVAL_PREFIX + token_id)
     if not raw:
         return None
     try:
@@ -238,7 +252,7 @@ def _read_approval(token_id: str) -> "dict | None":
 
 def _drop_approval(token_id: str) -> None:
     try:
-        keyring.delete_password(_SERVICE, _APPROVAL_PREFIX + token_id)
+        _delete_password(_APPROVAL_PREFIX + token_id)
     except keyring.errors.PasswordDeleteError:
         pass
 
@@ -272,7 +286,7 @@ def mint_approval(entry: str, ttl_seconds: int, *, now: "float | None" = None) -
         "expires_at": created + float(ttl_seconds),
         "single_use": True,
     }
-    keyring.set_password(_SERVICE, _APPROVAL_PREFIX + token_id, json.dumps(payload))
+    _set_password(_APPROVAL_PREFIX + token_id, json.dumps(payload))
     _save_approval_index(_approval_index() + [token_id])
     payload["token_id"] = token_id
     return payload

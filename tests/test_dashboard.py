@@ -644,3 +644,67 @@ def test_dashboard_issues_recovery_codes_only_with_the_csrf_token(client, monkey
     assert issued.status_code == 200
     assert issued.get_json() == {"codes": ["AAAA-BBBB-CCCC"]}
     assert "Password1" not in issued.get_data(as_text=True)
+
+
+def test_bootstrap_returns_the_keychain_message_when_the_keyring_is_locked(client, monkeypatch):
+    import keyring.errors
+
+    test_client, _calls, _gets, _stored = client
+    dash_cache.CACHE.reset()
+
+    def boom(*_args, **_kwargs):
+        raise keyring.errors.KeyringLocked("Failed to unlock the collection!")
+
+    monkeypatch.setattr(session.keyring, "get_password", boom)
+    response = test_client.get("/api/bootstrap")
+    assert response.status_code == 503
+    body = response.get_json()
+    assert body is not None
+    assert " — " in body["error"]
+    assert "locked" in body["error"].lower()
+    assert body["error"] != "not_logged_in"
+    text = response.get_data(as_text=True)
+    assert "Traceback" not in text
+    assert "<html" not in text.lower()
+
+
+def test_dashboard_login_returns_the_keychain_message_instead_of_a_500(client, monkeypatch):
+    import keyring.errors
+
+    from crypto import derive_key, derive_master_password, encrypt_vek
+
+    test_client, _calls, _gets, _stored = client
+    password = "Password1"
+    salt = "ab" * 32
+    key = derive_key(derive_master_password(password), salt)
+    encrypted, iv = encrypt_vek(bytes(key), TEST_VEK)
+
+    def login(username, master):
+        return {
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "kdf_salt": salt,
+            "encrypted_vek": encrypted,
+            "vek_iv": iv,
+            "has_recovery_codes": False,
+        }
+
+    def boom(*_args, **_kwargs):
+        raise keyring.errors.NoKeyringError("No recommended backend was available")
+
+    monkeypatch.setattr(api_client, "login", login)
+    monkeypatch.setattr(session.keyring, "set_password", boom)
+    response = test_client.post(
+        "/api/auth/login",
+        json={"username": "psam", "password": password},
+    )
+    assert response.status_code == 503
+    body = response.get_json()
+    assert body is not None
+    assert " — " in body["error"]
+    assert "No OS keychain" in body["error"]
+    text = response.get_data(as_text=True)
+    assert "Traceback" not in text
+    assert "<html" not in text.lower()
+    assert password not in text
+    assert "fresh-access" not in text
