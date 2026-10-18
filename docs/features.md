@@ -30,7 +30,7 @@ Encrypted free text with a title and an optional category — for the things tha
 
 ## Browser autofill
 
-`psamvault open <site>` opens Chromium, navigates to the entry's stored login URL, and types your saved username and password into the login form. The browser stays open so you can handle 2FA or CAPTCHAs manually. If no login URL is stored, psamvault scans the page for a sign-in link and saves the discovered URL for future runs. Reach for it when typing a long password by hand is the annoying part. Requires the Chromium binary: `playwright install chromium`. Full detail: [Open browser and autofill login](reference/commands.md#psamvault-open).
+`psamvault open <site>` opens Chromium, navigates to the entry's stored login URL, and types your saved username and password into the login form. The browser stays open so you can handle 2FA or CAPTCHAs manually. If no login URL is stored, psamvault scans the page for a sign-in link and saves the discovered URL for future runs. Reach for it when typing a long password by hand is the annoying part. Requires the Chromium binary. After `pipx install psamvault`, `playwright` is not on `PATH` — run `"$(pipx environment --value PIPX_LOCAL_VENVS)/psamvault/bin/playwright" install chromium` (see [Installation](installation.md#browser-autofill-setup-one-time)). Full detail: [Open browser and autofill login](reference/commands.md#psamvault-open).
 
 ## Web dashboard
 
