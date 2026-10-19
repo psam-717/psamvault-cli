@@ -26,9 +26,10 @@ psamvault --version
 pv --version              # same thing, shorter to type
 ```
 
-If you don't have pipx yet, Debian, Ubuntu and other [PEP 668](https://peps.python.org/pep-0668/) distributions refuse `pip install pipx` (`externally-managed-environment`). Install the distro package instead:
+If you don't have pipx yet, Debian, Ubuntu and other [PEP 668](https://peps.python.org/pep-0668/) distributions refuse `pip install pipx` (`externally-managed-environment`). Install the distro package instead. A fresh box has an empty package index, so update it first — `sudo apt install pipx` otherwise stops with `Unable to locate package pipx`:
 
 ```bash
+sudo apt update
 sudo apt install pipx
 pipx ensurepath
 ```
@@ -75,29 +76,41 @@ Linux uses the Secret Service (gnome-keyring over D-Bus). A desktop session usua
 ```
 
 ```text
-✗ The OS keychain is locked — unlock it and run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; see the installation guide)
+✗ The OS keychain is locked — unlock it and run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --replace --unlock --components=secrets; see the installation guide)
 ```
 
 ```text
-✗ The OS keychain has no default collection — create and unlock a login keyring, then run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; see the installation guide)
+✗ The OS keychain has no default collection — create and unlock a login keyring, then run this command again (on Linux: echo -n '<password>' | gnome-keyring-daemon --replace --unlock --components=secrets; see the installation guide)
 ```
 
-psamvault does not write the pepper or the tokens to a file when the keychain cannot take them. A gnome-keyring daemon that is running but has never had a login keyring — an empty data directory, and no unlock yet — is the third line. keyring would otherwise create a collection, and that creation blocks on a GUI prompt. The unlock command creates the login keyring when it does not exist, then unlocks it. If a daemon is already running against that empty store, add `--replace` so this process is the one that creates it:
+psamvault does not write the pepper or the tokens to a file when the keychain cannot take them. The locked line and the no-default-collection line both mean a gnome-keyring daemon is already running. The command in both lines is:
 
 ```bash
 echo -n '<unlock-password>' | gnome-keyring-daemon --replace --unlock --components=secrets
 ```
+
+`--replace` tells every gnome-keyring daemon already running in this session to quit. This process then becomes the session daemon. `--unlock` reads the password on stdin and unlocks the login keyring, or creates that keyring when the data directory is empty. A locked login keyring is the second line. A daemon that has never had a login keyring — an empty data directory, and no unlock yet — is the third: keyring would otherwise call `create_collection`, and that call blocks on a GUI prompt. The same command creates the keyring in the process clients will talk to.
+
+Plain `--unlock`, without `--replace`, does not unlock a daemon that is already running. That invocation reads the password, forks a second daemon, and exits 0. The original daemon keeps the Secret Service name, so a locked keychain stays locked and an empty store stays empty. `--replace` is what makes this process the one that unlocks or creates the login keyring.
+
+When no daemon is running, `--replace` finds nothing to quit and starts normally, so the same command is also the first-time headless setup.
 
 A headless setup that works on Debian and Ubuntu:
 
 ```bash
 sudo apt install gnome-keyring dbus-user-session libsecret-tools
 export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
-echo -n '<unlock-password>' | gnome-keyring-daemon --unlock --components=secrets
-python3 -c 'import keyring; print(keyring.get_keyring())'
+echo -n '<unlock-password>' | gnome-keyring-daemon --replace --unlock --components=secrets
+"$(pipx environment --value PIPX_LOCAL_VENVS)/psamvault/bin/python" -c 'import keyring; print(keyring.get_keyring())'
 ```
 
-`python3 -c` should print `keyring.backends.SecretService.Keyring`. Export `DBUS_SESSION_BUS_ADDRESS` in every shell that runs psamvault; without it the keyring is not found and the "no OS keychain" line comes back. If `XDG_RUNTIME_DIR` is unset (a non-login shell), the daemon falls back to `~/.cache/keyring-*`. After `psamvault configure`, `secret-tool search --all service psamvault` shows the pepper entry.
+The check uses the pipx environment's Python. `python3 -c 'import keyring; ...'` on the system interpreter fails with `ModuleNotFoundError: No module named 'keyring'` — the distro Python does not have that package. The line above should print:
+
+```text
+keyring.backends.SecretService.Keyring (priority: 5)
+```
+
+Export `DBUS_SESSION_BUS_ADDRESS` in every shell that runs psamvault; without it the keyring is not found and the "no OS keychain" line comes back. If `XDG_RUNTIME_DIR` is unset (a non-login shell), the daemon falls back to `~/.cache/keyring-*`. After `psamvault configure`, `secret-tool search --all service psamvault` shows the pepper entry.
 
 ## Browser autofill setup (one-time)
 
