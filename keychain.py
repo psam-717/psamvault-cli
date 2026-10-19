@@ -32,6 +32,17 @@ import keyring
 import keyring.errors
 import typer
 
+# ``--replace`` is required when a daemon is already running. Plain ``--unlock``
+# reads the password, forks a second daemon, and exits 0. It never talks to the
+# daemon that owns the session Secret Service, so a locked login keyring stays
+# locked and an empty store stays empty. ``--replace`` quits every daemon for
+# this session; this process then unlocks the login keyring, or creates it
+# when there is no default collection (``gkd_login_unlock`` does both). With
+# no daemon running, ``--replace`` finds nothing to quit and starts normally,
+# so the same command is also the first-time headless setup.
+_LINUX_UNLOCK = (
+    "echo -n '<password>' | gnome-keyring-daemon --replace --unlock --components=secrets"
+)
 _MISSING = (
     "No OS keychain is available — on Linux install gnome-keyring, dbus-user-session "
     "and libsecret-tools, start a D-Bus session and unlock the keyring; "
@@ -39,7 +50,7 @@ _MISSING = (
 )
 _LOCKED = (
     "The OS keychain is locked — unlock it and run this command again "
-    "(on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; "
+    f"(on Linux: {_LINUX_UNLOCK}; "
     "see the installation guide)"
 )
 _UNUSABLE = (
@@ -49,7 +60,7 @@ _UNUSABLE = (
 _NO_DEFAULT = (
     "The OS keychain has no default collection — create and unlock a login keyring, "
     "then run this command again "
-    "(on Linux: echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets; "
+    f"(on Linux: {_LINUX_UNLOCK}; "
     "see the installation guide)"
 )
 NOT_KEPT = (
