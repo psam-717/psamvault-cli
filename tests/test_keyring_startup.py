@@ -39,6 +39,16 @@ runner = CliRunner()
 _HANG_SECONDS = 30
 
 
+# A daemon that is already running stays locked if the hint omits ``--replace``.
+# That form forks a second daemon and exits 0. The session daemon is unchanged.
+_LINUX_UNLOCK = (
+    "echo -n '<password>' | gnome-keyring-daemon --replace --unlock --components=secrets"
+)
+_LINUX_UNLOCK_WITHOUT_REPLACE = (
+    "echo -n '<password>' | gnome-keyring-daemon --unlock --components=secrets"
+)
+
+
 def _assert_actionable(text: str, what_failed: str) -> None:
     assert "Traceback" not in text
     line = next((item for item in text.splitlines() if "✗ " in item), "")
@@ -46,6 +56,12 @@ def _assert_actionable(text: str, what_failed: str) -> None:
     failed, _, nxt = line.partition(" — ")
     assert what_failed.lower() in failed.lower(), text
     assert nxt.strip(), text
+
+
+def _assert_linux_unlock_hint(text: str) -> None:
+    """The Linux hint must be the command that unlocks a daemon already running."""
+    assert _LINUX_UNLOCK in text, text
+    assert _LINUX_UNLOCK_WITHOUT_REPLACE not in text, text
 
 
 def _isolated_env(home: Path, backend: str | None = None) -> dict[str, str]:
@@ -324,6 +340,7 @@ def test_configure_on_a_locked_backend_is_one_actionable_line(tmp_path: Path):
     assert "EXIT 1" in completed.stdout
     output = completed.stdout.split("EXIT 1", 1)[1]
     _assert_actionable(output, "locked")
+    _assert_linux_unlock_hint(output)
     assert "Failed to unlock the collection" not in output
     assert not (home / ".psamvault" / "config.env").exists()
 
@@ -639,7 +656,9 @@ def test_missing_default_collection_does_not_run_the_keyring_call(monkeypatch, c
     assert exc.value.exit_code == 1
     assert called["n"] == 0
     assert created["n"] == 0
-    _assert_actionable(capsys.readouterr().err, "no default collection")
+    err = capsys.readouterr().err
+    _assert_actionable(err, "no default collection")
+    _assert_linux_unlock_hint(err)
 
 
 @pytest.mark.timeout(5)
@@ -665,6 +684,7 @@ def test_configure_exits_when_the_default_collection_is_missing(monkeypatch, tmp
     result = runner.invoke(app, ["configure"], input="\n")
     assert result.exit_code == 1
     _assert_actionable(result.output, "no default collection")
+    _assert_linux_unlock_hint(result.output)
     assert "Traceback" not in result.output
     assert "Configuration saved" not in result.output
     assert created["n"] == 0
@@ -760,6 +780,13 @@ def test_probe_reconnects_once_when_the_cached_connection_fails(monkeypatch):
     assert opened["n"] == 2
 
 
+def test_locked_message_uses_replace_so_a_running_daemon_unlocks():
+    """Plain ``--unlock`` is not the hint. It does not unlock a daemon already up."""
+    text = keychain.message_for(keyring.errors.KeyringLocked("Failed to unlock the collection!"))
+    _assert_linux_unlock_hint(text)
+    assert "see the installation guide" in text
+
+
 def test_login_reports_a_locked_keychain_instead_of_a_dead_session(monkeypatch, tmp_path):
     """A keychain failure while checking a saved session is not 'log in again'."""
     session_file = tmp_path / "session.json"
@@ -813,6 +840,7 @@ def test_whoami_reports_a_locked_keyring_without_calling_it_when_the_probe_says_
     assert result.exit_code == 1
     assert called["n"] == 0
     _assert_actionable(result.output, "locked")
+    _assert_linux_unlock_hint(result.output)
 
 
 def test_whoami_reports_keyring_locked_raised_by_the_backend(monkeypatch, tmp_path):
@@ -827,6 +855,7 @@ def test_whoami_reports_keyring_locked_raised_by_the_backend(monkeypatch, tmp_pa
     result = runner.invoke(app, ["whoami"])
     assert result.exit_code == 1
     _assert_actionable(result.output, "locked")
+    _assert_linux_unlock_hint(result.output)
     assert "Failed to unlock the collection" not in result.output
 
 
