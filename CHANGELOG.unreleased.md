@@ -8,6 +8,10 @@
     3. Bump version and publish
 -->
 
+## Added
+
+- feat(policy): `psamvault policy allow-host <entry> <host>` adds one hostname to `entries.<name>.allow_hosts` in `~/.psamvault/policy.json`, the destination list psamvault-mcp reads. `policy remove-host` takes one off. `policy hosts` lists one entry or every entry. `pv policy` is the same command. A grant or a removal is refused when the caller is classified as an agent, needs a terminal a pipe cannot answer, and writes an audit row. Listing is allowed for an agent. The grant normalises case, a trailing dot, and IDNA, and refuses a scheme, a path, a port, an IP literal, a wildcard other than a leading `*.`, an internal name, and a bare public suffix such as `com` or `co.uk`. Loopback, private, and link-local addresses stay blocked. Loading the file reports a bad `allow_hosts` value and leaves every other key as it was. `allow_entries` stays the reveal list. No command prints a secret
+
 ## Fixed
 
 - fix(keyring): `psamvault --version` and `--help` no longer read the OS keychain, so on Linux they print instead of crashing with `NoKeyringError` or hanging on a locked Secret Service prompt. `changelog` and `generate` (without `--save`) do not need the keychain either
@@ -21,6 +25,7 @@
 ## Tests
 
 - test(conftest): set `PYTHON_KEYRING_BACKEND`, `PSAMVAULT_PEPPER` and `PSAMVAULT_API_URL` when they are unset, so a bare pytest does not touch the developer keychain
+- test(policy): destination allow hosts cover normalisation, the grant-versus-load split, an agent refusal, a pipe that cannot confirm, `127.0.0.1` and a bare public suffix, a missing entry, and that a secret returned by the entry lookup is never printed
 
 ## Docs
 
@@ -29,3 +34,4 @@
 - docs(installation): `sudo apt update` comes before `sudo apt install pipx`, because a fresh box otherwise reports `Unable to locate package pipx`
 - docs(installation): the Secret Service check runs the pipx environment's Python (`pipx environment --value PIPX_LOCAL_VENVS`), not system `python3`, which has no `keyring`. The printed line is `keyring.backends.SecretService.Keyring (priority: 5)`
 - docs(installation): the headless unlock command is `gnome-keyring-daemon --replace --unlock`, for a locked daemon and for an empty store. `--replace` quits a daemon that is already running; with no daemon running it starts normally
+- docs(policy): the command reference, the configuration reference, the agent reveal guardrail, the feature map, installation, the README, and SECURITY.md say when to grant a destination host and what that command is not for. `allow_entries` stays the reveal list, and `allow_hosts` does not override the block on loopback, private, and link-local addresses
