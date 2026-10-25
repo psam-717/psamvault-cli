@@ -1,6 +1,6 @@
 ---
 title: The agent reveal guardrail
-description: Who may print a secret — the three policy modes, one-shot agent approvals, and the measured limits of the guardrail.
+description: Who may print a secret, where a stored secret may be sent, the three policy modes, one-shot agent approvals, and the measured limits of the guardrail.
 order: 50
 ---
 
@@ -75,6 +75,33 @@ one mode for every file and uses your user ACL instead.
 job needs one specific secret. A malformed policy file falls back to the safe
 defaults with a warning rather than crashing the CLI. The full schema is in the [Configuration reference](../reference/configuration.md#policyjson).
 
+`allow_entries` is not a list of destinations. Where a stored secret may be *sent* is `entries.<name>.allow_hosts` in the same file, which psamvault-mcp reads and does not write.
+
+## Where a secret may be sent
+
+psamvault-mcp sends a site password only to that site's registrable domain and its subdomains, and an API key only to its service's known hosts. Anything else needs a host on that entry's `allow_hosts`. There is no MCP tool that adds one.
+
+```bash
+# you, in your own terminal — names the entry and the host, and asks once
+psamvault policy allow-host ledger-key api.ledger.example
+psamvault policy allow-host github.com '*.ghcr.io'
+
+# see the list (an agent may run this)
+psamvault policy hosts
+psamvault policy hosts ledger-key
+
+# take a host back
+psamvault policy remove-host ledger-key api.ledger.example
+```
+
+**When to use them.** `allow-host` when the MCP refused a destination and you want that entry's secret to go there. `remove-host` when that destination should stop. `hosts` when you want to see the list, or the warning for a value the file should not be using.
+
+**What they are not for.** Not for printing a secret — that is `psamvault approve`, and `allow_entries` is the reveal list. Not for loopback, private, or link-local addresses: those stay blocked, and `allow_hosts` cannot override the block. Not for a bare public suffix (`com`, `co.uk`). Not for an agent to run: `allow-host` and `remove-host` use the same caller classification as a reveal (explicit flag, host markers, process ancestry, `PSAMVAULT_AGENT`) and require a real terminal, so a pipe cannot answer. Every grant and removal writes an audit row. Listing does not.
+
+A missing entry is a warning, not a refusal: the host is saved when you confirm, and it applies once an entry with that name exists. Other keys in the file are kept. Loading a bad `allow_hosts` value reports it and does not rewrite the file.
+
+The honest limit is the same as the rest of this guardrail. An agent that can write `~/.psamvault/policy.json` itself can still add a host. The command is the stop for a well-behaved agent, not a boundary.
+
 ## How the caller is classified
 
 The design is deliberately layered, because each layer was measured to fail on its own:
@@ -136,5 +163,6 @@ trail of who authorised what — tamper-*resistance*, not a boundary.
 ## Related pages
 
 - [Configuration](../reference/configuration.md#policyjson) — the `policy.json` schema, the audit row fields and the `PSAMVAULT_*` variables.
-- [Commands](../reference/commands.md#agent-guardrail-commands) — `psamvault approve` and the global `--agent` flag.
+- [Commands](../reference/commands.md#agent-guardrail-commands) — `psamvault approve`, the destination commands, and the global `--agent` flag.
+- [Destination allow list](../reference/commands.md#destination-allow-list) — `psamvault policy allow-host`, `remove-host`, and `hosts`.
 - [SECURITY.md](../../SECURITY.md) — the threat model this guardrail sits inside.

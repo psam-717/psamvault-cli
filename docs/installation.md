@@ -223,7 +223,7 @@ Everything psamvault writes on this machine lives under your home directory. Not
 |---|---|
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
-| `~/.psamvault/policy.json` | Reveal policy — absent means the safe default |
+| `~/.psamvault/policy.json` | Reveal policy and destination allow lists — absent means the safe default |
 | `~/.psamvault/audit.jsonl` | Every reveal decision: who asked, the matched signal, allow/deny |
 | OS keychain | The pepper and all session material |
 | `psamvault-key-<date>.json` | A backup kit, written where you point it — the Desktop by default, never inside `~/.psamvault` |

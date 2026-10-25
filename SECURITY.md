@@ -119,9 +119,9 @@ boundary. Concretely, measured on Windows 2026-09-23:
   ancestry, and a scrub that leaves `TERMINAL_*` in place is refused by the markers.
 - An agent with the user's credentials can read the OS keychain and decrypt the vault directly,
   install a pristine copy of the CLI, edit or delete `policy.json` (a permissive `"reveal": "open"`
-  disables the guardrail), or truncate the audit trail. The trail is evidence about well-behaved
-  callers, not tamper-proof logging.
-- Writing a policy file it owns makes the *policy* layer cooperative, not enforced.
+  disables the guardrail; a hand-written `entries.<name>.allow_hosts` grants a destination), or
+  truncate the audit trail. The trail is evidence about well-behaved callers, not tamper-proof logging.
+- Writing a policy file it owns makes the *policy* layer cooperative, not enforced. `psamvault policy allow-host` and `psamvault policy remove-host` refuse an agent and require a real terminal, and every grant or removal is an audit row. That stops a well-behaved agent from granting itself a host. It does not stop an agent that writes `policy.json` itself. `allow_hosts` does not override the block on loopback, private, and link-local addresses. `allow_entries` remains the reveal list, not the destination list.
 
 The actual boundary is running the agent as a **different OS user** with no access to the user's
 keychain and no read on `~/.psamvault`. That is the recommended hardening for anyone who needs a

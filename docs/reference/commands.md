@@ -899,7 +899,73 @@ psamvault --agent get github.com
 
 Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs, which is the same thing the MCP server does for its subprocesses.
 
-**When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it.
+**When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host` and `psamvault policy remove-host`. It does not refuse `psamvault policy hosts`.
+
+## Destination allow list
+
+`psamvault-mcp` sends a stored secret only to hosts that entry already owns, plus hosts a human has listed for it. The list is `entries["<entry>"].allow_hosts` in `~/.psamvault/policy.json`. There is no MCP tool that adds a host. These commands are that human action.
+
+This is not the reveal list. `allow_entries`, and `psamvault approve`, decide who may *print* a secret. `allow-host` decides where a secret may be *sent*. It does not print the secret, and listing a host here does not let an agent run `psamvault get`.
+
+Loopback, private, and link-local addresses stay blocked. Putting one in the file does not override that.
+
+### psamvault policy allow-host
+
+Allow one destination for one entry. A human runs this in their own terminal.
+
+```bash
+psamvault policy allow-host ledger-key api.ledger.example
+psamvault policy allow-host github.com '*.ghcr.io'
+pv policy allow-host ledger-key api.ledger.example
+```
+
+| Argument | What it does |
+|---|---|
+| `entry` *(required)* | The vault name the MCP looks up: the name you pass, the stored name, or its leaf (`project/.env/KEY` matches `KEY`) |
+| `host` *(required)* | A hostname, or `*.example.com` for that domain and its subdomains |
+
+The host is normalised: case, a trailing dot, and IDNA (`bücher.example` is stored as `xn--bcher-kva.example`). The command then asks you to confirm. Both stdin and stdout must be a terminal, so a pipe cannot answer. The caller is classified the same way a reveal is (explicit `PSAMVAULT_AGENT` or `--agent`, host markers, process ancestry). An agent is refused, and the refusal is an audit row. A successful grant is an audit row too. The row names the entry and the host. It never contains a secret.
+
+Refused, with no write: a URL or a port (`https://api.example.com/v1`, `api.example.com:443`) — pass the hostname; a wildcard that is not a leading `*.`; an IP address; `localhost`, `.local`, `.internal`; loopback, private, and link-local addresses (`127.0.0.1`, `10.1.2.3`, `169.254.169.254`); a bare public suffix (`com`, `co.uk`, `*.co.uk`, `github.io`). A public IP already sitting in the file is left alone. The MCP matches that exact address. This command will not add one.
+
+If the entry does not exist, the command says so and still saves the host when you confirm. The grant applies when an entry with that name exists. Not being logged in is the same kind of warning: the file is local, and the edit does not need a session.
+
+Other keys in the file are kept, including `reveal`, `allow_entries`, and `allow_commands` / `allow_inject` on the entry. Those last two are not enforced. The write is atomic and owner-only (`0600`).
+
+**When to run it:** the MCP refused to send a secret to a host, and you want that entry to be allowed to go there.
+
+**What it is not for:** revealing a secret, approving an agent to print one, or pointing a secret at your own machine. An agent must not run it. Editing the JSON by hand still works; this command is the checked way.
+
+### psamvault policy remove-host
+
+Remove one destination from one entry. Same human-terminal rule, same audit row (`revoked`).
+
+```bash
+psamvault policy remove-host ledger-key api.ledger.example
+pv policy remove-host ledger-key api.ledger.example
+```
+
+A value this command would have refused to grant can still be removed. That is how `127.0.0.1` or `co.uk` leaves a file that was edited by hand.
+
+**When to run it:** you no longer want that entry's secret sent to that host.
+
+**What it is not for:** deleting the vault entry, or changing `allow_entries`. An agent must not run it.
+
+### psamvault policy hosts
+
+List destination hosts. One entry, or every entry. An agent may run this. It prints hostnames and warnings, never a secret.
+
+```bash
+psamvault policy hosts
+psamvault policy hosts ledger-key
+pv policy hosts
+```
+
+A bad value already in the file is printed as a warning and is not treated as allowed. The file is not rewritten by listing it. `psamvault policy` with no subcommand prints the command table.
+
+**When to run it:** you want to see what an entry may be sent to, or why a value in the file is being ignored.
+
+**What it is not for:** granting a host. Listing does not change the file.
 
 ## Command groups
 
@@ -921,6 +987,7 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault backup create` | `psamvault backup create` |
 | `psamvault restore` | `psamvault backup restore` |
 | `psamvault approve` | `psamvault approve` |
+| `psamvault policy allow-host` | `psamvault policy allow-host` |
 | `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
@@ -938,6 +1005,7 @@ psamvault import
 psamvault backup
 psamvault uninstall
 psamvault approve --help
+psamvault policy
 ```
 
 ### Grouped forms available in each group
@@ -954,8 +1022,9 @@ Every command in this reference is also reachable through its group:
 | `psamvault note` | `add`, `get`, `list`, `update`, `delete` |
 | `psamvault changelog` | `latest`, `all`, `show` |
 | `psamvault backup` | `create`, `verify`, `status`, `rotate`, `revoke`, `restore` |
+| `psamvault policy` | `allow-host`, `remove-host`, `hosts` |
 
-`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`.
+`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`. `allow-host`, `remove-host` and `hosts` exist only under `psamvault policy`.
 
 ## Related pages
 

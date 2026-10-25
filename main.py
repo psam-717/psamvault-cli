@@ -24,6 +24,7 @@ from command.export_command import app as export_app
 from command.note_commands import app as note_app
 from command.note_commands import note_add, note_get, note_list, note_delete, note_update
 from command.backup_commands import app as backup_app
+from command.policy_commands import app as policy_app
 from command.restore_command import restore
 
 from update_check import start_update_check, print_update_notice
@@ -48,7 +49,8 @@ app = typer.Typer(
         "  psamvault note       — secure notes (note-add, note-list, ...)\n"
         "  psamvault backup     — keep your vault recoverable (create, verify, status, rotate)\n"
         "  psamvault restore    — regain access on a new machine from a backup\n"
-        "  psamvault approve    — let an agent reveal ONE secret once (needs a real terminal)\n\n"
+        "  psamvault approve    — let an agent reveal ONE secret once (needs a real terminal)\n"
+        "  psamvault policy     — destination hosts a stored secret may be sent to (human terminal)\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
@@ -87,7 +89,7 @@ def main(
         Optional[bool],
         typer.Option(
             "--agent",
-            help="Declare this process an agent caller: the reveal guardrail refuses secrets (get/ak-get/note-get/export --plaintext)",
+            help="Declare this process an agent caller: reveal commands and destination grants (policy allow-host / remove-host) are refused",
         ),
     ] = None,
 ) -> None:
@@ -115,6 +117,11 @@ app.add_typer(import_app, name="import", help="Import entries from other passwor
 app.add_typer(export_app, name="export", help="Export vault entries to a JSON file")
 app.add_typer(note_app, name="note", help="Secure notes (note-add, note-list, note-get, note-update, note-delete)")
 app.add_typer(backup_app, name="backup", help="Back up your vault key and check your recoverability")
+app.add_typer(
+    policy_app,
+    name="policy",
+    help="Destination hosts a stored secret may be sent to (allow-host, remove-host, hosts)",
+)
 
 # ── TUI — source kept in repo, command hidden from --help ──────────────
 # from tui.app import run_tui
