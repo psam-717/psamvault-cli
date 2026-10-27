@@ -8,6 +8,9 @@ evidence":
      "signals": ["marker:AI_AGENT=hermes-agent"], "tty": false, "pid": 1234,
      "ppid": 1200, "decision": "deny", "token_id": null, "policy": "human-only"}
 
+A destination grant adds ``"host"``: the hostname that was allowed or removed.
+That field is a name, never a secret, and it is omitted on reveal rows.
+
 Two invariants, both pinned by tests:
 
 * **A row never contains a secret.** Only names, ids, verdicts and signal
@@ -40,6 +43,9 @@ DECISION_APPROVED = "approved"
 DECISION_MINTED = "minted"
 # A discovery command ran and revealed nothing; the row records who asked.
 DECISION_DISCOVERY = "discovery"
+# A human added or removed a destination host. The row's ``host`` is that name.
+DECISION_GRANTED = "granted"
+DECISION_REVOKED = "revoked"
 
 
 def _rotate(path: Path) -> None:
@@ -64,8 +70,14 @@ def record(
     token_id: str | None = None,
     policy_mode: str | None = None,
     path: Path | None = None,
+    host: str | None = None,
 ) -> None:
-    """Append one audit row. Never raises."""
+    """Append one audit row. Never raises.
+
+    ``host`` is a destination hostname for a policy grant or removal. It is
+    omitted when the decision is not about a host, so reveal rows stay as
+    they were. It is never a secret value.
+    """
     target = Path(path) if path is not None else AUDIT_FILE
     row = {
         "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -80,6 +92,8 @@ def record(
         "token_id": token_id,
         "policy": policy_mode,
     }
+    if host is not None:
+        row["host"] = host
     try:
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         _rotate(target)

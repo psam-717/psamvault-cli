@@ -51,10 +51,16 @@ packages = ["."]
 "." = ""
 
 # The React build under dashboard/static/app is committed and sits inside the package
-# path, so packages = ["."] ships it. Do NOT re-add a
-# [tool.hatch.build.targets.wheel.force-include] entry for it: the same paths would be
-# added to the archive twice and hatchling aborts the wheel build with
+# path, so packages = ["."] ships it. Do NOT re-add a force-include entry for those
+# paths: the same paths would be added to the archive twice and hatchling aborts
+# the wheel build with
 #   ValueError: A second file is being added to the wheel archive at the same path
+#
+# The public suffix list is not a Python module, so it needs an explicit include.
+# It is the snapshot psamvault-mcp uses to decide registrable domains.
+
+[tool.hatch.build.targets.wheel.force-include]
+"public_suffix_list.dat" = "public_suffix_list.dat"
 
 [project.urls]
 Homepage = "https://github.com/psam-717/psamvault-cli"

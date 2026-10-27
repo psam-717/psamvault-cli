@@ -17,8 +17,8 @@ Everything psamvault writes under your home directory:
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
 | `~/.psamvault/flask_sessions/` | Unused. Older dashboards wrote the VEK and tokens here. The current dashboard keeps them in process memory and does not create this directory |
-| `~/.psamvault/policy.json` | Reveal policy — `human-only` (default), `strict` or `open`. Absent means the safe default |
-| `~/.psamvault/audit.jsonl` | Every reveal decision: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
+| `~/.psamvault/policy.json` | Reveal policy and per-entry destination hosts. Absent means the safe default: nothing extra is allowed |
+| `~/.psamvault/audit.jsonl` | Every reveal decision, and every destination grant or removal: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
 
 All sensitive values (pepper, tokens, VEK) live in the OS keychain. While `pv dashboard` is running it also holds the unlocked session in that process. The recovery kit file (`psamvault-key-<date>.json`) is written where you point it — the Desktop by default — never inside `~/.psamvault`.
 
@@ -106,15 +106,43 @@ These are not psamvault settings — psamvault only reads them, to work out who 
 `~/.psamvault/policy.json` — absent means the safe default, so a fresh machine is protected with nothing to configure. The same file works on Windows, macOS and Linux; the permission warning (`chmod 600`) is POSIX-only, since Windows reports one mode for every file and uses your user ACL instead.
 
 ```json
-{ "reveal": "human-only", "allow_entries": ["github.com"], "approval_ttl_seconds": 120, "audit": true }
+{
+  "reveal": "human-only",
+  "allow_entries": ["github.com"],
+  "approval_ttl_seconds": 120,
+  "audit": true,
+  "entries": {
+    "ledger-key": { "allow_hosts": ["api.ledger.example"] },
+    "github.com": { "allow_hosts": ["*.ghcr.io"] }
+  }
+}
 ```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `reveal` | string | `"human-only"` | One of `"human-only"`, `"strict"`, `"open"` |
-| `allow_entries` | list of strings | `[]` | Per-entry allowlist for agents — a long-running job that needs one specific secret. Matched case-insensitively against the exact entry name |
+| `allow_entries` | list of strings | `[]` | Who may *print* a secret. A long-running job that needs one specific secret revealed. Matched case-insensitively against the exact entry name. Not a list of destinations |
 | `approval_ttl_seconds` | integer | `120` | How long a `psamvault approve` token stays live. Coerced into the supported window: **15–3600** seconds |
-| `audit` | boolean | `true` | Whether reveal decisions are recorded |
+| `audit` | boolean | `true` | Stored with the file. Reveal decisions and destination grants are written to the audit trail either way |
+| `entries` | object | absent | Map of entry name → object. The destination allow list lives here. Absent means no extra hosts |
+| `entries.<name>.allow_hosts` | list of strings | absent | Hosts that entry's secret may also be sent to. One hostname, or a leading `*.` for that domain and its subdomains |
+
+`allow_entries` and `entries.*.allow_hosts` answer different questions. `allow_entries` lets an agent print one secret. `allow_hosts` lets psamvault-mcp send that secret to a host that is not already the entry's own site or service. Granting a host does not reveal the secret. Listing a name in `allow_entries` does not make a foreign host legal.
+
+Edit the destination list with [`psamvault policy allow-host`](commands.md#psamvault-policy-allow-host), [`psamvault policy remove-host`](commands.md#psamvault-policy-remove-host) and [`psamvault policy hosts`](commands.md#psamvault-policy-hosts). `allow-host` and `remove-host` are a human at a terminal: an agent (markers, ancestry, `PSAMVAULT_AGENT`, `--agent`) is refused, and a pipe cannot answer the confirmation. `psamvault policy hosts` only reads. A hand edit of the JSON still works; the commands are the checked way, and they keep every other key.
+
+What a host value means:
+
+| Value | On `policy allow-host` | When the file is loaded |
+|---|---|---|
+| `api.ledger.example`, `API.Ledger.Example.`, `bücher.example` | Stored normalised (lower case, trailing dot removed, IDNA) | Used |
+| `*.ghcr.io` | Stored. That domain and its subdomains | Used. Any other wildcard shape is reported and ignored |
+| `https://api.example.com/v1`, `api.example.com:443` | Refused. Pass the hostname | Read as the hostname, which is what the MCP does |
+| `127.0.0.1`, `10.1.2.3`, `169.254.169.254`, `::1`, `fe80::1`, `localhost`, `printer.local` | Refused | Reported, and not treated as allowed. The MCP blocks these even if they are listed |
+| `8.8.8.8` | Refused. This command writes a hostname | Kept. The MCP matches that exact public address |
+| `com`, `co.uk`, `*.co.uk`, `github.io` | Refused. A bare public suffix is not a site | Reported, and not treated as allowed |
+
+Loading does not rewrite the file. A bad value stays until `psamvault policy remove-host` deletes it, and `psamvault policy hosts` prints the warning. An older file with no `entries` key is unchanged and warns about nothing. `allow_commands` and `allow_inject` on an entry are preserved and are not enforced. The commands write the file atomically and owner-only (`0600`).
 
 | `"reveal"` | An agent (markers, ancestry) | A bare pipe, script or CI job | |
 |---|---|---|---|
@@ -135,6 +163,9 @@ What a bad file does, precisely:
 | JSON that is not an object | Safe defaults + a warning |
 | Unknown `reveal` value | `human-only`, with a warning naming the bad value |
 | `allow_entries` not a list | Ignored, with a warning |
+| `entries` not an object | Ignored, with a warning. `reveal` still applies |
+| `entries.<name>.allow_hosts` not a list | Ignored, with a warning naming the entry |
+| `allow_hosts` value the MCP would ignore, or that cannot take effect | Reported, naming the value. Other hosts on that entry are kept. The file is not rewritten |
 | `approval_ttl_seconds` out of range or not a number | Clamped to 15–3600, or reset to the default of 120 |
 | Unreadable file | Safe defaults + a warning |
 | POSIX group/other permission bits set | A warning telling you to `chmod 600` |
@@ -152,13 +183,14 @@ Forensics for the reveal guardrail, one JSONL row per decision, `0600`, rotated 
 | Field | Meaning |
 |---|---|
 | `ts` | UTC timestamp of the decision |
-| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, or `approve` |
-| `entry` | The entry the reveal was for, or `null` for a whole-vault dump |
+| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, `approve`, `policy allow-host`, or `policy remove-host` |
+| `entry` | The entry the reveal or the destination change was for, or `null` for a whole-vault dump |
+| `host` | Present on a destination grant or removal: the hostname, never a secret. Omitted on reveal rows |
 | `caller` | The verdict: `human`, `uncertain` or `agent` |
 | `signals` | The evidence that matched, e.g. `marker:AI_AGENT=hermes-agent`, `explicit:PSAMVAULT_AGENT`, `env:CI`, or an ancestry match |
 | `tty` | Whether both stdin and stdout were terminals |
 | `pid`, `ppid` | The process and its parent, for correlating a denial with the thing that asked |
-| `decision` | `allow`, `deny`, `approved` (an agent's reveal consumed a token) or `minted` (a human authorised one) |
+| `decision` | `allow`, `deny`, `approved` (an agent's reveal consumed a token), `minted` (a human authorised one), `granted` (a destination host was added) or `revoked` (one was removed) |
 | `token_id` | The approval token involved, or `null` |
 | `policy` | The effective `reveal` mode at the time |
 

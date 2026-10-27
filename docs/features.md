@@ -52,6 +52,10 @@ A backup here backs up the **key**, not the data: your entries live on the serve
 
 Four commands can print a secret — `get`, `ak-get`, `note-get` and `export --plaintext` (plus `--copy` on any of them). Each one classifies its caller first and refuses when the caller is a program, with the capability alternatives printed and an audit row recorded. Reach for `psamvault approve <entry> --for-agent` when an agent genuinely needs one secret printed once. Full detail: [The agent reveal guardrail](guides/agent-reveal-guardrail.md).
 
+## Destination allow list
+
+psamvault-mcp sends a stored secret only to that entry's own site or service, plus hosts a human has listed under `entries.<name>.allow_hosts` in `policy.json`. Reach for `psamvault policy allow-host` when the MCP refused a destination and you want to allow it, `psamvault policy remove-host` when that destination should stop, and `psamvault policy hosts` to see the list. Granting and removing need your terminal; an agent may list and may not grant. This is not `allow_entries`, and it does not print the secret. Full detail: [Destination allow list](reference/commands.md#destination-allow-list) and [policy.json](reference/configuration.md#policyjson).
+
 ## Typed errors and verbose diagnostics
 
 Failures are typed (`PsamVaultError`, `SessionExpiredError`) and printed as a message plus a hint rather than a traceback, so a network failure, an expired session and a wrong passphrase each say what they are and what to do next. Reach for the global `--verbose` / `-v` flag when you need the underlying error detail. Full detail: [Global options](reference/commands.md#global-options).
