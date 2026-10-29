@@ -25,11 +25,24 @@ LIST_TTL_SECONDS = 30
 _lock = threading.Lock()
 
 
+# Random id the browser sends back. Not the vault key, and not the launch token.
+BROWSER_COOKIE = "pv_dashboard"
+
+
 class ProcessCache:
     def __init__(self) -> None:
+        self.launch_token: str | None = None
+        self.launch_spent = False
+        self.browser_session: str | None = None
+        self.caller = None
         self.reset()
 
     def reset(self) -> None:
+        """Drop the vault login and the list cache.
+
+        The browser session is a different thing: signing out of the vault
+        must not force the page to be opened from ``pv dashboard`` again.
+        """
         self.auth: dict | None = None
         self.auth_loaded = False
         self.username = "User"
@@ -51,6 +64,45 @@ class ProcessCache:
 
 
 CACHE = ProcessCache()
+
+
+def open_browser_gate() -> str:
+    """Mint the one-time launch token and classify whoever started this process.
+
+    Called once from ``create_app``. The verdict is the dashboard process, not
+    whatever later sends an HTTP request.
+    """
+    import caller
+
+    with _lock:
+        CACHE.launch_token = secrets.token_urlsafe(32)
+        CACHE.launch_spent = False
+        CACHE.browser_session = None
+        CACHE.caller = caller.classify(with_ancestry=True)
+        return CACHE.launch_token
+
+
+def exchange_launch_token(token: str) -> str | None:
+    """Spend the launch token and return a new browser session id.
+
+    A wrong token does not spend the real one. A second presentation of the
+    real token fails.
+    """
+    with _lock:
+        if CACHE.launch_spent or not CACHE.launch_token or not token:
+            return None
+        if not secrets.compare_digest(token, CACHE.launch_token):
+            return None
+        CACHE.launch_spent = True
+        CACHE.browser_session = secrets.token_urlsafe(32)
+        return CACHE.browser_session
+
+
+def browser_cookie_ok(cookie: str | None) -> bool:
+    with _lock:
+        if not CACHE.browser_session or not cookie:
+            return False
+        return secrets.compare_digest(cookie, CACHE.browser_session)
 
 
 def install_token_hook() -> None:

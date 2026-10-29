@@ -16,7 +16,7 @@ Everything psamvault writes under your home directory:
 |---|---|
 | `~/.psamvault/config.env` | Non-sensitive API URL only |
 | `~/.psamvault/session.json` | Empty presence marker `{}` — no secrets |
-| `~/.psamvault/flask_sessions/` | Unused. Older dashboards wrote the VEK and tokens here. The current dashboard keeps them in process memory and does not create this directory |
+| `~/.psamvault/flask_sessions/` | Unused. Older dashboards wrote the VEK and tokens here. The current dashboard keeps them in process memory and does not create this directory. The browser cookie is a session id, also kept only in that process |
 | `~/.psamvault/policy.json` | Reveal policy and per-entry destination hosts. Absent means the safe default: nothing extra is allowed |
 | `~/.psamvault/audit.jsonl` | Every reveal decision, and every destination grant or removal: who asked, the matched signal, allow/deny. Owner-only, rotated at ~1 MB, never contains a secret |
 
@@ -28,7 +28,7 @@ Three more files appear in the same directory as psamvault runs:
 
 | File | Purpose |
 |---|---|
-| `~/.psamvault/flask_secret_key` | Unused. Older dashboards wrote a Flask secret here so a cookie session survived a restart. The current dashboard has no session cookie |
+| `~/.psamvault/flask_secret_key` | Unused. Older dashboards wrote a Flask secret here so a cookie session survived a restart. The current cookie is an HttpOnly session id that lives only in the dashboard process. It is not this file, and it does not hold the VEK |
 | `~/.psamvault/last_seen_version` | The version whose changelog notice has already been shown, so the notice is not repeated on every command |
 | `~/.psamvault/backups/backup-<UTC stamp>/` | Pre-update snapshots of `session.json` and `last_seen_version`, taken by the source-track upgrade. At most the 5 most recent are kept |
 | `~/.psamvault/audit.jsonl.1` | The single previous generation of the audit trail, created when `audit.jsonl` reaches ~1 MB |

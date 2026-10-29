@@ -16,7 +16,9 @@ import api_client
 from api_key_names import parse_api_key_name
 from crypto import decrypt_api_key, decrypt_credentials, encrypt_api_key, encrypt_credentials
 from dashboard.cache import (
+    BROWSER_COOKIE,
     CACHE,
+    browser_cookie_ok,
     describe_failure,
     ensure_auth,
     load_api_keys,
@@ -24,8 +26,9 @@ from dashboard.cache import (
     remember_api_keys,
     remember_entries,
 )
+import reveal_gate
 import session as session_store
-from errors import NotFoundError
+from errors import NotFoundError, RevealBlockedError
 
 bp = Blueprint("dashboard_api", __name__, url_prefix="/api")
 
@@ -148,14 +151,19 @@ def _text(data: dict, key: str) -> str:
 
 
 def _browser_origin_or_response():
-    """Block a web page on another site from posting a password here.
-
-    A missing Origin is a local tool or the test client. A browser always
-    sends one, and only this dashboard's own origin is accepted.
-    """
+    """Reject a password post whose Origin is not this dashboard."""
     origin = request.headers.get("Origin")
-    if origin and origin not in _ALLOWED_ORIGINS:
+    if origin not in _ALLOWED_ORIGINS:
         return _error("Bad origin", 403)
+    return None
+
+
+def _guard_reveal(action: str, entry: str):
+    """The same gate the CLI uses, for the process that started the dashboard."""
+    try:
+        reveal_gate.require_reveal(action=action, entry=entry, verdict=CACHE.caller)
+    except RevealBlockedError as exc:
+        return jsonify({"error": exc.message, "details": list(exc.details), "hint": exc.hint}), 403
     return None
 
 
@@ -170,6 +178,21 @@ def _account_status(action):
         return _error(exc.message, 400)
     CACHE.reset()
     return jsonify({"ok": True, **payload})
+
+
+@bp.before_request
+def _require_browser_session():
+    """Every API route needs the dashboard Origin and the launch-token cookie.
+
+    A missing Origin is rejected. The cookie is the browser session minted by
+    POST /session. It is not a vault login.
+    """
+    origin = request.headers.get("Origin")
+    if origin not in _ALLOWED_ORIGINS:
+        return _error("Bad origin", 403)
+    if not browser_cookie_ok(request.cookies.get(BROWSER_COOKIE)):
+        return _error("dashboard_session_required", 401)
+    return None
 
 
 @bp.after_request
@@ -324,6 +347,9 @@ def entry_reveal(site_name: str):
         if recovery:
             return jsonify({"error": message, "recovery": recovery}), 401
         return _error("Entry not found", 404)
+    blocked = _guard_reveal("get", site_name)
+    if blocked is not None:
+        return blocked
     fields = _body().get("fields") or ["password", "notes"]
     allowed = {"password", "notes"}
     payload = {name: plain.get(name, "") for name in fields if name in allowed}
@@ -483,6 +509,9 @@ def api_key_reveal(name: str):
         plain = decrypt_api_key(vek, data["encrypted_blob"], data["iv"])
     except (NotFoundError, Exception, SystemExit) as exc:
         return _masked(exc, "API key not found")
+    blocked = _guard_reveal("ak-get", name)
+    if blocked is not None:
+        return blocked
     fields = _body().get("fields") or ["api_key", "notes"]
     allowed = {"api_key", "notes"}
     payload = {field: plain.get(field, "") for field in fields if field in allowed}

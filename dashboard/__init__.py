@@ -3,6 +3,12 @@ psamvault Web Dashboard — Flask app factory.
 
 Usage:
     pv dashboard          # starts the server on localhost:8500
+
+The vault key and the API tokens stay in this process. The browser does not
+receive them. ``pv dashboard`` puts a one-time token in the URL fragment. The
+page posts that token once to ``/session`` and receives an HttpOnly,
+SameSite=Strict cookie. The cookie is a random session id. Every ``/api``
+route requires that cookie and the dashboard's own Origin.
 """
 
 from __future__ import annotations
@@ -43,9 +49,10 @@ def create_app() -> Flask:
         static_folder=str(Path(__file__).parent / "static"),
         static_url_path="/static",
     )
-    # No cookie session. Tokens and the VEK stay in process memory after one
-    # keychain read (dashboard.cache). A signed cookie is not required.
-    app.secret_key = "unused-dashboard-has-no-cookie-session"
+    # No Flask session. The VEK and the API tokens stay in process memory
+    # (dashboard.cache). The browser cookie set by POST /session is only a
+    # random id for this process. It is not written to disk.
+    app.secret_key = "unused-dashboard-has-no-flask-session"
 
     @app.errorhandler(keychain.KeychainUnavailable)
     def _keychain_unavailable(exc: keychain.KeychainUnavailable):
@@ -53,9 +60,39 @@ def create_app() -> Flask:
         # it as JSON; an unhandled typer.Exit would be an HTML 500.
         return jsonify({"error": exc.message}), 503
 
-    from dashboard.api import bp
+    from dashboard.api import _ALLOWED_ORIGINS, bp
+    from dashboard.cache import BROWSER_COOKIE, exchange_launch_token, open_browser_gate
 
+    open_browser_gate()
     app.register_blueprint(bp)
+
+    @app.post("/session")
+    def exchange_launch_session():
+        """Trade the one-time fragment token for the browser session cookie.
+
+        This route is not under ``/api``. Every ``/api`` route requires the
+        cookie this sets, so the exchange itself cannot require it.
+        """
+        origin = request.headers.get("Origin")
+        if origin not in _ALLOWED_ORIGINS:
+            return jsonify({"error": "Bad origin"}), 403
+        data = request.get_json(silent=True)
+        token = data.get("token") if isinstance(data, dict) else ""
+        if not isinstance(token, str):
+            token = ""
+        session_id = exchange_launch_token(token)
+        if session_id is None:
+            return jsonify({"error": "Launch token is invalid"}), 403
+        response = jsonify({"ok": True})
+        response.headers["Cache-Control"] = "no-store"
+        response.set_cookie(
+            BROWSER_COOKIE,
+            session_id,
+            httponly=True,
+            samesite="Strict",
+            path="/",
+        )
+        return response
 
     @app.before_request
     def _enforce_localhost_host():

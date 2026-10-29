@@ -16,6 +16,7 @@ import config
 import pytest
 import session
 from cryptography.exceptions import InvalidTag
+from flask.testing import FlaskClient
 
 import api_client
 import dashboard.cache as dash_cache
@@ -36,8 +37,7 @@ def _session_record() -> dict:
     }
 
 
-@pytest.fixture
-def dashboard_app(monkeypatch, tmp_path, fake_keychain):
+def _build_dashboard_app(monkeypatch, tmp_path, fake_keychain):
     """A dashboard that cannot see the real keychain, home directory, or API."""
     monkeypatch.setattr(config, "keyring", fake_keychain)
     monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.env")
@@ -146,9 +146,27 @@ def dashboard_app(monkeypatch, tmp_path, fake_keychain):
 
 
 @pytest.fixture
+def dashboard_app(monkeypatch, tmp_path, fake_keychain):
+    return _build_dashboard_app(monkeypatch, tmp_path, fake_keychain)
+
+
+class _DashboardClient(FlaskClient):
+    """The page's own origin. A test that must omit it uses a plain test client."""
+
+    def open(self, *args, **kwargs):
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers.setdefault("Origin", "http://127.0.0.1:8500")
+        kwargs["headers"] = headers
+        return super().open(*args, **kwargs)
+
+
+@pytest.fixture
 def client(dashboard_app):
     app, calls, gets, stored = dashboard_app
+    app.test_client_class = _DashboardClient
     with app.test_client() as test_client:
+        opened = test_client.post("/session", json={"token": dash_cache.CACHE.launch_token})
+        assert opened.status_code == 200, opened.data
         yield test_client, calls, gets, stored
 
 
@@ -708,3 +726,173 @@ def test_dashboard_login_returns_the_keychain_message_instead_of_a_500(client, m
     assert "<html" not in text.lower()
     assert password not in text
     assert "fresh-access" not in text
+
+
+_DASHBOARD_ORIGIN = "http://127.0.0.1:8500"
+
+
+def _exchange(test_client, token: str, origin: str | None = _DASHBOARD_ORIGIN):
+    headers = {}
+    if origin is not None:
+        headers["Origin"] = origin
+    return test_client.post("/session", json={"token": token}, headers=headers)
+
+
+def test_api_requires_a_browser_session_cookie(dashboard_app):
+    """A local process that did not exchange the launch token gets no vault data."""
+    app, _calls, _gets, _stored = dashboard_app
+    raw = app.test_client()
+    response = raw.get("/api/bootstrap", headers={"Origin": _DASHBOARD_ORIGIN})
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "dashboard_session_required"
+    assert "s3cr3t-Password1" not in response.get_data(as_text=True)
+    assert "csrf_token" not in response.get_data(as_text=True)
+
+
+def test_launch_token_is_single_use_and_sets_an_httponly_cookie(dashboard_app):
+    app, _calls, _gets, _stored = dashboard_app
+    token = dash_cache.CACHE.launch_token
+    assert token
+    raw = app.test_client()
+
+    missing = _exchange(raw, token, origin=None)
+    assert missing.status_code == 403
+    assert dash_cache.CACHE.launch_spent is False
+
+    first = _exchange(raw, token)
+    assert first.status_code == 200
+    set_cookie = first.headers["Set-Cookie"]
+    assert "HttpOnly" in set_cookie
+    assert "SameSite=Strict" in set_cookie
+    assert token not in set_cookie
+    assert TEST_VEK.hex() not in set_cookie
+    assert first.get_json() == {"ok": True}
+
+    again = _exchange(raw, token)
+    assert again.status_code == 403
+    assert "Set-Cookie" not in again.headers
+
+    bootstrap = raw.get("/api/bootstrap", headers={"Origin": _DASHBOARD_ORIGIN})
+    assert bootstrap.status_code == 200
+    assert "s3cr3t-Password1" not in bootstrap.get_data(as_text=True)
+
+
+def test_api_requires_the_dashboard_origin(dashboard_app):
+    app, _calls, _gets, _stored = dashboard_app
+    raw = app.test_client()
+    token = dash_cache.CACHE.launch_token
+    assert _exchange(raw, token).status_code == 200
+
+    missing = raw.get("/api/bootstrap")
+    assert missing.status_code == 403
+    assert missing.get_json()["error"] == "Bad origin"
+
+    forged = raw.post(
+        "/api/entries/GitHub/reveal",
+        json={"fields": ["password"]},
+        headers={"Origin": "http://evil.example", "X-CSRF-Token": "unused"},
+    )
+    assert forged.status_code == 403
+    assert "s3cr3t-Password1" not in forged.get_data(as_text=True)
+
+
+def test_dashboard_reveal_writes_an_allow_audit_row(dashboard_app):
+    import audit
+
+    app, _calls, _gets, _stored = dashboard_app
+    raw = app.test_client()
+    assert _exchange(raw, dash_cache.CACHE.launch_token).status_code == 200
+    _response, body = _bootstrap(raw, headers={"Origin": _DASHBOARD_ORIGIN})
+    reveal = raw.post(
+        "/api/entries/GitHub/reveal",
+        json={"fields": ["password"]},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert reveal.status_code == 200
+    assert reveal.get_json() == {"password": "s3cr3t-Password1"}
+    rows = audit.read()
+    assert rows[-1]["command"] == "get"
+    assert rows[-1]["entry"] == "GitHub"
+    assert rows[-1]["decision"] == "allow"
+    assert "s3cr3t-Password1" not in str(rows[-1])
+
+    key = raw.post(
+        "/api/api-keys/OpenAI/reveal",
+        json={"fields": ["api_key"]},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert key.status_code == 200
+    assert key.get_json() == {"api_key": "sk-test-secret"}
+    assert audit.read()[-1]["command"] == "ak-get"
+    assert audit.read()[-1]["decision"] == "allow"
+    assert "sk-test-secret" not in str(audit.read()[-1])
+
+
+def test_agent_started_dashboard_refuses_reveal_and_writes_a_deny_row(monkeypatch, tmp_path, fake_keychain):
+    import audit
+
+    monkeypatch.setenv("PSAMVAULT_AGENT", "1")
+    app, _calls, _gets, _stored = _build_dashboard_app(monkeypatch, tmp_path, fake_keychain)
+    raw = app.test_client()
+    assert _exchange(raw, dash_cache.CACHE.launch_token).status_code == 200
+    _response, body = _bootstrap(raw, headers={"Origin": _DASHBOARD_ORIGIN})
+    reveal = raw.post(
+        "/api/entries/GitHub/reveal",
+        json={"fields": ["password", "notes"]},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert reveal.status_code == 403
+    text = reveal.get_data(as_text=True)
+    assert "s3cr3t-Password1" not in text
+    assert "note text" not in text
+    assert "blocked" in reveal.get_json()["error"]
+    row = audit.read()[-1]
+    assert row["command"] == "get"
+    assert row["entry"] == "GitHub"
+    assert row["decision"] == "deny"
+    assert row["caller"] == "agent"
+    assert "s3cr3t-Password1" not in str(row)
+
+    key = raw.post(
+        "/api/api-keys/OpenAI/reveal",
+        json={"fields": ["api_key"]},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert key.status_code == 403
+    assert "sk-test-secret" not in key.get_data(as_text=True)
+    assert audit.read()[-1]["command"] == "ak-get"
+    assert audit.read()[-1]["decision"] == "deny"
+
+
+def test_dashboard_command_opens_the_token_in_the_fragment(monkeypatch):
+    import webbrowser
+
+    import waitress
+
+    opened: dict = {}
+
+    def _open(url):
+        opened["url"] = url
+        return True
+
+    def _serve(*args, **kwargs):
+        opened["serve"] = (args, kwargs)
+
+    monkeypatch.setattr(webbrowser, "open", _open)
+    monkeypatch.setattr(waitress, "serve", _serve)
+
+    from typer.testing import CliRunner
+
+    import main
+
+    result = CliRunner().invoke(main.app, ["dashboard"])
+    assert result.exit_code == 0, result.output
+    url = opened["url"]
+    assert url.startswith("http://localhost:8500/#")
+    token = url.split("#", 1)[1]
+    assert token
+    assert token not in result.output
+    assert "http://localhost:8500" in result.output
+    _args, kwargs = opened["serve"]
+    assert kwargs["host"] == "127.0.0.1"
+    assert kwargs["port"] == 8500
