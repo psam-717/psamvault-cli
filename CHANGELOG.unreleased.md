@@ -21,6 +21,7 @@
 - fix(login): `psamvault login` no longer treats a locked or missing keychain as a saved session that cannot be refreshed. The keychain error is the one that stops the command
 - fix(configure): `psamvault configure` no longer says the pepper is in `~/.psamvault/config.env` or to back that file up, and it no longer prints any of the pepper. The pepper is in the OS keychain; the file holds the API URL only. A legacy pepper left in the file is removed only after the keychain read-back matches
 - fix(keyring): the Linux hint for a locked keychain, and for a gnome-keyring daemon with no login keyring, is `echo -n '<password>' | gnome-keyring-daemon --replace --unlock --components=secrets`. Plain `--unlock` exits 0 and starts a second daemon; the daemon that owns the Secret Service stays locked or empty. `--replace` quits that daemon and this process unlocks the login keyring, or creates it when the store is empty
+- fix(dashboard): `pv dashboard` puts a one-time token in the URL fragment. The page exchanges it once for an HttpOnly, SameSite=Strict cookie. Every `/api` route requires that cookie and the dashboard Origin. A password or API-key reveal uses the same gate as `psamvault get` and `psamvault ak-get`, for the process that started the dashboard, and writes an allow or deny audit row
 
 ## Tests
 
@@ -35,3 +36,4 @@
 - docs(installation): the Secret Service check runs the pipx environment's Python (`pipx environment --value PIPX_LOCAL_VENVS`), not system `python3`, which has no `keyring`. The printed line is `keyring.backends.SecretService.Keyring (priority: 5)`
 - docs(installation): the headless unlock command is `gnome-keyring-daemon --replace --unlock`, for a locked daemon and for an empty store. `--replace` quits a daemon that is already running; with no daemon running it starts normally
 - docs(policy): the command reference, the configuration reference, the agent reveal guardrail, the feature map, installation, the README, and SECURITY.md say when to grant a destination host and what that command is not for. `allow_entries` stays the reveal list, and `allow_hosts` does not override the block on loopback, private, and link-local addresses
+- docs(dashboard): the README, SECURITY.md, the dashboard guide, the guardrail guide, and the configuration reference describe the in-memory vault session and the browser cookie as a session id
