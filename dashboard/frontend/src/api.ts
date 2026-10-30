@@ -3,6 +3,7 @@ export type Entry = {
   username_hint: string;
   updated_at: string;
   login_url: string;
+  has_notes: boolean;
 };
 
 export type ApiKeyRow = {
@@ -13,6 +14,7 @@ export type ApiKeyRow = {
   key_name: string;
   source: string | null;
   stale: boolean;
+  has_notes: boolean;
 };
 
 export type Bootstrap = {
@@ -100,15 +102,22 @@ export function deleteEntry(site: string) {
 }
 
 export function getEntry(site: string) {
-  return request<{ site_name: string; username: string; login_url: string; notes: string }>(
+  return request<{ site_name: string; username: string; login_url: string; has_notes: boolean }>(
     `/api/entries/${encodeURIComponent(site)}`,
   );
 }
 
-export function revealEntry(site: string, field: "password" | "notes") {
+export function revealEntry(site: string, field: "password") {
   return request<Record<string, string>>(`/api/entries/${encodeURIComponent(site)}/reveal`, {
     method: "POST",
     body: JSON.stringify({ fields: [field] }),
+  });
+}
+
+export function revealEntryNotes(site: string) {
+  return request<{ notes: string }>(`/api/entries/${encodeURIComponent(site)}/notes`, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 
@@ -136,13 +145,20 @@ export function deleteApiKey(name: string) {
 }
 
 export function getApiKey(name: string) {
-  return request<{ name: string; service: string; notes: string }>(keyPath(name));
+  return request<{ name: string; service: string; has_notes: boolean }>(keyPath(name));
 }
 
-export function revealApiKey(name: string, field: "api_key" | "notes") {
+export function revealApiKey(name: string, field: "api_key") {
   return request<Record<string, string>>(keyPath(name, "/reveal"), {
     method: "POST",
     body: JSON.stringify({ fields: [field] }),
+  });
+}
+
+export function revealApiKeyNotes(name: string) {
+  return request<{ notes: string }>(keyPath(name, "/notes"), {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 

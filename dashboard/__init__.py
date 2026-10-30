@@ -2,13 +2,15 @@
 psamvault Web Dashboard — Flask app factory.
 
 Usage:
-    pv dashboard          # starts the server on localhost:8500
+    pv dashboard          # localhost, port 8500 or the next free port
+    pv dashboard --port N
 
 The vault key and the API tokens stay in this process. The browser does not
 receive them. ``pv dashboard`` puts a one-time token in the URL fragment. The
 page posts that token once to ``/session`` and receives an HttpOnly,
 SameSite=Strict cookie. The cookie is a random session id. Every ``/api``
-route requires that cookie and the dashboard's own Origin.
+route requires that cookie and the dashboard's own Origin. The Origin is the
+port this process bound, not a fixed 8500.
 """
 
 from __future__ import annotations
@@ -21,25 +23,39 @@ import keychain
 
 from dashboard.cache import install_token_hook
 
-# The dashboard is served on 127.0.0.1:8500 over plain HTTP. Only these
-# Host values are accepted; any other Host (e.g. an attacker domain that
-# DNS-rebinds to 127.0.0.1) is rejected with 403 before any route runs.
-# Bare localhost / 127.0.0.1 are accepted so the Flask test client works.
-# Browsers on port 8500 send the host with the port, which is also listed.
-_ALLOWED_HOSTS = {
-    "127.0.0.1:8500",
-    "localhost:8500",
-    "[::1]:8500",
-    "localhost",
-    "127.0.0.1",
-}
+# The dashboard is served on 127.0.0.1 over plain HTTP, on the port
+# ``create_app`` was given. Only these Host values are accepted; any other
+# Host (e.g. an attacker domain that DNS-rebinds to 127.0.0.1) is rejected
+# with 403 before any route runs. Bare localhost / 127.0.0.1 are accepted so
+# the Flask test client works. Browsers send the host with the bound port.
+def hosts_for_port(port: int) -> set[str]:
+    return {
+        f"127.0.0.1:{port}",
+        f"localhost:{port}",
+        f"[::1]:{port}",
+        "localhost",
+        "127.0.0.1",
+    }
+
+
+_ALLOWED_HOSTS = hosts_for_port(8500)
 
 _DIST = Path(__file__).parent / "static" / "app"
 
 
-def create_app() -> Flask:
-    """Create and configure the Flask dashboard application."""
+def create_app(port: int = 8500) -> Flask:
+    """Create and configure the Flask dashboard application.
+
+    ``port`` is the port Waitress will bind. The Host and Origin allow-lists
+    use that port, for ``127.0.0.1``, ``localhost`` and ``[::1]``.
+    """
+    global _ALLOWED_HOSTS
     from config import load_config
+    from dashboard.api import configure_listen_port
+
+    allowed_hosts = hosts_for_port(port)
+    _ALLOWED_HOSTS = allowed_hosts
+    configure_listen_port(port)
 
     load_config()
     install_token_hook()
@@ -97,7 +113,7 @@ def create_app() -> Flask:
     @app.before_request
     def _enforce_localhost_host():
         host = request.headers.get("Host", "")
-        if host not in _ALLOWED_HOSTS:
+        if host not in allowed_hosts:
             return "", 403
         return None
 

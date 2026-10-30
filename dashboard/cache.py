@@ -55,6 +55,9 @@ class ProcessCache:
         self.api_keys_error: str | None = None
         self.api_keys_recovery: str | None = None
         self.api_keys_at = 0.0
+        # Notes text is not a field on a GET. A later save may replace notes
+        # only after this process has revealed them.
+        self.revealed_notes: set[tuple[str, str]] = set()
 
     def set_tokens(self, access_token: str, refresh_token: str) -> None:
         if self.auth is None:
@@ -259,3 +262,14 @@ def remember_api_keys(rows: list) -> None:
         CACHE.api_keys_error = None
         CACHE.api_keys_recovery = None
         CACHE.api_keys_at = time.monotonic()
+
+
+def mark_notes_revealed(kind: str, name: str) -> None:
+    """Remember that this process showed the notes for one entry."""
+    with _lock:
+        CACHE.revealed_notes.add((kind, name))
+
+
+def notes_were_revealed(kind: str, name: str) -> bool:
+    with _lock:
+        return (kind, name) in CACHE.revealed_notes
