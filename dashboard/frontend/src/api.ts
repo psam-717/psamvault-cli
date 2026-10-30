@@ -37,6 +37,27 @@ export class ApiError extends Error {
 }
 
 let csrf = "";
+let launchExchange: Promise<void> | null = null;
+
+export function exchangeLaunchToken(token: string): Promise<void> {
+  if (!launchExchange) {
+    launchExchange = (async () => {
+      const response = await fetch("/session", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        launchExchange = null;
+        const message = typeof data.error === "string" ? data.error : "Could not open the dashboard";
+        throw new ApiError(response.status, message);
+      }
+    })();
+  }
+  return launchExchange;
+}
 
 export function setCsrf(token: string) {
   csrf = token;

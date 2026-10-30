@@ -73,7 +73,7 @@ Every command, every flag, and — importantly — **when** to run each one: [do
 - **A backup protects against losing a machine, not against a compromised one**, and rotating a backup passphrase does not disarm a kit file that was already copied — a kit is not a data backup either
 - The **reveal guardrail is a guardrail, not a boundary**: an agent with your shell *and* your keychain can read the credential anyway. The real boundary is running the agent as a different OS user
 - Your **VEK** is stored locally only during an active session, and **restore is proof-checked** — it decrypts one of your real entries and reports honestly if it cannot
-- **Server-side sessions** — the dashboard keeps your VEK and tokens on the filesystem, never in the browser cookie, which holds a random session ID only
+- **Server-side sessions** — the dashboard keeps the VEK and the API tokens in the dashboard process, not in a file and not in the browser. `pv dashboard` puts a one-time token in the URL fragment. The page exchanges that token once for an HttpOnly, SameSite=Strict cookie. The cookie is a random session id. It is not the vault key
 
 The threat model, the key-material table, the guardrail's measured limits and the known limitations of rotation are documented in [SECURITY.md](SECURITY.md). The file-by-file and variable-by-variable detail is in [docs/reference/configuration.md](docs/reference/configuration.md).
 

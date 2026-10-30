@@ -164,22 +164,27 @@ def dashboard() -> None:
 
     # ── Start fresh ────────────────────────────────────────────────────
     from dashboard import create_app
+    from dashboard.cache import CACHE
     import webbrowser
 
     app = create_app()
     port = 8500
     url = f"http://localhost:{port}"
+    # The fragment is not a request. The page reads it and exchanges it once.
+    # It is not printed on the success path, so the terminal scrollback is not
+    # a second copy of the token.
+    launch_url = f"{url}/#{CACHE.launch_token}"
 
     typer.echo(f" \n  psamvault dashboard starting...")
     typer.echo(f"  → {url}")
     typer.echo(f"  Press Ctrl+C to stop.\n")
 
     try:
-        if not webbrowser.open(url):
+        if not webbrowser.open(launch_url):
             raise RuntimeError("webbrowser.open returned False")
     except Exception:
         typer.echo(f"  ⚠ Could not open browser automatically.")
-        typer.echo(f"  → Open {url} manually in your browser.\n")
+        typer.echo(f"  → Open this once in your browser:\n  {launch_url}\n")
 
     from waitress import serve
     serve(app, host="127.0.0.1", port=port)

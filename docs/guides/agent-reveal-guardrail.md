@@ -118,6 +118,12 @@ The design is deliberately layered, because each layer was measured to fail on i
   agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
   match the desktop app's own install prefix, which would block the user's own terminal pane.
 
+## The dashboard uses the same gate
+
+`pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password and API-key reveals on that server call `require_reveal` with that verdict. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
+
+The page still has to be the one `pv dashboard` opened. The launch token is in the URL fragment, exchanged once for an HttpOnly cookie, and every `/api` route requires that cookie and the dashboard Origin. That is a separate check from the reveal gate. Detail is in [Web dashboard](web-dashboard.md).
+
 ## What it stops
 
 A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —

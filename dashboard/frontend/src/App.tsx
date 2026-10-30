@@ -24,6 +24,7 @@ import {
   getApiKey,
   getEntry,
   type AuthResult,
+  exchangeLaunchToken,
   loadBootstrap,
   logout,
   revealApiKey,
@@ -173,6 +174,7 @@ export function App() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [launchRequired, setLaunchRequired] = useState(false);
   const [tab, setTab] = useState<Tab>("entries");
   const [query, setQuery] = useState("");
   const [keyKind, setKeyKind] = useState<KeyKind>("project");
@@ -197,6 +199,11 @@ export function App() {
         toast.error(error.message);
         return;
       }
+      if (error instanceof ApiError && error.status === 401 && error.message === "dashboard_session_required") {
+        setLaunchRequired(true);
+        setData(null);
+        return;
+      }
       if (error instanceof ApiError && error.status === 401) {
         setLoggedOut(true);
         setData(null);
@@ -209,7 +216,21 @@ export function App() {
   }
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+      if (raw) {
+        try {
+          await exchangeLaunchToken(decodeURIComponent(raw));
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        } catch (error) {
+          setLaunchRequired(true);
+          setLoading(false);
+          toast.error(error instanceof Error ? error.message : "Could not open the dashboard");
+          return;
+        }
+      }
+      await refresh();
+    })();
   }, []);
 
   function signedIn(result: AuthResult) {
@@ -273,6 +294,16 @@ export function App() {
       <Shell username="" dark={dark} onTheme={toggleTheme} onLogout={() => {}}>
         <DashboardSkeleton />
       </Shell>
+    );
+  }
+
+  if (launchRequired) {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-6">
+        <p className="max-w-md text-center text-sm text-muted-foreground">
+          This page has no dashboard session. Run <code>pv dashboard</code> again and use the window it opens.
+        </p>
+      </main>
     );
   }
 

@@ -101,6 +101,8 @@ program. The design is deliberately layered, because each layer was measured to 
   agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
   match the desktop app's own install prefix, which would block the user's own terminal pane.
 
+The local dashboard reveals through the same gate. `pv dashboard` classifies the process that started it and uses that verdict for password and API-key reveals. An agent that started the dashboard is refused, and the row is written. The browser session is a one-time fragment token exchanged for an HttpOnly, SameSite=Strict cookie. The cookie is not the vault key. A request with no cookie, or with no dashboard Origin, is rejected before a reveal.
+
 **What it stops.** A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
 running `psamvault get` gets exit code 1 and a message naming the capability alternatives
 (`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
