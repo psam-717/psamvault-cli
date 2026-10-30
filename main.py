@@ -132,62 +132,95 @@ app.add_typer(
 #     run_tui()
 
 
+def _tcp_port_busy(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
+def _free_tcp_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _dashboard_port(requested: Optional[int]) -> int:
+    """8500 unless it is busy, or the port the user named.
+
+    An omitted ``--port`` falls back to a free port and says so. An explicit
+    ``--port`` that is busy stops, so a typo does not silently move.
+    """
+    default = 8500
+    explicit = requested is not None
+    port = default if requested is None else requested
+    if port < 1 or port > 65535:
+        typer.echo("\n ✗ Port must be between 1 and 65535.", err=True)
+        raise typer.Exit(code=1)
+    if not _tcp_port_busy(port):
+        return port
+    if explicit:
+        typer.echo(f"\n ✗ Port {port} is already in use.", err=True)
+        typer.echo(
+            " → Stop the other process, or omit --port to let the dashboard pick a free port.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    fallback = _free_tcp_port()
+    typer.echo(f"  Port {default} is in use. The dashboard will listen on {fallback} instead.")
+    return fallback
+
+
 @app.command()
-def dashboard() -> None:
-    """Launch the web dashboard for psamvault (fresh — kills stale servers & clears cache)."""
-    import subprocess
+def dashboard(
+    port: Optional[int] = typer.Option(
+        None,
+        "--port",
+        help="Listen port. Defaults to 8500. If 8500 is busy and this flag is omitted, a free port is used.",
+    ),
+) -> None:
+    """Launch the web dashboard (clears cached bytecode; binds 8500 or the next free port)."""
     import shutil
     from pathlib import Path
 
-    # ── Kill any stale process on port 8500 ────────────────────────────
-    typer.echo("  Cleaning up stale dashboard processes...")
-    try:
-        result = subprocess.run(
-            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
-        )
-        for line in result.stdout.splitlines():
-            if ":8500" in line and "LISTENING" in line:
-                parts = line.strip().split()
-                pid = parts[-1]
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", pid],
-                    capture_output=True, text=True, timeout=5,
-                )
-                typer.echo(f"  Killed stale process PID {pid}")
-    except Exception:
-        pass  # best-effort cleanup
-
-    # ── Clear Python bytecode cache for dashboard ──────────────────────
+    # Cached bytecode from a previous install would serve the old routes.
     dashboard_dir = Path(__file__).parent / "dashboard"
     for pycache in dashboard_dir.rglob("__pycache__"):
         shutil.rmtree(pycache, ignore_errors=True)
 
-    # ── Start fresh ────────────────────────────────────────────────────
+    chosen = _dashboard_port(port)
+
     from dashboard import create_app
     from dashboard.cache import CACHE
     import webbrowser
 
-    app = create_app()
-    port = 8500
-    url = f"http://localhost:{port}"
+    app = create_app(port=chosen)
+    url = f"http://localhost:{chosen}"
     # The fragment is not a request. The page reads it and exchanges it once.
     # It is not printed on the success path, so the terminal scrollback is not
-    # a second copy of the token.
+    # a second copy of the token. The browser process command line has it
+    # until that exchange. See SECURITY.md.
     launch_url = f"{url}/#{CACHE.launch_token}"
 
-    typer.echo(f" \n  psamvault dashboard starting...")
+    typer.echo(" \n  psamvault dashboard starting...")
     typer.echo(f"  → {url}")
-    typer.echo(f"  Press Ctrl+C to stop.\n")
+    typer.echo("  Press Ctrl+C to stop.\n")
 
     try:
         if not webbrowser.open(launch_url):
             raise RuntimeError("webbrowser.open returned False")
     except Exception:
-        typer.echo(f"  ⚠ Could not open browser automatically.")
+        typer.echo("  ⚠ Could not open browser automatically.")
         typer.echo(f"  → Open this once in your browser:\n  {launch_url}\n")
 
     from waitress import serve
-    serve(app, host="127.0.0.1", port=port)
+    serve(app, host="127.0.0.1", port=chosen)
 
 from command.auth_commands import login, logout, signup, whoami, config_show, configure, migrate
 from command.vault_commands import add, delete, generate, get, list_entries, site_list, update, search

@@ -120,9 +120,9 @@ The design is deliberately layered, because each layer was measured to fail on i
 
 ## The dashboard uses the same gate
 
-`pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password and API-key reveals on that server call `require_reveal` with that verdict. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
+`pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password, API-key and notes reveals on that server call `require_reveal` with that verdict. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. Notes text is not on the list or detail GET (`has_notes` is). A save does not replace notes that were never revealed. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
 
-The page still has to be the one `pv dashboard` opened. The launch token is in the URL fragment, exchanged once for an HttpOnly cookie, and every `/api` route requires that cookie and the dashboard Origin. That is a separate check from the reveal gate. Detail is in [Web dashboard](web-dashboard.md).
+The page still has to be the one `pv dashboard` opened. The launch token is in the URL fragment, exchanged once for an HttpOnly cookie, and every `/api` route requires that cookie. A request that sends an Origin must be the dashboard's own origin for the bound port. A same-origin GET omits Origin; a POST that omits it is rejected. That is a separate check from the reveal gate. Detail is in [Web dashboard](web-dashboard.md).
 
 ## What it stops
 

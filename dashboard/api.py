@@ -1,7 +1,9 @@
 """JSON API for the local dashboard.
 
-The browser never receives the VEK. Lists carry names and hints only.
-Passwords and API keys are returned from the reveal POST, and nowhere else.
+The browser never receives the VEK. Lists and detail GETs carry names, hints
+and a ``has_notes`` flag. They do not carry notes text. Passwords and API keys
+are returned from the reveal POST. Notes are returned from the notes POST.
+Both go through ``require_reveal``.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from dashboard.cache import (
     ensure_auth,
     load_api_keys,
     load_entries,
+    mark_notes_revealed,
+    notes_were_revealed,
     remember_api_keys,
     remember_entries,
 )
@@ -33,11 +37,24 @@ from errors import NotFoundError, RevealBlockedError
 bp = Blueprint("dashboard_api", __name__, url_prefix="/api")
 
 _FORBIDDEN_SITE_CHARS = set('\\/"\'' " <>|?*&#%")
-_ALLOWED_ORIGINS = {
-    "http://127.0.0.1:8500",
-    "http://localhost:8500",
-    "http://[::1]:8500",
-}
+
+
+def origins_for_port(port: int) -> set[str]:
+    """Origins for the port this process actually bound."""
+    return {
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+        f"http://[::1]:{port}",
+    }
+
+
+_ALLOWED_ORIGINS = origins_for_port(8500)
+
+
+def configure_listen_port(port: int) -> None:
+    """Point the Origin allow-list at the port Waitress is about to bind."""
+    global _ALLOWED_ORIGINS
+    _ALLOWED_ORIGINS = origins_for_port(port)
 
 
 def _error(message: str, status: int):
@@ -94,16 +111,44 @@ def _validate_password(password: str) -> str | None:
     return None
 
 
-def _public_entry(row: dict) -> dict:
+def _nonempty_notes(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _row_has_notes(row: dict, vek: bytes | None, kind: str) -> bool:
+    """True when the decrypted notes are non-empty. The text is not returned.
+
+    A row already stripped for the browser keeps the flag it was stored with.
+    A ciphertext row is decrypted here so the list can carry the flag without
+    carrying the notes.
+    """
+    blob = row.get("encrypted_blob")
+    iv = row.get("iv")
+    if not blob or not iv:
+        return bool(row.get("has_notes"))
+    if vek is None:
+        return False
+    try:
+        if kind == "entry":
+            plain = decrypt_credentials(vek, blob, iv)
+        else:
+            plain = decrypt_api_key(vek, blob, iv)
+    except Exception:
+        return False
+    return _nonempty_notes(plain.get("notes") or "")
+
+
+def _public_entry(row: dict, *, has_notes: bool = False) -> dict:
     return {
         "site_name": row.get("site_name") or "",
         "username_hint": row.get("username_hint") or "—",
         "updated_at": (row.get("updated_at") or "")[:10],
         "login_url": row.get("login_url") or "",
+        "has_notes": has_notes,
     }
 
 
-def _public_key(row: dict) -> dict:
+def _public_key(row: dict, *, has_notes: bool = False) -> dict:
     parsed = parse_api_key_name(row.get("name") or "")
     return {
         "name": parsed["name"],
@@ -113,6 +158,7 @@ def _public_key(row: dict) -> dict:
         "key_name": parsed["key_name"],
         "source": parsed["source"],
         "stale": parsed["stale"],
+        "has_notes": has_notes,
     }
 
 
@@ -182,13 +228,18 @@ def _account_status(action):
 
 @bp.before_request
 def _require_browser_session():
-    """Every API route needs the dashboard Origin and the launch-token cookie.
+    """Every API route needs the launch-token cookie and a dashboard Origin.
 
-    A missing Origin is rejected. The cookie is the browser session minted by
-    POST /session. It is not a vault login.
+    A same-origin GET from Chrome does not send Origin. That request is
+    allowed: the Host allow-list already ran, and the cookie is
+    SameSite=Strict so a cross-site page does not get to attach it. A POST
+    always carries Origin, and a missing or foreign one is rejected. The
+    cookie is the browser session minted by POST /session. It is not a vault
+    login.
     """
     origin = request.headers.get("Origin")
-    if origin not in _ALLOWED_ORIGINS:
+    browser_get = origin is None and request.method in {"GET", "HEAD"}
+    if not browser_get and origin not in _ALLOWED_ORIGINS:
         return _error("Bad origin", 403)
     if not browser_cookie_ok(request.cookies.get(BROWSER_COOKIE)):
         return _error("dashboard_session_required", 401)
@@ -212,8 +263,17 @@ def bootstrap():
         key_future = pool.submit(load_api_keys, refresh)
         raw_entries, entries_error = entry_future.result()
         raw_keys, keys_error = key_future.result()
-    entries = [_public_entry(row) for row in raw_entries] if raw_entries is not None else None
-    api_keys = [_public_key(row) for row in raw_keys] if raw_keys is not None else None
+    vek = bytes.fromhex(auth["vek"]) if auth.get("vek") else None
+    entries = (
+        [_public_entry(row, has_notes=_row_has_notes(row, vek, "entry")) for row in raw_entries]
+        if raw_entries is not None
+        else None
+    )
+    api_keys = (
+        [_public_key(row, has_notes=_row_has_notes(row, vek, "api-key")) for row in raw_keys]
+        if raw_keys is not None
+        else None
+    )
     # Publish the stripped rows so later mutations update what the browser sees.
     if entries is not None:
         remember_entries(entries)
@@ -328,7 +388,7 @@ def entry_detail(site_name: str):
             "site_name": data.get("site_name", site_name),
             "username": plain.get("username", ""),
             "login_url": data.get("login_url") or "",
-            "notes": plain.get("notes", ""),
+            "has_notes": _nonempty_notes(plain.get("notes") or ""),
         }
     )
 
@@ -350,10 +410,32 @@ def entry_reveal(site_name: str):
     blocked = _guard_reveal("get", site_name)
     if blocked is not None:
         return blocked
-    fields = _body().get("fields") or ["password", "notes"]
-    allowed = {"password", "notes"}
+    fields = _body().get("fields") or ["password"]
+    allowed = {"password"}
     payload = {name: plain.get(name, "") for name in fields if name in allowed}
     return jsonify(payload)
+
+
+@bp.post("/entries/<path:site_name>/notes")
+def entry_notes(site_name: str):
+    """Notes text. Separate from the password reveal, and gated the same way."""
+    auth, failure = _csrf_or_response()
+    if failure is not None:
+        return failure
+    token, refresh, vek = _tokens(auth)
+    try:
+        data = api_client.get_vault_entry(token, refresh, site_name)
+        plain = decrypt_credentials(vek, data["encrypted_blob"], data["iv"])
+    except (NotFoundError, Exception, SystemExit) as exc:
+        message, recovery = describe_failure(exc)
+        if recovery:
+            return jsonify({"error": message, "recovery": recovery}), 401
+        return _error("Entry not found", 404)
+    blocked = _guard_reveal("get", site_name)
+    if blocked is not None:
+        return blocked
+    mark_notes_revealed("entry", site_name)
+    return jsonify({"notes": plain.get("notes") or ""})
 
 
 @bp.post("/entries")
@@ -394,7 +476,8 @@ def entry_add():
             "username_hint": username,
             "login_url": login_url,
             "updated_at": "",
-        }
+        },
+        has_notes=_nonempty_notes(notes),
     )
     current = list(CACHE.entries or [])
     current = [item for item in current if item.get("site_name") != site_name]
@@ -418,7 +501,10 @@ def entry_update(site_name: str):
     body = _body()
     username = (body.get("username") or "").strip() or current.get("username", "")
     password = body.get("password") or current.get("password", "")
-    if "notes" in body:
+    # Notes that were never revealed stay as they are, even if the body sends
+    # an empty string. The edit form omits the field until Reveal; this is the
+    # same rule for any other client of this route.
+    if "notes" in body and notes_were_revealed("entry", site_name):
         notes = body.get("notes") or ""
     else:
         notes = current.get("notes", "")
@@ -455,7 +541,8 @@ def entry_update(site_name: str):
             "username_hint": username or "—",
             "login_url": login_url,
             "updated_at": data.get("updated_at") or "",
-        }
+        },
+        has_notes=_nonempty_notes(notes),
     )
     current_rows = [row if item.get("site_name") == site_name else item for item in (CACHE.entries or [])]
     if not any(item.get("site_name") == site_name for item in current_rows):
@@ -493,7 +580,7 @@ def api_key_detail(name: str):
         {
             "name": data.get("name", name),
             "service": plain.get("service", ""),
-            "notes": plain.get("notes", ""),
+            "has_notes": _nonempty_notes(plain.get("notes") or ""),
         }
     )
 
@@ -512,10 +599,29 @@ def api_key_reveal(name: str):
     blocked = _guard_reveal("ak-get", name)
     if blocked is not None:
         return blocked
-    fields = _body().get("fields") or ["api_key", "notes"]
-    allowed = {"api_key", "notes"}
+    fields = _body().get("fields") or ["api_key"]
+    allowed = {"api_key"}
     payload = {field: plain.get(field, "") for field in fields if field in allowed}
     return jsonify(payload)
+
+
+@bp.post("/api-keys/<path:name>/notes")
+def api_key_notes(name: str):
+    """Notes on an API key. Gated like ``ak-get``, and not part of the key reveal."""
+    auth, failure = _csrf_or_response()
+    if failure is not None:
+        return failure
+    token, refresh, vek = _tokens(auth)
+    try:
+        data = api_client.get_api_key_entry(token, refresh, name)
+        plain = decrypt_api_key(vek, data["encrypted_blob"], data["iv"])
+    except (NotFoundError, Exception, SystemExit) as exc:
+        return _masked(exc, "API key not found")
+    blocked = _guard_reveal("ak-get", name)
+    if blocked is not None:
+        return blocked
+    mark_notes_revealed("api-key", name)
+    return jsonify({"notes": plain.get("notes") or ""})
 
 
 @bp.post("/api-keys")
@@ -537,7 +643,10 @@ def api_key_add():
         api_client.add_api_key_entry(token, refresh, name, service, blob, iv)
     except Exception as exc:
         return _from_exception(exc, "Failed to save")
-    row = _public_key({"name": name, "service_hint": service or "—", "updated_at": ""})
+    row = _public_key(
+        {"name": name, "service_hint": service or "—", "updated_at": ""},
+        has_notes=_nonempty_notes(notes),
+    )
     rows = [item for item in (CACHE.api_keys or []) if item.get("name") != name]
     rows.append(row)
     remember_api_keys(rows)
@@ -558,7 +667,7 @@ def api_key_update(name: str):
     body = _body()
     service = (body.get("service") or "").strip() or current.get("service", "")
     api_key = body.get("api_key") or current.get("api_key", "")
-    if "notes" in body:
+    if "notes" in body and notes_were_revealed("api-key", name):
         notes = body.get("notes") or ""
     else:
         notes = current.get("notes", "")
@@ -572,7 +681,8 @@ def api_key_update(name: str):
             "name": name,
             "service_hint": service or "—",
             "updated_at": data.get("updated_at") or "",
-        }
+        },
+        has_notes=_nonempty_notes(notes),
     )
     rows = [row if item.get("name") == name else item for item in (CACHE.api_keys or [])]
     remember_api_keys(rows)

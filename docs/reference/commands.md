@@ -779,9 +779,18 @@ Revokes the refresh token on the server and deletes the local session file. Your
 
 ```bash
 pv dashboard
+pv dashboard --port 8500
 ```
 
-Launch the web dashboard for psamvault (fresh — kills stale servers and clears cache). Opens a local web server at `http://localhost:8500` running on Waitress (production-grade WSGI). The browser is opened with a one-time token in the URL fragment. The page exchanges that token once for an HttpOnly, SameSite=Strict cookie, and every API request needs that cookie. The terminal prints `http://localhost:8500` without the token. If the browser does not open, the full one-time address is printed so you can open it yourself.
+Launch the web dashboard for psamvault. Clears the dashboard's cached bytecode, then opens a local web server on Waitress (production-grade WSGI).
+
+| Flag | What it does |
+|---|---|
+| `--port` | Listen port. Defaults to 8500. If 8500 is busy and you omit this flag, a free port is used and the command prints that URL. If you pass `--port` and that port is busy, the command stops and does not pick another port. |
+
+The browser is opened with a one-time token in the URL fragment. The page exchanges that token once for an HttpOnly, SameSite=Strict cookie, and every API request needs that cookie. The terminal prints the real URL (`http://localhost:8500`, or `http://localhost:<port>` when it moved) without the token. If the browser does not open, the full one-time address is printed so you can open it yourself.
+
+The Origin allow-list is `http://127.0.0.1:<port>`, `http://localhost:<port>` and `http://[::1]:<port>` for the port that was bound. Notes are not in list or detail responses (`has_notes` is). Reveal loads them through the same gate as `get` and `ak-get`, and a save does not replace notes that were never revealed.
 
 The page can sign in, sign out, reset a forgotten password with a recovery code, and restore a machine from a backup passphrase or kit. Those steps run in the local server. `pv login`, `pv logout`, `pv recover`, and `pv restore` in the terminal do the same work and share the OS keychain session.
 
