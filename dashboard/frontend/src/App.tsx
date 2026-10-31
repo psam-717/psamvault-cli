@@ -28,7 +28,9 @@ import {
   loadBootstrap,
   logout,
   revealApiKey,
+  revealApiKeyNotes,
   revealEntry,
+  revealEntryNotes,
   updateApiKey,
   updateEntry,
   ApiError,
@@ -801,23 +803,59 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function omitUnrevealedNotes(payload: Record<string, string>, notesRevealed: boolean) {
+  if (!notesRevealed) delete payload.notes;
+  return payload;
+}
+
+function HiddenNotes({
+  hasNotes,
+  pending,
+  onReveal,
+}: {
+  hasNotes: boolean;
+  pending: boolean;
+  onReveal: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+      <p className="text-sm text-muted-foreground">{hasNotes ? "Notes are hidden." : "No notes yet."}</p>
+      <Button type="button" variant="outline" size="sm" disabled={pending} onClick={onReveal}>
+        {pending ? <Loader2 className="animate-spin" /> : <span>Reveal</span>}
+      </Button>
+    </div>
+  );
+}
+
 function EntryFields({
   pending,
   onClose,
   onSubmit,
   initial,
+  notesRevealed,
+  notesValue = "",
+  onNotesChange,
+  onRevealNotes,
+  notesPending = false,
 }: {
   pending: boolean;
   onClose: () => void;
   onSubmit: (payload: Record<string, string>) => void;
-  initial?: { username: string; login_url: string; notes: string };
+  initial?: { username: string; login_url: string; has_notes: boolean };
+  notesRevealed?: boolean;
+  notesValue?: string;
+  onNotesChange?: (value: string) => void;
+  onRevealNotes?: () => void;
+  notesPending?: boolean;
 }) {
+  const revealed = notesRevealed ?? !initial;
   return (
         <form
           onSubmit={(event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
-            onSubmit(Object.fromEntries(form.entries()) as Record<string, string>);
+            const payload = Object.fromEntries(form.entries()) as Record<string, string>;
+            onSubmit(omitUnrevealedNotes(payload, revealed));
           }}
         >
           {!initial && (
@@ -836,7 +874,18 @@ function EntryFields({
             <Input name="login_url" defaultValue={initial?.login_url ?? ""} placeholder="https://" />
           </Field>
           <Field label="Notes">
-            <Textarea name="notes" defaultValue={initial?.notes ?? ""} placeholder={initial ? "Clear this to remove notes" : ""} />
+            {initial && !revealed ? (
+              <HiddenNotes hasNotes={initial.has_notes} pending={notesPending} onReveal={onRevealNotes ?? (() => {})} />
+            ) : initial ? (
+              <Textarea
+                name="notes"
+                value={notesValue}
+                onChange={(event) => onNotesChange?.(event.target.value)}
+                placeholder="Clear this to remove notes"
+              />
+            ) : (
+              <Textarea name="notes" defaultValue="" />
+            )}
           </Field>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
@@ -872,20 +921,47 @@ function EntryEditor(props: {
   onClose: () => void;
   onSubmit: (payload: Record<string, string>) => void;
 }) {
-  const [initial, setInitial] = useState<{ username: string; login_url: string; notes: string } | null>(null);
+  const [initial, setInitial] = useState<{ username: string; login_url: string; has_notes: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notesRevealed, setNotesRevealed] = useState(false);
+  const [notesValue, setNotesValue] = useState("");
+  const [notesPending, setNotesPending] = useState(false);
   useEffect(() => {
     getEntry(props.site)
       .then(setInitial)
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Entry not found"));
   }, [props.site]);
+
+  async function revealNotes() {
+    setNotesPending(true);
+    try {
+      const body = await revealEntryNotes(props.site);
+      setNotesValue(body.notes ?? "");
+      setNotesRevealed(true);
+    } catch (reason: unknown) {
+      toast.error(reason instanceof Error ? reason.message : "Could not reveal notes");
+    } finally {
+      setNotesPending(false);
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.site}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
         {!initial && !error && <FormSkeleton />}
         {initial && (
-          <EntryFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
+          <EntryFields
+            pending={props.pending}
+            onClose={props.onClose}
+            onSubmit={props.onSubmit}
+            initial={initial}
+            notesRevealed={notesRevealed}
+            notesValue={notesValue}
+            onNotesChange={setNotesValue}
+            onRevealNotes={() => void revealNotes()}
+            notesPending={notesPending}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -897,18 +973,30 @@ function KeyFields({
   onClose,
   onSubmit,
   initial,
+  notesRevealed,
+  notesValue = "",
+  onNotesChange,
+  onRevealNotes,
+  notesPending = false,
 }: {
   pending: boolean;
   onClose: () => void;
   onSubmit: (payload: Record<string, string>) => void;
-  initial?: { service: string; notes: string };
+  initial?: { service: string; has_notes: boolean };
+  notesRevealed?: boolean;
+  notesValue?: string;
+  onNotesChange?: (value: string) => void;
+  onRevealNotes?: () => void;
+  notesPending?: boolean;
 }) {
+  const revealed = notesRevealed ?? !initial;
   return (
         <form
           onSubmit={(event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
-            onSubmit(Object.fromEntries(form.entries()) as Record<string, string>);
+            const payload = Object.fromEntries(form.entries()) as Record<string, string>;
+            onSubmit(omitUnrevealedNotes(payload, revealed));
           }}
         >
           {!initial && (
@@ -923,7 +1011,18 @@ function KeyFields({
             <Input name="api_key" type="password" required={!initial} placeholder={initial ? "Leave blank to keep" : "sk-…"} />
           </Field>
           <Field label="Notes">
-            <Textarea name="notes" defaultValue={initial?.notes ?? ""} />
+            {initial && !revealed ? (
+              <HiddenNotes hasNotes={initial.has_notes} pending={notesPending} onReveal={onRevealNotes ?? (() => {})} />
+            ) : initial ? (
+              <Textarea
+                name="notes"
+                value={notesValue}
+                onChange={(event) => onNotesChange?.(event.target.value)}
+                placeholder="Clear this to remove notes"
+              />
+            ) : (
+              <Textarea name="notes" defaultValue="" />
+            )}
           </Field>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
@@ -959,20 +1058,47 @@ function KeyEditor(props: {
   onClose: () => void;
   onSubmit: (payload: Record<string, string>) => void;
 }) {
-  const [initial, setInitial] = useState<{ service: string; notes: string } | null>(null);
+  const [initial, setInitial] = useState<{ service: string; has_notes: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notesRevealed, setNotesRevealed] = useState(false);
+  const [notesValue, setNotesValue] = useState("");
+  const [notesPending, setNotesPending] = useState(false);
   useEffect(() => {
     getApiKey(props.name)
       .then(setInitial)
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "API key not found"));
   }, [props.name]);
+
+  async function revealNotes() {
+    setNotesPending(true);
+    try {
+      const body = await revealApiKeyNotes(props.name);
+      setNotesValue(body.notes ?? "");
+      setNotesRevealed(true);
+    } catch (reason: unknown) {
+      toast.error(reason instanceof Error ? reason.message : "Could not reveal notes");
+    } finally {
+      setNotesPending(false);
+    }
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent title={`Edit ${props.name}`}>
         {error && <Alert className="mb-3 border-destructive/40">{error}</Alert>}
         {!initial && !error && <FormSkeleton />}
         {initial && (
-          <KeyFields pending={props.pending} onClose={props.onClose} onSubmit={props.onSubmit} initial={initial} />
+          <KeyFields
+            pending={props.pending}
+            onClose={props.onClose}
+            onSubmit={props.onSubmit}
+            initial={initial}
+            notesRevealed={notesRevealed}
+            notesValue={notesValue}
+            onNotesChange={setNotesValue}
+            onRevealNotes={() => void revealNotes()}
+            notesPending={notesPending}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -1024,10 +1150,15 @@ function EntryDetail({ entry, onClose }: { entry: Entry; onClose: () => void }) 
     if (field === "notes" && notes !== null) return notes;
     setBusy(field);
     try {
-      const body = await revealEntry(entry.site_name, field);
-      const value = body[field] ?? "";
-      if (field === "password") setPassword(value);
-      else setNotes(value);
+      if (field === "notes") {
+        const body = await revealEntryNotes(entry.site_name);
+        const value = body.notes ?? "";
+        setNotes(value);
+        return value;
+      }
+      const body = await revealEntry(entry.site_name, "password");
+      const value = body.password ?? "";
+      setPassword(value);
       return value;
     } finally {
       setBusy(null);
@@ -1104,10 +1235,15 @@ function KeyDetail({ row, onClose }: { row: ApiKeyRow; onClose: () => void }) {
     if (field === "notes" && notes !== null) return notes;
     setBusy(field);
     try {
-      const body = await revealApiKey(row.name, field);
-      const value = body[field] ?? "";
-      if (field === "api_key") setSecret(value);
-      else setNotes(value);
+      if (field === "notes") {
+        const body = await revealApiKeyNotes(row.name);
+        const value = body.notes ?? "";
+        setNotes(value);
+        return value;
+      }
+      const body = await revealApiKey(row.name, "api_key");
+      const value = body.api_key ?? "";
+      setSecret(value);
       return value;
     } finally {
       setBusy(null);

@@ -101,7 +101,11 @@ program. The design is deliberately layered, because each layer was measured to 
   agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
   match the desktop app's own install prefix, which would block the user's own terminal pane.
 
-The local dashboard reveals through the same gate. `pv dashboard` classifies the process that started it and uses that verdict for password and API-key reveals. An agent that started the dashboard is refused, and the row is written. The browser session is a one-time fragment token exchanged for an HttpOnly, SameSite=Strict cookie. The cookie is not the vault key. A request with no cookie, or with no dashboard Origin, is rejected before a reveal.
+The local dashboard reveals through the same gate. `pv dashboard` classifies the process that started it and uses that verdict for password, API-key and notes reveals. An agent that started the dashboard is refused, and the row is written on the denial and on an allow. The browser session is a one-time fragment token exchanged for an HttpOnly, SameSite=Strict cookie. The cookie is not the vault key. A request with no cookie is rejected before a reveal. A request that sends an Origin must use the dashboard's own origin for the port that was bound. A same-origin GET from the browser does not send Origin; that is accepted because the Host was already checked and the cookie is not sent cross-site. A POST with no Origin is rejected.
+
+List and detail GETs do not return notes text. They return a `has_notes` flag. The notes text is a separate request that calls `require_reveal`. A save that arrives before that reveal does not replace the stored notes, including a body that sends an empty notes field.
+
+Opening the browser puts that one-time address on the browser process command line, fragment included, until the page exchanges the token and the process drops the argument. That copy is accepted. The token is single-use and short-lived: the page posts it once, a wrong token does not spend the real one, and the success path does not print it in the terminal (scrollback would keep it longer than the command line does). Someone who can read another process's arguments on this machine can already read the OS keychain. The command line is not a second secret.
 
 **What it stops.** A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
 running `psamvault get` gets exit code 1 and a message naming the capability alternatives

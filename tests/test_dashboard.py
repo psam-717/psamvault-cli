@@ -324,6 +324,8 @@ def test_patch_clears_notes_and_keeps_a_blank_password(client, monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(api_client, "update_vault_entry", update_entry)
+    revealed = test_client.post("/api/entries/GitHub/notes", json={}, headers=_csrf(body))
+    assert revealed.status_code == 200, revealed.data
     response = test_client.patch(
         "/api/entries/GitHub",
         json={"password": "", "notes": ""},
@@ -332,7 +334,7 @@ def test_patch_clears_notes_and_keeps_a_blank_password(client, monkeypatch):
     assert response.status_code == 200, response.data
     assert seen["plain"]["password"] == "s3cr3t-Password1"
     assert seen["plain"]["notes"] == ""
-    assert calls["get_entry"] == 1
+    assert calls["get_entry"] == 2
     assert "s3cr3t-Password1" not in response.get_data(as_text=True)
 
 
@@ -360,7 +362,9 @@ def test_get_entry_omits_the_password_and_reveal_is_not_cached(client):
     assert detail.status_code == 200
     detail_body = detail.get_json()
     assert "password" not in detail_body
-    assert detail_body["notes"] == "note text"
+    assert "notes" not in detail_body
+    assert detail_body["has_notes"] is True
+    assert "note text" not in detail.get_data(as_text=True)
     assert detail_body["username"] == "alice"
 
     reveal = test_client.post("/api/entries/GitHub/reveal", json={"fields": ["password"]}, headers=_csrf(body))
@@ -396,7 +400,9 @@ def test_api_key_reveal_is_separate_from_the_list(client):
     _response, body = _bootstrap(test_client)
     detail = test_client.get("/api/api-keys/OpenAI")
     assert "api_key" not in detail.get_json()
-    assert detail.get_json()["notes"] == "key note"
+    assert "notes" not in detail.get_json()
+    assert detail.get_json()["has_notes"] is True
+    assert "key note" not in detail.get_data(as_text=True)
     reveal = test_client.post(
         "/api/api-keys/OpenAI/reveal",
         json={"fields": ["api_key"]},
@@ -530,7 +536,9 @@ def test_project_key_is_grouped_and_the_row_actions_use_the_stored_name(client, 
 
     detail = test_client.get("/api/api-keys/atlas054probe/.env/my_custom_key")
     assert detail.status_code == 200, detail.data
-    assert detail.get_json()["notes"] == "scoped note"
+    assert "notes" not in detail.get_json()
+    assert detail.get_json()["has_notes"] is True
+    assert "scoped note" not in detail.get_data(as_text=True)
     assert seen["get"] == scoped["name"]
     assert "sk-scoped" not in detail.get_data(as_text=True)
 
@@ -783,9 +791,19 @@ def test_api_requires_the_dashboard_origin(dashboard_app):
     token = dash_cache.CACHE.launch_token
     assert _exchange(raw, token).status_code == 200
 
+    # Chrome omits Origin on a same-origin GET. The cookie is still required.
     missing = raw.get("/api/bootstrap")
-    assert missing.status_code == 403
-    assert missing.get_json()["error"] == "Bad origin"
+    assert missing.status_code == 200, missing.data
+    assert "s3cr3t-Password1" not in missing.get_data(as_text=True)
+
+    post_without_origin = raw.post(
+        "/api/entries/GitHub/reveal",
+        json={"fields": ["password"]},
+        headers={"X-CSRF-Token": "unused"},
+    )
+    assert post_without_origin.status_code == 403
+    assert post_without_origin.get_json()["error"] == "Bad origin"
+    assert "s3cr3t-Password1" not in post_without_origin.get_data(as_text=True)
 
     forged = raw.post(
         "/api/entries/GitHub/reveal",
@@ -896,3 +914,385 @@ def test_dashboard_command_opens_the_token_in_the_fragment(monkeypatch):
     _args, kwargs = opened["serve"]
     assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 8500
+
+
+def _listen(port: int):
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", port))
+    sock.listen(1)
+    return sock
+
+
+def _run_dashboard(monkeypatch, args: list[str]):
+    """Invoke ``pv dashboard`` without opening a browser or binding Waitress."""
+    import webbrowser
+
+    import waitress
+    from typer.testing import CliRunner
+
+    import main
+
+    opened: dict = {}
+
+    def _open(url):
+        opened["url"] = url
+        return True
+
+    def _serve(*args, **kwargs):
+        opened["serve"] = (args, kwargs)
+
+    monkeypatch.setattr(webbrowser, "open", _open)
+    monkeypatch.setattr(waitress, "serve", _serve)
+    result = CliRunner().invoke(main.app, ["dashboard", *args])
+    return result, opened
+
+
+def test_detail_and_list_gets_return_has_notes_and_not_the_text(client, monkeypatch):
+    """List and detail GETs name whether notes exist. They do not return the text."""
+    test_client, _calls, _gets, _stored = client
+    response, body = _bootstrap(test_client)
+    text = response.get_data(as_text=True)
+    assert body["entries"][0]["has_notes"] is True
+    assert body["api_keys"][0]["has_notes"] is True
+    assert "note text" not in text
+    assert "key note" not in text
+    assert "notes" not in body["entries"][0]
+    assert "notes" not in body["api_keys"][0]
+
+    detail = test_client.get("/api/entries/GitHub")
+    detail_body = detail.get_json()
+    assert detail.status_code == 200
+    assert detail_body["has_notes"] is True
+    assert detail_body["username"] == "alice"
+    assert "notes" not in detail_body
+    assert "note text" not in detail.get_data(as_text=True)
+    assert "password" not in detail_body
+
+    key = test_client.get("/api/api-keys/OpenAI")
+    assert key.status_code == 200
+    assert key.get_json()["has_notes"] is True
+    assert "notes" not in key.get_json()
+    assert "key note" not in key.get_data(as_text=True)
+    assert "api_key" not in key.get_json()
+
+    import audit
+
+    before = len(audit.read())
+    assert test_client.get("/api/entries/GitHub").status_code == 200
+    assert len(audit.read()) == before
+
+    blank_blob, blank_iv = encrypt_credentials(TEST_VEK, "bob", "s3cr3t-Password1", "")
+    blank = {
+        "site_name": "GitLab",
+        "username_hint": "bob",
+        "updated_at": "2026-09-03T12:00:00Z",
+        "login_url": "",
+        "encrypted_blob": blank_blob,
+        "iv": blank_iv,
+    }
+    monkeypatch.setattr(api_client, "list_vault_entries", lambda *_args, **_kwargs: [blank])
+    monkeypatch.setattr(
+        api_client,
+        "get_vault_entry",
+        lambda *_args, **_kwargs: dict(blank),
+    )
+    monkeypatch.setattr(dash_cache, "LIST_TTL_SECONDS", 0)
+    dash_cache.CACHE.entries_at = 0
+    _blank_response, blank_body = _bootstrap(test_client, query_string={"refresh": "1"})
+    assert blank_body["entries"][0]["has_notes"] is False
+    blank_detail = test_client.get("/api/entries/GitLab")
+    assert blank_detail.get_json()["has_notes"] is False
+    assert "notes" not in blank_detail.get_json()
+
+
+def test_notes_reveal_is_a_gated_route_with_an_allow_audit_row(client):
+    """Notes come from their own route, through the same gate as a password reveal."""
+    import audit
+
+    test_client, _calls, _gets, _stored = client
+    _response, body = _bootstrap(test_client)
+
+    # The password / API-key reveal must not smuggle notes out, even by default.
+    password = test_client.post("/api/entries/GitHub/reveal", json={}, headers=_csrf(body))
+    assert password.status_code == 200
+    assert "note text" not in password.get_data(as_text=True)
+    assert password.get_json().get("password") == "s3cr3t-Password1"
+    asked = test_client.post(
+        "/api/entries/GitHub/reveal",
+        json={"fields": ["notes"]},
+        headers=_csrf(body),
+    )
+    assert "note text" not in asked.get_data(as_text=True)
+
+    before_csrf = len(audit.read())
+    missing_csrf = test_client.post("/api/entries/GitHub/notes", json={})
+    assert missing_csrf.status_code == 403
+    assert len(audit.read()) == before_csrf
+
+    before = len(audit.read())
+    revealed = test_client.post("/api/entries/GitHub/notes", json={}, headers=_csrf(body))
+    assert revealed.status_code == 200, revealed.data
+    assert revealed.headers["Cache-Control"] == "no-store"
+    assert revealed.get_json() == {"notes": "note text"}
+    assert "s3cr3t-Password1" not in revealed.get_data(as_text=True)
+    row = audit.read()[-1]
+    assert row["command"] == "get"
+    assert row["entry"] == "GitHub"
+    assert row["decision"] == "allow"
+    assert "note text" not in str(row)
+    assert len(audit.read()) == before + 1
+
+    key = test_client.post("/api/api-keys/OpenAI/notes", json={}, headers=_csrf(body))
+    assert key.status_code == 200, key.data
+    assert key.get_json() == {"notes": "key note"}
+    assert "sk-test-secret" not in key.get_data(as_text=True)
+    key_row = audit.read()[-1]
+    assert key_row["command"] == "ak-get"
+    assert key_row["entry"] == "OpenAI"
+    assert key_row["decision"] == "allow"
+    assert "key note" not in str(key_row)
+
+
+def test_notes_reveal_denied_for_an_agent_writes_a_deny_row(monkeypatch, tmp_path, fake_keychain):
+    import audit
+
+    monkeypatch.setenv("PSAMVAULT_AGENT", "1")
+    app, _calls, _gets, _stored = _build_dashboard_app(monkeypatch, tmp_path, fake_keychain)
+    raw = app.test_client()
+    assert _exchange(raw, dash_cache.CACHE.launch_token).status_code == 200
+    _response, body = _bootstrap(raw, headers={"Origin": _DASHBOARD_ORIGIN})
+    revealed = raw.post(
+        "/api/entries/GitHub/notes",
+        json={},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert revealed.status_code == 403
+    text = revealed.get_data(as_text=True)
+    assert "note text" not in text
+    assert "s3cr3t-Password1" not in text
+    assert "blocked" in revealed.get_json()["error"]
+    row = audit.read()[-1]
+    assert row["command"] == "get"
+    assert row["entry"] == "GitHub"
+    assert row["decision"] == "deny"
+    assert row["caller"] == "agent"
+    assert "note text" not in str(row)
+
+    key = raw.post(
+        "/api/api-keys/OpenAI/notes",
+        json={},
+        headers={"Origin": _DASHBOARD_ORIGIN, "X-CSRF-Token": body["csrf_token"]},
+    )
+    assert key.status_code == 403
+    assert "key note" not in key.get_data(as_text=True)
+    assert audit.read()[-1]["command"] == "ak-get"
+    assert audit.read()[-1]["entry"] == "OpenAI"
+    assert audit.read()[-1]["decision"] == "deny"
+
+
+def test_save_does_not_wipe_notes_that_were_never_revealed(client, monkeypatch):
+    """A save that sends notes, or omits them, keeps the stored text until a notes reveal."""
+    test_client, _calls, _gets, _stored = client
+    _response, body = _bootstrap(test_client)
+    seen = {}
+
+    def update_entry(access_token, refresh_token, site_name, blob, iv, username_hint=None, login_url=None):
+        from crypto import decrypt_credentials
+
+        seen["plain"] = decrypt_credentials(TEST_VEK, blob, iv)
+        return {"ok": True}
+
+    def update_key(access_token, refresh_token, name, service, blob, iv, notes=None):
+        from crypto import decrypt_api_key
+
+        seen["key"] = decrypt_api_key(TEST_VEK, blob, iv)
+        return {"ok": True}
+
+    monkeypatch.setattr(api_client, "update_vault_entry", update_entry)
+    monkeypatch.setattr(api_client, "update_api_key_entry", update_key)
+
+    omitted = test_client.patch(
+        "/api/entries/GitHub",
+        json={"username": "alice"},
+        headers=_csrf(body),
+    )
+    assert omitted.status_code == 200, omitted.data
+    assert seen["plain"]["notes"] == "note text"
+    assert "note text" not in omitted.get_data(as_text=True)
+
+    wiped = test_client.patch(
+        "/api/entries/GitHub",
+        json={"notes": ""},
+        headers=_csrf(body),
+    )
+    assert wiped.status_code == 200, wiped.data
+    assert seen["plain"]["notes"] == "note text"
+    assert seen["plain"]["password"] == "s3cr3t-Password1"
+
+    replaced = test_client.patch(
+        "/api/entries/GitHub",
+        json={"notes": "replaced without looking"},
+        headers=_csrf(body),
+    )
+    assert replaced.status_code == 200, replaced.data
+    assert seen["plain"]["notes"] == "note text"
+
+    key = test_client.patch(
+        "/api/api-keys/OpenAI",
+        json={"notes": ""},
+        headers=_csrf(body),
+    )
+    assert key.status_code == 200, key.data
+    assert seen["key"]["notes"] == "key note"
+    assert "key note" not in key.get_data(as_text=True)
+
+    revealed = test_client.post("/api/entries/GitHub/notes", json={}, headers=_csrf(body))
+    assert revealed.status_code == 200, revealed.data
+    cleared = test_client.patch(
+        "/api/entries/GitHub",
+        json={"notes": ""},
+        headers=_csrf(body),
+    )
+    assert cleared.status_code == 200, cleared.data
+    assert seen["plain"]["notes"] == ""
+    assert seen["plain"]["password"] == "s3cr3t-Password1"
+
+
+def test_frontend_hides_notes_until_reveal_and_omits_them_on_save():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "dashboard/frontend/src/App.tsx").read_text()
+    api = (root / "dashboard/frontend/src/api.ts").read_text()
+    assert "revealEntryNotes" in api
+    assert "revealApiKeyNotes" in api
+    assert "/notes" in api
+    assert "has_notes" in api
+    assert "if (!notesRevealed) delete payload.notes;" in app
+    assert ">Reveal<" in app
+
+
+def test_built_bundle_calls_the_notes_reveal_route(client):
+    test_client, _calls, _gets, _stored = client
+    page = test_client.get("/")
+    html = page.get_data(as_text=True)
+    src = html.split('src="', 1)[1].split('"', 1)[0]
+    asset = test_client.get(src)
+    assert asset.status_code == 200
+    text = asset.get_data(as_text=True)
+    assert "/notes" in text
+
+
+def test_dashboard_falls_back_when_the_default_port_is_busy(monkeypatch):
+    import dashboard as dashboard_pkg
+    import dashboard.api as dashboard_api
+
+    held = _listen(8500)
+    try:
+        result, opened = _run_dashboard(monkeypatch, [])
+    finally:
+        held.close()
+    assert result.exit_code == 0, result.output
+    _args, kwargs = opened["serve"]
+    port = kwargs["port"]
+    assert port != 8500
+    assert kwargs["host"] == "127.0.0.1"
+    url = opened["url"]
+    assert url.startswith(f"http://localhost:{port}/#")
+    token = url.split("#", 1)[1]
+    assert token
+    assert token not in result.output
+    assert f"http://localhost:{port}" in result.output
+    assert "8500" in result.output
+    assert dashboard_api._ALLOWED_ORIGINS == {
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+        f"http://[::1]:{port}",
+    }
+    assert f"127.0.0.1:{port}" in dashboard_pkg._ALLOWED_HOSTS
+    assert f"localhost:{port}" in dashboard_pkg._ALLOWED_HOSTS
+    assert f"[::1]:{port}" in dashboard_pkg._ALLOWED_HOSTS
+
+
+def test_explicit_port_is_bound_and_a_busy_one_fails(monkeypatch):
+    import dashboard.api as dashboard_api
+
+    free = 18766
+    result, opened = _run_dashboard(monkeypatch, ["--port", str(free)])
+    assert result.exit_code == 0, result.output
+    _args, kwargs = opened["serve"]
+    assert kwargs["port"] == free
+    assert opened["url"].startswith(f"http://localhost:{free}/#")
+    token = opened["url"].split("#", 1)[1]
+    assert token not in result.output
+    assert f"http://localhost:{free}" in result.output
+    assert dashboard_api._ALLOWED_ORIGINS == {
+        f"http://127.0.0.1:{free}",
+        f"http://localhost:{free}",
+        f"http://[::1]:{free}",
+    }
+
+    busy = 18767
+    held = _listen(busy)
+    try:
+        failed, failed_opened = _run_dashboard(monkeypatch, ["--port", str(busy)])
+    finally:
+        held.close()
+    assert failed.exit_code != 0
+    assert "serve" not in failed_opened
+    assert str(busy) in failed.output
+    assert "in use" in failed.output.lower()
+
+
+def test_origin_allow_list_uses_the_bound_port(monkeypatch, tmp_path, fake_keychain):
+    _build_dashboard_app(monkeypatch, tmp_path, fake_keychain)
+    dash_cache.CACHE.reset()
+    app = create_app(port=8603)
+    app.config["TESTING"] = True
+    raw = app.test_client()
+    token = dash_cache.CACHE.launch_token
+    origin = "http://127.0.0.1:8603"
+    opened = raw.post("/session", json={"token": token}, headers={"Origin": origin})
+    assert opened.status_code == 200, opened.data
+    # The test client keeps the cookie for the host that set it, and a
+    # different Host header does not see that jar entry. Copy it onto the
+    # names the allow-list covers so those requests are testing the host
+    # check, not a missing cookie.
+    session_value = opened.headers["Set-Cookie"].split(";", 1)[0].split("=", 1)[1]
+    for domain in ("127.0.0.1", "localhost", "::1"):
+        raw.set_cookie(dash_cache.BROWSER_COOKIE, session_value, domain=domain)
+
+    for allowed in (
+        "http://127.0.0.1:8603",
+        "http://localhost:8603",
+        "http://[::1]:8603",
+    ):
+        response = raw.get("/api/bootstrap", headers={"Origin": allowed})
+        assert response.status_code == 200, allowed
+        assert "note text" not in response.get_data(as_text=True)
+
+    rejected = raw.get("/api/bootstrap", headers={"Origin": "http://127.0.0.1:8500"})
+    assert rejected.status_code == 403
+
+    host_ok = raw.get(
+        "/api/bootstrap",
+        headers={"Origin": origin, "Host": "127.0.0.1:8603"},
+    )
+    assert host_ok.status_code == 200, host_ok.data
+    host_bad = raw.get(
+        "/api/bootstrap",
+        headers={"Origin": origin, "Host": "127.0.0.1:8500"},
+    )
+    assert host_bad.status_code == 403
+    localhost_host = raw.get(
+        "/api/bootstrap",
+        headers={"Origin": "http://localhost:8603", "Host": "localhost:8603"},
+    )
+    assert localhost_host.status_code == 200, localhost_host.data
+    v6_host = raw.get(
+        "/api/bootstrap",
+        headers={"Origin": "http://[::1]:8603", "Host": "[::1]:8603"},
+    )
+    assert v6_host.status_code == 200, v6_host.data
