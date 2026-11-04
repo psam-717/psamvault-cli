@@ -130,6 +130,28 @@ def test_decide_matches_the_rollout_matrix(mode, tools, tool, decision, reason):
     assert mcp_use.decide(mode, tools, tool) == (decision, reason)
 
 
+def test_a_leaf_name_matches_the_way_allow_hosts_already_does(tmp_path):
+    """project/.env/KEY is the same policy entry as KEY. Several matches union."""
+    loaded = policy.load(
+        write_policy(
+            tmp_path,
+            {
+                "mcp_use": "enforce",
+                "entries": {
+                    "KEY": {"allow_tools": ["use_credential"], "ask_each_time": True},
+                    "project/.env/KEY": {"allow_tools": ["browser_login"]},
+                },
+            },
+        )
+    )
+    listed = policy.mcp_plan(loaded, "project/.env/KEY", "use_credential")
+    assert (listed.decision, listed.reason, listed.ask) == ("allow", "listed", True)
+    also = policy.mcp_plan(loaded, "project/.env/KEY", "browser_login")
+    assert (also.decision, also.reason) == ("allow", "listed")
+    refused = policy.mcp_plan(loaded, "project/.env/KEY", "run_with_credential")
+    assert (refused.decision, refused.reason, refused.ask) == ("deny", "not-listed", False)
+
+
 def test_ask_each_time_does_not_turn_a_refusal_into_an_allow(tmp_path):
     loaded = policy.load(
         write_policy(

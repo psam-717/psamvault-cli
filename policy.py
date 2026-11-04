@@ -530,13 +530,41 @@ def set_mcp_use(mode: str, path: Path | None = None) -> tuple[str, bool]:
     return mode, True
 
 
+def mcp_entry_names(entry: str) -> set[str]:
+    """Names ``allow_hosts`` already treats as this entry: the argument and its leaf.
+
+    Compared case-insensitively. ``project/.env/KEY`` also matches a policy key
+    ``KEY``. The editor commands do not use this when they write a key.
+    """
+    text = (entry or "").strip()
+    if not text:
+        return set()
+    names = {text.casefold()}
+    leaf = text.rsplit("/", 1)[-1].strip()
+    if leaf:
+        names.add(leaf.casefold())
+    return names
+
+
 def mcp_plan(loaded: Policy, entry: str, tool: str) -> mcp_use.McpPlan:
-    """The decision the MCP should make for one use of one entry, before elicitation."""
-    key = matching_entry_key(loaded.entry_tools, entry)
-    tools = list(loaded.entry_tools.get(key, [])) if key else []
+    """The decision the MCP should make for one use of one entry, before elicitation.
+
+    Every policy key whose trimmed name casefolds to the argument or its leaf
+    contributes. Tool lists are unioned. ``ask_each_time`` is true when any
+    match is true. That is the same name rule as ``allow_hosts``.
+    """
+    wanted = mcp_entry_names(entry)
+    tools: list[str] = []
+    flag = False
+    for name, listed in loaded.entry_tools.items():
+        if name.strip().casefold() in wanted:
+            for item in listed:
+                if item not in tools:
+                    tools.append(item)
+    for name, enabled in loaded.entry_ask.items():
+        if name.strip().casefold() in wanted and enabled:
+            flag = True
     decision, reason = mcp_use.decide(loaded.mcp_use, tools, tool)
-    ask_key = matching_entry_key(loaded.entry_ask, entry)
-    flag = bool(ask_key and loaded.entry_ask.get(ask_key))
     ask = flag and decision == mcp_use.ALLOW and loaded.mcp_use != mcp_use.MODE_OFF
     return mcp_use.McpPlan(decision=decision, reason=reason, ask=ask, mcp_use=loaded.mcp_use)
 

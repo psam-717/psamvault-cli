@@ -178,7 +178,7 @@ psamvault-mcp is a separate package and does not import the CLI. It reads the sa
 
 * Path: `~/.psamvault/policy.json`. On Windows, macOS and Linux that is the home directory plus `.psamvault/policy.json`. Mode `0600` on POSIX.
 * Missing file, unreadable file, or JSON that is not an object: behave as `mcp_use` `"audit"` and no entries. Do not crash the tool. Do not treat a broken file as `"enforce"`.
-* Entry match: the tool's entry argument (site name, API key name, or note title) against `entries` keys. An exact key wins. Otherwise one case-insensitive match on the trimmed name. No match means the tool list is empty and `ask_each_time` is false.
+* Entry match: the same rule `allow_hosts` already uses. Take the tool's entry argument and the leaf after the last `/`. A policy key matches when its trimmed name casefolds to either of those. If several keys match, union their tool lists, and `ask_each_time` is true when any match is JSON `true`. No match means the tool list is empty and the flag is false. The CLI editor does not apply the leaf rule when it writes: `psamvault policy allow-tool project/.env/KEY use_credential` stores the key you typed. The MCP still finds a key named `KEY` when the tool is called with `project/.env/KEY`.
 * `allow_tools`: ignore a value that is not a list. For each item, trim and casefold. Keep it when it matches `^[a-z][a-z0-9_]*$`. Compare that to the tool that is about to run.
 * `ask_each_time`: JSON `true` only. Anything else, including a missing key, is false.
 * Decision, before any in-chat question, from `mcp_use` and whether the tool is in the list: the table above. `"off"` does not look at the list.
