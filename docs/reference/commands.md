@@ -982,7 +982,9 @@ A bad value already in the file is printed as a warning and is not treated as al
 
 Today, once you are logged in, every MCP tool that decrypts a secret can use every entry. `mcp_use` in [policy.json](configuration.md#policyjson) is how that changes without breaking an existing install. When the key is absent, the mode is `audit`: psamvault-mcp records each use and does not refuse a tool that is not listed. `enforce` refuses anything not listed. `off` does not consult the list. The default is `audit` on purpose. A silent switch to `enforce` would refuse every use on the day the MCP starts reading the file, including a machine that has never had a `policy.json`.
 
-`ask_each_time` is the flag for a later in-chat yes or no. The CLI stores it. psamvault-mcp is what asks, and only for a use that would otherwise be allowed. This command does not prompt you when a tool runs.
+`ask_each_time` is the flag for a later in-chat yes or no. The CLI stores it. psamvault-mcp asks only when `mcp_use` is `enforce` and the tool is listed. `audit` and `off` do not ask, even when the flag is true. This command does not prompt you when a tool runs.
+
+When `mcp_use` is missing, `psamvault policy tools` and `psamvault policy mcp-use` with no mode say that this release still means `audit` and that a later release will mean `enforce`. An explicit `audit` does not say that. `psamvault policy hosts` does not say it either.
 
 This is not the reveal list. `allow_entries`, and `psamvault approve`, decide who may *print* a secret. Allowing `use_credential` does not let an agent run `psamvault get`.
 
@@ -1059,9 +1061,9 @@ pv policy ask-each-time ledger-key on
 | `entry` *(required)* | The vault name the flag applies to |
 | `on` or `off` *(required)* | `on` writes `true`. `off` writes `false` |
 
-A human runs this in a terminal. An agent is refused. A pipe cannot answer. The audit decision is `set`, with `ask` true or false. The flag does nothing by itself until psamvault-mcp reads it. The MCP asks only when the use would otherwise be allowed: a tool that `enforce` already refuses is not asked. `mcp_use off` does not consult the flag.
+A human runs this in a terminal. An agent is refused. A pipe cannot answer. The audit decision is `set`, with `ask` true or false. The flag does nothing by itself until psamvault-mcp reads it, and only while `mcp_use` is `enforce`. A tool that `enforce` already refuses is not asked. `audit` and `off` do not consult the flag.
 
-**When to run it:** you want a yes or no in the chat before a particular entry is used, on top of the tool list. That question is the later option. This command is how you arm it.
+**When to run it:** you want a yes or no in the chat before a particular entry is used, once enforcement is on. That question is the later option. This command is how you arm it. It is not a way to make `audit` start asking.
 
 **What it is not for:** approving one reveal (`psamvault approve` does that, once, for a printed secret). Not for choosing which tool may run (`allow-tool`). Not for a prompt the CLI shows at use time. The CLI does not ask. An agent must not run it.
 

@@ -276,6 +276,27 @@ def test_remove_ask_and_list(monkeypatch):
     assert ask_row["entry"] == "github.com"
 
 
+def test_listing_the_mode_names_the_planned_flip_when_mcp_use_is_absent():
+    listed = runner.invoke(app, ["policy", "tools"])
+    assert listed.exit_code == 0, listed.output
+    assert "future release will default to enforce" in listed.output
+    assert "psamvault policy mcp-use audit" in listed.output
+    shown = runner.invoke(app, ["policy", "mcp-use"])
+    assert shown.exit_code == 0, shown.output
+    assert "future release will default to enforce" in shown.output
+
+
+def test_an_explicit_audit_and_the_host_list_do_not_print_the_flip_notice():
+    write_policy(policy.POLICY_FILE, {"mcp_use": "audit"})
+    listed = runner.invoke(app, ["policy", "tools"])
+    assert listed.exit_code == 0, listed.output
+    assert "mcp_use: audit" in listed.output
+    assert "future release" not in listed.output
+    hosts = runner.invoke(app, ["policy", "hosts"])
+    assert hosts.exit_code == 0, hosts.output
+    assert "future release" not in hosts.output
+
+
 def test_an_agent_may_list_tools_and_the_mode(monkeypatch):
     monkeypatch.setenv("PSAMVAULT_AGENT", "1")
     write_policy(

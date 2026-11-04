@@ -25,9 +25,14 @@ that is not a tool name is ignored. The file is not rewritten.
 
 ``entries.<name>.ask_each_time`` is a boolean, default false when absent.
 Only JSON ``true`` counts. The CLI stores it. The MCP asks, via elicitation,
-only when the pre-ask decision is allow and the mode is not ``off``. A no or
-a missing answer becomes deny ``ask-declined`` or ``ask-unanswered``. A denial
-is not asked back into an allow.
+only when ``mcp_use`` is ``enforce``, the pre-ask decision is allow, and the
+flag is true. ``audit`` and ``off`` never ask. A no or a missing answer
+becomes deny ``ask-declined`` or ``ask-unanswered``. A denial is not asked
+back into an allow.
+
+A missing ``mcp_use`` key is still ``audit`` in this release.
+:data:`ABSENT_DEFAULT_NOTICE` says a later release will treat that absence as
+``enforce``. An explicit ``"audit"`` does not carry the notice.
 
 Discovery tools (``list_api_keys``, ``get_version``, and the rest of
 :data:`DISCOVERY`) do not decrypt a secret. They are not gated by this list.
@@ -83,6 +88,16 @@ REASONS = (
 ALLOW = "allow"
 DENY = "deny"
 
+# Printed by `policy tools` and `policy mcp-use` when the key is absent, and
+# carried on McpPlan.notice so the MCP can show the same sentence. Not a
+# policy.warnings entry: other commands must not repeat it.
+ABSENT_DEFAULT_NOTICE = (
+    "mcp_use is not set, so it defaults to audit; "
+    "a future release will default to enforce; "
+    "run `psamvault policy mcp-use audit` to keep audit explicitly, "
+    "or `enforce` to opt in now"
+)
+
 _TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -98,15 +113,19 @@ class ToolVerdict:
 class McpPlan:
     """What the MCP should do before elicitation.
 
-    ``ask`` is true only when the use would be allowed, the mode consults the
-    flag, and the entry's ``ask_each_time`` is true. Call :func:`finalize`
-    with the human's answer.
+    ``ask`` is true only under ``enforce``, when the use would be allowed and
+    the entry's ``ask_each_time`` is true. ``audit`` and ``off`` leave it
+    false. ``notice`` is :data:`ABSENT_DEFAULT_NOTICE` when ``mcp_use`` was
+    not set in the file, and None when the mode was explicit. Call
+    :func:`finalize` with the human's answer. Surface ``notice`` when showing
+    the mode, not on every tool result.
     """
 
     decision: str
     reason: str
     ask: bool
     mcp_use: str
+    notice: str | None = None
 
 
 def normalize_tool(value: str) -> str | None:
@@ -159,6 +178,7 @@ def decide(mode: str, tools: list[str], tool: str) -> tuple[str, str]:
     ``off`` does not look at ``tools``. ``enforce`` refuses an unlisted tool.
     ``audit`` allows it and says so in the reason. Any other mode is treated
     as ``audit`` — the loader has already warned and substituted that.
+    Asking is :func:`should_ask`, not this pair: ``audit`` never asks.
     """
     if mode == MODE_OFF:
         return ALLOW, REASON_OFF
@@ -167,6 +187,22 @@ def decide(mode: str, tools: list[str], tool: str) -> tuple[str, str]:
     if mode == MODE_ENFORCE:
         return (ALLOW, REASON_LISTED) if listed else (DENY, REASON_NOT_LISTED)
     return (ALLOW, REASON_LISTED) if listed else (ALLOW, REASON_NOT_LISTED)
+
+
+def should_ask(mode: str, decision: str, *, ask_each_time: bool) -> bool:
+    """True only for an allowed use under ``enforce`` when the entry asks.
+
+    ``audit`` records the use and does not ask, even when the flag is true.
+    ``off`` does not ask. A denial is not asked back into an allow.
+    """
+    return mode == MODE_ENFORCE and decision == ALLOW and bool(ask_each_time)
+
+
+def absent_default_notice(*, implicit: bool) -> str | None:
+    """The planned-flip sentence, or None when ``mcp_use`` was set explicitly."""
+    if not implicit:
+        return None
+    return ABSENT_DEFAULT_NOTICE
 
 
 def finalize(decision: str, reason: str, *, ask: bool, accepted: bool | None) -> tuple[str, str]:

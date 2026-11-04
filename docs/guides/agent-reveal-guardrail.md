@@ -108,6 +108,8 @@ The honest limit is the same as the rest of this guardrail. An agent that can wr
 
 The switch defaults to `audit`, including when `policy.json` does not exist and when an old file has no `mcp_use` key. In that mode the MCP records every use and does not refuse a tool that is not listed. That is deliberate. Shipping `enforce` as the silent default would refuse every existing MCP user on upgrade. You turn the refusal on yourself, after you have seen the trail and granted the tools you still want.
 
+A later release will treat a missing `mcp_use` as `enforce`. This release does not. `psamvault policy tools` and `psamvault policy mcp-use` say so when the key is absent, and they tell you to run `psamvault policy mcp-use audit` if you want grace to stay after that flip, or `enforce` to opt in now. Writing `"mcp_use": "audit"` yourself silences that notice. `psamvault policy hosts` does not print it.
+
 ```bash
 # you, in your own terminal — one tool, one entry, one confirmation
 psamvault policy allow-tool ledger-key use_credential
@@ -128,11 +130,11 @@ psamvault policy remove-tool ledger-key use_credential
 psamvault policy mcp-use audit
 ```
 
-**When to use them.** `allow-tool` when a specific tool should be allowed to use one entry. `remove-tool` when that should stop. `tools` when you want to see the list. `ask-each-time` when each allowed use should also wait for a yes in the chat. `mcp-use enforce` when you are ready for an unlisted tool to be refused. `mcp-use` with no mode when you only want to see which of `audit`, `enforce` or `off` is in effect.
+**When to use them.** `allow-tool` when a specific tool should be allowed to use one entry. `remove-tool` when that should stop. `tools` when you want to see the list, or the notice that a missing `mcp_use` will later mean `enforce`. `ask-each-time` when each *enforced* use of that entry should also wait for a yes in the chat. The flag does nothing while the mode is `audit` or `off`. `mcp-use enforce` when you are ready for an unlisted tool to be refused. `mcp-use audit` when you want to keep recording without refusing, including after the default flips. `mcp-use` with no mode when you only want to see which of `audit`, `enforce` or `off` is in effect.
 
 **What they are not for.** Not for printing a secret — that is `psamvault approve`. Not for a destination host — that is `allow-host`. Not for discovery tools (`list_api_keys`, `list_vault_sites`, `get_username_for_site`): those do not decrypt a secret, and the grant command refuses them. Not for an agent to run: the commands that write use the same caller classification as a reveal and require a real terminal, so a pipe cannot answer. Listing does not. Granting a tool does not flip `mcp_use` to `enforce`.
 
-Under `enforce`, a tool that is not listed is refused and the MCP does not bother to ask. Under `audit`, the same use is allowed, the reason is `not-listed`, and `ask_each_time` still asks when you set it. Under `off`, the list and the flag are ignored and the use is still recorded. Every use, allowed or denied, is one row in `~/.psamvault/audit.jsonl` with the entry, the tool, the decision and a reason from a closed set (`listed`, `not-listed`, `mcp-use-off`, `ask-declined`, `ask-unanswered`). The row never contains the secret. The shape is in the [configuration reference](../reference/configuration.md#mcp-use-rows).
+Under `enforce`, a tool that is not listed is refused and the MCP does not bother to ask. A listed tool asks only when `ask_each_time` is on. Under `audit`, the same unlisted use is allowed, the reason is `not-listed`, and `ask` is false even if the flag is on. Under `off`, the list and the flag are ignored and the use is still recorded. Every use, allowed or denied, is one row in `~/.psamvault/audit.jsonl` with the entry, the tool, the decision and a reason from a closed set (`listed`, `not-listed`, `mcp-use-off`, `ask-declined`, `ask-unanswered`). The row never contains the secret. The shape is in the [configuration reference](../reference/configuration.md#mcp-use-rows).
 
 An agent that can write `policy.json` itself can still add a tool or set `mcp_use` to `off`. The commands are the stop for a well-behaved agent, not a boundary.
 

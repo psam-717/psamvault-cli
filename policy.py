@@ -87,7 +87,10 @@ class Policy:
     entry_hosts: dict[str, list[str]] = field(default_factory=dict)
     # Effective MCP-use mode. Absent in the file means audit (record, do not
     # refuse). Unknown values are substituted with audit and named in warnings.
+    # A later release will treat a missing key as enforce. ``mcp_use_implicit``
+    # is true only when the key was absent, so an explicit "audit" stays quiet.
     mcp_use: str = mcp_use.DEFAULT_MODE
+    mcp_use_implicit: bool = True
     # Effective tool names, keyed by the name stored in the file. An entry
     # with no allow_tools key is absent. A bad token is absent from the list
     # and named in warnings. The file itself is not rewritten.
@@ -247,13 +250,21 @@ def _load_entry_hosts(policy: Policy, data: dict) -> None:
 
 
 def _load_mcp_use(policy: Policy, data: dict) -> None:
-    """Absent ``mcp_use`` is audit, with no warning. A bad value is audit too."""
+    """Absent ``mcp_use`` is audit. A bad value is audit too.
+
+    Absence is not a ``warnings`` entry. ``policy tools`` and ``policy mcp-use``
+    print :data:`mcp_use.ABSENT_DEFAULT_NOTICE` from :func:`mcp_use_notice`.
+    An explicit mode, including ``audit``, clears ``mcp_use_implicit``.
+    """
     if "mcp_use" not in data or data.get("mcp_use") is None:
+        policy.mcp_use_implicit = True
         return
     mode = data.get("mcp_use")
     if isinstance(mode, str) and mode in mcp_use.MODES:
         policy.mcp_use = mode
+        policy.mcp_use_implicit = False
         return
+    policy.mcp_use_implicit = False
     policy.warnings.append(f"unknown mcp_use {mode!r} — using {mcp_use.DEFAULT_MODE}")
 
 
@@ -546,12 +557,19 @@ def mcp_entry_names(entry: str) -> set[str]:
     return names
 
 
+def mcp_use_notice(loaded: Policy) -> str | None:
+    """The planned-flip sentence when ``mcp_use`` was not in the file."""
+    return mcp_use.absent_default_notice(implicit=loaded.mcp_use_implicit)
+
+
 def mcp_plan(loaded: Policy, entry: str, tool: str) -> mcp_use.McpPlan:
     """The decision the MCP should make for one use of one entry, before elicitation.
 
     Every policy key whose trimmed name casefolds to the argument or its leaf
-    contributes. Tool lists are unioned. ``ask_each_time`` is true when any
-    match is true. That is the same name rule as ``allow_hosts``.
+    contributes. Tool lists are unioned. ``ask`` is true only under
+    ``enforce`` when a match has ``ask_each_time`` and the use is allowed.
+    ``notice`` is set when ``mcp_use`` was absent. That is the same name rule
+    as ``allow_hosts``.
     """
     wanted = mcp_entry_names(entry)
     tools: list[str] = []
@@ -565,8 +583,14 @@ def mcp_plan(loaded: Policy, entry: str, tool: str) -> mcp_use.McpPlan:
         if name.strip().casefold() in wanted and enabled:
             flag = True
     decision, reason = mcp_use.decide(loaded.mcp_use, tools, tool)
-    ask = flag and decision == mcp_use.ALLOW and loaded.mcp_use != mcp_use.MODE_OFF
-    return mcp_use.McpPlan(decision=decision, reason=reason, ask=ask, mcp_use=loaded.mcp_use)
+    ask = mcp_use.should_ask(loaded.mcp_use, decision, ask_each_time=flag)
+    return mcp_use.McpPlan(
+        decision=decision,
+        reason=reason,
+        ask=ask,
+        mcp_use=loaded.mcp_use,
+        notice=mcp_use_notice(loaded),
+    )
 
 
 def entry_allowed(policy: Policy, entry: str | None) -> bool:

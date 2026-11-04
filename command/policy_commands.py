@@ -588,6 +588,9 @@ def _print_mode(loaded: policy.Policy) -> None:
         typer.echo(f"  ! {warning}")
     typer.echo(f"  mcp_use: {loaded.mcp_use}")
     typer.echo(f"  {_mode_sentence(loaded.mcp_use)}")
+    notice = policy.mcp_use_notice(loaded)
+    if notice:
+        typer.echo(f"  ! {notice}")
     typer.echo("")
 
 
