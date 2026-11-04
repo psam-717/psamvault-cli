@@ -57,6 +57,10 @@ def test_a_row_carries_no_free_text_field_that_could_hold_a_secret():
         "policy_mode",
         "path",
         "host",
+        "tool",
+        "reason",
+        "mcp_use",
+        "ask",
     }
     for banned in ("value", "secret", "password", "plaintext", "key", "blob"):
         assert not any(banned in name for name in params), banned

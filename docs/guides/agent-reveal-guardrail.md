@@ -1,6 +1,6 @@
 ---
 title: The agent reveal guardrail
-description: Who may print a secret, where a stored secret may be sent, the three policy modes, one-shot agent approvals, and the measured limits of the guardrail.
+description: Who may print a secret, where a stored secret may be sent, which MCP tool may use it, and the measured limits of the guardrail.
 order: 50
 ---
 
@@ -102,6 +102,40 @@ A missing entry is a warning, not a refusal: the host is saved when you confirm,
 
 The honest limit is the same as the rest of this guardrail. An agent that can write `~/.psamvault/policy.json` itself can still add a host. The command is the stop for a well-behaved agent, not a boundary.
 
+## Which MCP tool may use a secret
+
+`allow_hosts` does not say which tool may use the entry. Once you are logged in, `use_credential`, `run_with_credential`, `browser_login`, `verify_api_key` and the two export tools can use every stored secret. `entries.<name>.allow_tools` is the list that stops that, and `mcp_use` is the switch that turns the refusal on.
+
+The switch defaults to `audit`, including when `policy.json` does not exist and when an old file has no `mcp_use` key. In that mode the MCP records every use and does not refuse a tool that is not listed. That is deliberate. Shipping `enforce` as the silent default would refuse every existing MCP user on upgrade. You turn the refusal on yourself, after you have seen the trail and granted the tools you still want.
+
+```bash
+# you, in your own terminal — one tool, one entry, one confirmation
+psamvault policy allow-tool ledger-key use_credential
+psamvault policy allow-tool github.com browser_login
+
+# the flag for a later in-chat yes or no. The CLI only stores it.
+psamvault policy ask-each-time ledger-key on
+
+# see the list and the mode (an agent may run these)
+psamvault policy tools
+psamvault policy mcp-use
+
+# refuse anything that is not listed. The command warns when no entry lists a tool.
+psamvault policy mcp-use enforce
+
+# take a tool back, or go back to recording without refusing
+psamvault policy remove-tool ledger-key use_credential
+psamvault policy mcp-use audit
+```
+
+**When to use them.** `allow-tool` when a specific tool should be allowed to use one entry. `remove-tool` when that should stop. `tools` when you want to see the list. `ask-each-time` when each allowed use should also wait for a yes in the chat. `mcp-use enforce` when you are ready for an unlisted tool to be refused. `mcp-use` with no mode when you only want to see which of `audit`, `enforce` or `off` is in effect.
+
+**What they are not for.** Not for printing a secret — that is `psamvault approve`. Not for a destination host — that is `allow-host`. Not for discovery tools (`list_api_keys`, `list_vault_sites`, `get_username_for_site`): those do not decrypt a secret, and the grant command refuses them. Not for an agent to run: the commands that write use the same caller classification as a reveal and require a real terminal, so a pipe cannot answer. Listing does not. Granting a tool does not flip `mcp_use` to `enforce`.
+
+Under `enforce`, a tool that is not listed is refused and the MCP does not bother to ask. Under `audit`, the same use is allowed, the reason is `not-listed`, and `ask_each_time` still asks when you set it. Under `off`, the list and the flag are ignored and the use is still recorded. Every use, allowed or denied, is one row in `~/.psamvault/audit.jsonl` with the entry, the tool, the decision and a reason from a closed set (`listed`, `not-listed`, `mcp-use-off`, `ask-declined`, `ask-unanswered`). The row never contains the secret. The shape is in the [configuration reference](../reference/configuration.md#mcp-use-rows).
+
+An agent that can write `policy.json` itself can still add a tool or set `mcp_use` to `off`. The commands are the stop for a well-behaved agent, not a boundary.
+
 ## How the caller is classified
 
 The design is deliberately layered, because each layer was measured to fail on its own:
@@ -171,4 +205,5 @@ trail of who authorised what — tamper-*resistance*, not a boundary.
 - [Configuration](../reference/configuration.md#policyjson) — the `policy.json` schema, the audit row fields and the `PSAMVAULT_*` variables.
 - [Commands](../reference/commands.md#agent-guardrail-commands) — `psamvault approve`, the destination commands, and the global `--agent` flag.
 - [Destination allow list](../reference/commands.md#destination-allow-list) — `psamvault policy allow-host`, `remove-host`, and `hosts`.
+- [MCP tool allow list](../reference/commands.md#mcp-tool-allow-list) — `psamvault policy allow-tool`, `remove-tool`, `tools`, `ask-each-time`, and `mcp-use`.
 - [SECURITY.md](../../SECURITY.md) — the threat model this guardrail sits inside.

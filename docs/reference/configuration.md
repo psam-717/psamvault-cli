@@ -111,9 +111,18 @@ These are not psamvault settings — psamvault only reads them, to work out who 
   "allow_entries": ["github.com"],
   "approval_ttl_seconds": 120,
   "audit": true,
+  "mcp_use": "audit",
   "entries": {
-    "ledger-key": { "allow_hosts": ["api.ledger.example"] },
-    "github.com": { "allow_hosts": ["*.ghcr.io"] }
+    "ledger-key": {
+      "allow_hosts": ["api.ledger.example"],
+      "allow_tools": ["use_credential", "run_with_credential"],
+      "ask_each_time": false
+    },
+    "github.com": {
+      "allow_hosts": ["*.ghcr.io"],
+      "allow_tools": ["browser_login"],
+      "ask_each_time": true
+    }
   }
 }
 ```
@@ -121,15 +130,65 @@ These are not psamvault settings — psamvault only reads them, to work out who 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `reveal` | string | `"human-only"` | One of `"human-only"`, `"strict"`, `"open"` |
-| `allow_entries` | list of strings | `[]` | Who may *print* a secret. A long-running job that needs one specific secret revealed. Matched case-insensitively against the exact entry name. Not a list of destinations |
+| `allow_entries` | list of strings | `[]` | Who may *print* a secret. A long-running job that needs one specific secret revealed. Matched case-insensitively against the exact entry name. Not a list of destinations, and not a list of MCP tools |
 | `approval_ttl_seconds` | integer | `120` | How long a `psamvault approve` token stays live. Coerced into the supported window: **15–3600** seconds |
-| `audit` | boolean | `true` | Stored with the file. Reveal decisions and destination grants are written to the audit trail either way |
-| `entries` | object | absent | Map of entry name → object. The destination allow list lives here. Absent means no extra hosts |
+| `audit` | boolean | `true` | Stored with the file. Reveal decisions, destination grants and MCP-use rows are written either way. `false` does not silence the trail |
+| `mcp_use` | string | `"audit"` when the key is absent | `"audit"`, `"enforce"` or `"off"`. Whether an MCP tool that is not listed may use a stored secret. See below |
+| `entries` | object | absent | Map of entry name → object. Destination hosts and MCP tools live here. Absent means no extra hosts and no listed tools |
 | `entries.<name>.allow_hosts` | list of strings | absent | Hosts that entry's secret may also be sent to. One hostname, or a leading `*.` for that domain and its subdomains |
+| `entries.<name>.allow_tools` | list of strings | absent | MCP tools that may use this entry once `mcp_use` is `"enforce"`. A tool name, compared case-insensitively |
+| `entries.<name>.ask_each_time` | boolean | `false` when the key is absent | When `true`, psamvault-mcp asks in chat before a use that would otherwise be allowed. Only JSON `true` counts. The CLI stores the flag and does not ask |
 
-`allow_entries` and `entries.*.allow_hosts` answer different questions. `allow_entries` lets an agent print one secret. `allow_hosts` lets psamvault-mcp send that secret to a host that is not already the entry's own site or service. Granting a host does not reveal the secret. Listing a name in `allow_entries` does not make a foreign host legal.
+`allow_entries`, `allow_hosts` and `allow_tools` answer three different questions. `allow_entries` lets an agent print one secret. `allow_hosts` lets psamvault-mcp send that secret to a host that is not already the entry's own site or service. `allow_tools` names which MCP tool may use the secret at all. Granting a host does not grant a tool. Granting a tool does not reveal the secret and does not make a foreign host legal.
 
-Edit the destination list with [`psamvault policy allow-host`](commands.md#psamvault-policy-allow-host), [`psamvault policy remove-host`](commands.md#psamvault-policy-remove-host) and [`psamvault policy hosts`](commands.md#psamvault-policy-hosts). `allow-host` and `remove-host` are a human at a terminal: an agent (markers, ancestry, `PSAMVAULT_AGENT`, `--agent`) is refused, and a pipe cannot answer the confirmation. `psamvault policy hosts` only reads. A hand edit of the JSON still works; the commands are the checked way, and they keep every other key.
+### mcp_use
+
+This is the rollout switch. The steady state the owner asked for is "anything not listed is refused". Turning that on for every existing file would stop every MCP user on the day psamvault-mcp starts reading the list, including a machine that has no `policy.json`. So the absent key means `"audit"`.
+
+| `mcp_use` | An unlisted tool | A listed tool | `ask_each_time` |
+|---|---|---|---|
+| `"audit"` *(default, including a missing key)* | Allowed. The audit reason is `not-listed` | Allowed. Reason `listed` | Consulted. The MCP asks only when the use would be allowed |
+| `"enforce"` | Refused. Reason `not-listed`. The MCP does not ask | Allowed. Reason `listed` | Consulted when the tool is listed |
+| `"off"` | Allowed. The list is not consulted. Reason `mcp-use-off` | Allowed. Same reason | Not consulted |
+
+An unrecognised value is treated as `"audit"` and `psamvault policy tools` prints a warning. Treating a typo as `"enforce"` would refuse every tool. Loading does not rewrite the file, so an old file stays byte-for-byte until a command edits it. Granting a tool does not write `mcp_use`.
+
+`"audit"` is the grace mode: every use is recorded, and nothing that works today stops working. Run [`psamvault policy mcp-use enforce`](commands.md#psamvault-policy-mcp-use) when you want an unlisted tool refused. That command tells you when no entry lists a tool, which would refuse every use.
+
+### allow_tools
+
+The grant command writes only tools that decrypt a stored secret:
+
+| Tool | What it uses the secret for |
+|---|---|
+| `use_credential` | An HTTP request |
+| `run_with_credential` | A subprocess environment or stdin |
+| `browser_login` | Typing into a login form |
+| `export_key_to_mcp_config` | Writing the key into an agent MCP config |
+| `export_key_to_env_file` | Writing the key into a `.env` file |
+| `verify_api_key` | A read-only check against the provider |
+
+Discovery tools do not decrypt a secret, so they are not gated and the grant command refuses them: `get_version`, `search_vault_tools`, `list_vault_sites`, `check_credential_exists`, `get_username_for_site`, `list_api_keys`, `scan_and_protect`.
+
+On load, a token is kept when it is a tool name after casefold and trim (`^[a-z][a-z0-9_]*$`). A name outside the table above is kept and warned about, so a hand-edited future tool still matches that exact name. A token that is not a tool name (`not a tool`) is warned about and is not treated as allowed. The file is not rewritten.
+
+### How psamvault-mcp reads this
+
+psamvault-mcp is a separate package and does not import the CLI. It reads the same file the CLI writes.
+
+* Path: `~/.psamvault/policy.json`. On Windows, macOS and Linux that is the home directory plus `.psamvault/policy.json`. Mode `0600` on POSIX.
+* Missing file, unreadable file, or JSON that is not an object: behave as `mcp_use` `"audit"` and no entries. Do not crash the tool. Do not treat a broken file as `"enforce"`.
+* Entry match: the same rule `allow_hosts` already uses. Take the tool's entry argument and the leaf after the last `/`. A policy key matches when its trimmed name casefolds to either of those. If several keys match, union their tool lists, and `ask_each_time` is true when any match is JSON `true`. No match means the tool list is empty and the flag is false. The CLI editor does not apply the leaf rule when it writes: `psamvault policy allow-tool project/.env/KEY use_credential` stores the key you typed. The MCP still finds a key named `KEY` when the tool is called with `project/.env/KEY`.
+* `allow_tools`: ignore a value that is not a list. For each item, trim and casefold. Keep it when it matches `^[a-z][a-z0-9_]*$`. Compare that to the tool that is about to run.
+* `ask_each_time`: JSON `true` only. Anything else, including a missing key, is false.
+* Decision, before any in-chat question, from `mcp_use` and whether the tool is in the list: the table above. `"off"` does not look at the list.
+* Ask only when that decision is allow, `mcp_use` is not `"off"`, and `ask_each_time` is true. A yes keeps the decision. A no becomes deny, reason `ask-declined`. A prompt that does not complete becomes deny, reason `ask-unanswered`. A decision that is already deny is not asked.
+* Discovery tools skip this check. They do not write an MCP-use row.
+* Then append one audit row, allowed or denied. A failure to write the row must not fail the tool.
+
+`allow_commands` and `allow_inject` on an entry are still preserved and are still not enforced. They are not tool names.
+
+Edit the destination list with [`psamvault policy allow-host`](commands.md#psamvault-policy-allow-host), [`psamvault policy remove-host`](commands.md#psamvault-policy-remove-host) and [`psamvault policy hosts`](commands.md#psamvault-policy-hosts). Edit the tool list with [`psamvault policy allow-tool`](commands.md#psamvault-policy-allow-tool), [`psamvault policy remove-tool`](commands.md#psamvault-policy-remove-tool), [`psamvault policy ask-each-time`](commands.md#psamvault-policy-ask-each-time) and [`psamvault policy tools`](commands.md#psamvault-policy-tools). Change the rollout with [`psamvault policy mcp-use`](commands.md#psamvault-policy-mcp-use). The commands that write are a human at a terminal: an agent (markers, ancestry, `PSAMVAULT_AGENT`, `--agent`) is refused, and a pipe cannot answer the confirmation. `psamvault policy hosts`, `psamvault policy tools` and `psamvault policy mcp-use` with no mode only read. A hand edit of the JSON still works; the commands are the checked way, and they keep every other key.
 
 What a host value means:
 
@@ -142,7 +201,7 @@ What a host value means:
 | `8.8.8.8` | Refused. This command writes a hostname | Kept. The MCP matches that exact public address |
 | `com`, `co.uk`, `*.co.uk`, `github.io` | Refused. A bare public suffix is not a site | Reported, and not treated as allowed |
 
-Loading does not rewrite the file. A bad value stays until `psamvault policy remove-host` deletes it, and `psamvault policy hosts` prints the warning. An older file with no `entries` key is unchanged and warns about nothing. `allow_commands` and `allow_inject` on an entry are preserved and are not enforced. The commands write the file atomically and owner-only (`0600`).
+Loading does not rewrite the file. A bad host stays until `psamvault policy remove-host` deletes it, and `psamvault policy hosts` prints the warning. A bad tool token stays until `psamvault policy remove-tool` deletes it. An older file with no `entries` key, and no `mcp_use` key, is unchanged and warns about nothing. `allow_commands` and `allow_inject` on an entry are preserved and are not enforced. The commands write the file atomically and owner-only (`0600`).
 
 | `"reveal"` | An agent (markers, ancestry) | A bare pipe, script or CI job | |
 |---|---|---|---|
@@ -166,11 +225,18 @@ What a bad file does, precisely:
 | `entries` not an object | Ignored, with a warning. `reveal` still applies |
 | `entries.<name>.allow_hosts` not a list | Ignored, with a warning naming the entry |
 | `allow_hosts` value the MCP would ignore, or that cannot take effect | Reported, naming the value. Other hosts on that entry are kept. The file is not rewritten |
+| `mcp_use` absent or JSON `null` | `"audit"`, no warning |
+| `mcp_use` not `audit`, `enforce` or `off` | `"audit"`, with a warning naming the value. The file is not rewritten |
+| `entries.<name>.allow_tools` not a list | Ignored (no tool allowed), with a warning naming the entry |
+| `allow_tools` token that is not a tool name | Reported, and not treated as allowed. Other tools on that entry are kept |
+| `allow_tools` name that is not a tool that decrypts a secret | Kept, so a hand-edited future name still matches, and reported |
+| `ask_each_time` absent | `false`, no warning |
+| `ask_each_time` not a boolean | Treated as `false`, with a warning. The file is not rewritten |
 | `approval_ttl_seconds` out of range or not a number | Clamped to 15–3600, or reset to the default of 120 |
 | Unreadable file | Safe defaults + a warning |
 | POSIX group/other permission bits set | A warning telling you to `chmod 600` |
 
-A typo never makes the vault unusable and never silently opens it: the CLI falls back to the safe defaults and says so.
+A typo never makes the vault unusable. An unknown `reveal` mode falls back to `human-only`. An unknown `mcp_use` falls back to `audit`, and the warning names the value, because treating the typo as `enforce` would refuse every MCP use.
 
 ## audit.jsonl
 
@@ -182,17 +248,39 @@ Forensics for the reveal guardrail, one JSONL row per decision, `0600`, rotated 
 
 | Field | Meaning |
 |---|---|
-| `ts` | UTC timestamp of the decision |
-| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, `approve`, `policy allow-host`, or `policy remove-host` |
-| `entry` | The entry the reveal or the destination change was for, or `null` for a whole-vault dump |
-| `host` | Present on a destination grant or removal: the hostname, never a secret. Omitted on reveal rows |
-| `caller` | The verdict: `human`, `uncertain` or `agent` |
-| `signals` | The evidence that matched, e.g. `marker:AI_AGENT=hermes-agent`, `explicit:PSAMVAULT_AGENT`, `env:CI`, or an ancestry match |
-| `tty` | Whether both stdin and stdout were terminals |
-| `pid`, `ppid` | The process and its parent, for correlating a denial with the thing that asked |
-| `decision` | `allow`, `deny`, `approved` (an agent's reveal consumed a token), `minted` (a human authorised one), `granted` (a destination host was added) or `revoked` (one was removed) |
+| `ts` | UTC timestamp of the decision, `YYYY-MM-DDTHH:MM:SSZ` |
+| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, `approve`, `policy allow-host`, `policy remove-host`, `policy allow-tool`, `policy remove-tool`, `policy ask-each-time`, `policy mcp-use`, or `mcp <tool>` for a use |
+| `entry` | The entry the reveal, the destination change, or the MCP use was for, or `null` for a whole-vault dump or a mode change |
+| `host` | Present on a destination grant or removal: the hostname, never a secret. Omitted on reveal rows and on MCP-use rows |
+| `tool` | Present when the row is about an MCP tool: the tool name. Omitted on reveal rows |
+| `reason` | Present on an MCP use: one of `listed`, `not-listed`, `mcp-use-off`, `ask-declined`, `ask-unanswered`. Never a sentence |
+| `mcp_use` | Present on an MCP use, and on `policy mcp-use`: the mode (`audit`, `enforce`, `off`) |
+| `ask` | Present on an MCP use, and on `policy ask-each-time`: whether `ask_each_time` applied (`true` or `false`) |
+| `caller` | The verdict: `human`, `uncertain`, `agent`, or `mcp` for a row the MCP server appends |
+| `signals` | The evidence that matched, e.g. `marker:AI_AGENT=hermes-agent`, `explicit:PSAMVAULT_AGENT`, `env:CI`, or an ancestry match. `[]` on an MCP-use row |
+| `tty` | Whether both stdin and stdout were terminals. `false` on an MCP-use row |
+| `pid`, `ppid` | The process and its parent, for correlating a denial with the thing that asked. The MCP writes its own |
+| `decision` | `allow`, `deny`, `approved` (an agent's reveal consumed a token), `minted` (a human authorised one), `granted` (a host or a tool was added), `revoked` (one was removed), or `set` (the ask flag or `mcp_use` changed) |
 | `token_id` | The approval token involved, or `null` |
-| `policy` | The effective `reveal` mode at the time |
+| `policy` | The effective `reveal` mode at the time. `null` on an MCP-use row, which records the mode in `mcp_use` instead |
+
+### MCP use rows
+
+psamvault-mcp appends one row per use of a tool that decrypts a secret, whether the use was allowed or refused. It uses the same file and the same rotation as the CLI (`audit.jsonl.1` once the file reaches 1,000,000 bytes: delete an existing `.1`, then rename). Directory `0700`, file `0600`. One JSON object per line, UTF-8, no space after `:` or `,`. A write failure is swallowed.
+
+```json
+{"ts":"2026-11-04T00:00:00Z","command":"mcp use_credential","entry":"ledger-key","caller":"mcp","signals":[],"tty":false,"pid":1234,"ppid":1200,"decision":"deny","token_id":null,"policy":null,"tool":"use_credential","reason":"not-listed","mcp_use":"enforce","ask":false}
+```
+
+| `reason` | When the MCP writes it |
+|---|---|
+| `listed` | The tool is in `allow_tools`, and `mcp_use` is `audit` or `enforce` |
+| `not-listed` | The tool is not in `allow_tools`. Deny when `mcp_use` is `enforce`, allow when it is `audit` |
+| `mcp-use-off` | `mcp_use` is `off`. The list was not consulted. Decision is allow |
+| `ask-declined` | The use would have been allowed, the entry asks each time, and the human said no |
+| `ask-unanswered` | The use would have been allowed, the entry asks each time, and the prompt did not complete |
+
+`tool` is the tool name after casefold. `ask` is true only when an in-chat prompt was part of this decision. It is false when the flag is off, when `mcp_use` is `off`, or when the use was refused before a prompt. The row has no field for a secret value, a URL body, or a free-text explanation. The CLI's `audit.record_mcp_use` writes this shape and drops a call whose `tool`, `reason`, `decision` or `mcp_use` is not in the closed sets. The MCP reimplements that; it does not import the CLI.
 
 Two invariants hold for every row, and both are pinned by tests:
 
