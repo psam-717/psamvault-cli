@@ -50,7 +50,7 @@ app = typer.Typer(
         "  psamvault backup     — keep your vault recoverable (create, verify, status, rotate)\n"
         "  psamvault restore    — regain access on a new machine from a backup\n"
         "  psamvault approve    — let an agent reveal ONE secret once (needs a real terminal)\n"
-        "  psamvault policy     — destination hosts a stored secret may be sent to (human terminal)\n\n"
+        "  psamvault policy     — where a secret may be sent, and which MCP tool may use it\n\n"
         "Or use the short forms directly — psamvault login, psamvault add, psamvault open, etc."
     ),
     no_args_is_help=True,
@@ -89,7 +89,7 @@ def main(
         Optional[bool],
         typer.Option(
             "--agent",
-            help="Declare this process an agent caller: reveal commands and destination grants (policy allow-host / remove-host) are refused",
+            help="Declare this process an agent caller: reveal commands and policy changes (allow-host, remove-host, allow-tool, remove-tool, ask-each-time, mcp-use) are refused",
         ),
     ] = None,
 ) -> None:
@@ -120,7 +120,7 @@ app.add_typer(backup_app, name="backup", help="Back up your vault key and check 
 app.add_typer(
     policy_app,
     name="policy",
-    help="Destination hosts a stored secret may be sent to (allow-host, remove-host, hosts)",
+    help="Where a secret may be sent, and which MCP tool may use it",
 )
 
 # ── TUI — source kept in repo, command hidden from --help ──────────────

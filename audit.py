@@ -11,6 +11,12 @@ evidence":
 A destination grant adds ``"host"``: the hostname that was allowed or removed.
 That field is a name, never a secret, and it is omitted on reveal rows.
 
+An MCP use adds ``tool``, ``reason``, ``mcp_use`` and ``ask``. ``reason`` is one
+of a closed set (``listed``, ``not-listed``, ``mcp-use-off``, ``ask-declined``,
+``ask-unanswered``), never a sentence, so the field cannot carry a secret.
+Those four keys are omitted on reveal rows. psamvault-mcp appends the same
+shape itself; it does not import this module. See :func:`record_mcp_use`.
+
 Two invariants, both pinned by tests:
 
 * **A row never contains a secret.** Only names, ids, verdicts and signal
@@ -29,6 +35,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import mcp_use as mcp_policy
 from config import CONFIG_DIR
 
 AUDIT_FILENAME = "audit.jsonl"
@@ -46,6 +53,8 @@ DECISION_DISCOVERY = "discovery"
 # A human added or removed a destination host. The row's ``host`` is that name.
 DECISION_GRANTED = "granted"
 DECISION_REVOKED = "revoked"
+# A human changed ask_each_time or the mcp_use mode. The row names which.
+DECISION_SET = "set"
 
 
 def _rotate(path: Path) -> None:
@@ -71,12 +80,21 @@ def record(
     policy_mode: str | None = None,
     path: Path | None = None,
     host: str | None = None,
+    tool: str | None = None,
+    reason: str | None = None,
+    mcp_use: str | None = None,
+    ask: bool | None = None,
 ) -> None:
     """Append one audit row. Never raises.
 
     ``host`` is a destination hostname for a policy grant or removal. It is
     omitted when the decision is not about a host, so reveal rows stay as
     they were. It is never a secret value.
+
+    ``tool``, ``reason``, ``mcp_use`` and ``ask`` are the MCP-use fields.
+    They are omitted when this row is not about an MCP tool or a change to
+    that policy. ``reason`` must already be one of :data:`mcp_policy.REASONS`;
+    this function does not accept a free-text explanation.
     """
     target = Path(path) if path is not None else AUDIT_FILE
     row = {
@@ -94,6 +112,18 @@ def record(
     }
     if host is not None:
         row["host"] = host
+    # The new fields are closed. A value that is not a tool name, a known
+    # reason, a known mode, or a boolean is omitted rather than written.
+    if isinstance(tool, str):
+        normalized_tool = mcp_policy.normalize_tool(tool)
+        if normalized_tool:
+            row["tool"] = normalized_tool
+    if reason in mcp_policy.REASONS:
+        row["reason"] = reason
+    if mcp_use in mcp_policy.MODES:
+        row["mcp_use"] = mcp_use
+    if isinstance(ask, bool):
+        row["ask"] = ask
     try:
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         _rotate(target)
@@ -102,6 +132,62 @@ def record(
         os.chmod(target, 0o600)
     except OSError:
         pass
+
+
+def record_mcp_use(
+    *,
+    tool: str,
+    entry: str | None,
+    decision: str,
+    reason: str,
+    mcp_use: str,
+    ask: bool = False,
+    path: Path | None = None,
+) -> None:
+    """Append one MCP-use row. Never raises.
+
+    The row is dropped, not rewritten with the caller's text, when ``tool``
+    is not a tool name, ``reason`` is not in :data:`mcp_policy.REASONS`,
+    ``decision`` is not ``allow`` or ``deny``, or ``mcp_use`` is not a known
+    mode. That is what keeps a secret out of the trail.
+
+    On-disk shape, one compact JSON object per line, UTF-8, mode ``0600``,
+    in ``~/.psamvault/audit.jsonl`` (rotated to ``audit.jsonl.1`` at 1_000_000
+    bytes, same as every other row)::
+
+        {"ts":"2026-11-04T00:00:00Z","command":"mcp use_credential",
+         "entry":"ledger-key","caller":"mcp","signals":[],"tty":false,
+         "pid":1,"ppid":1,"decision":"deny","token_id":null,"policy":null,
+         "tool":"use_credential","reason":"not-listed","mcp_use":"enforce",
+         "ask":true}
+
+    ``command`` is ``mcp <tool>``. ``caller`` is ``mcp``. ``policy`` (the
+    reveal mode) is null. ``host`` is omitted. ``ts`` is UTC ``YYYY-MM-DDTHH:MM:SSZ``.
+    A failure to write must not fail the tool call.
+    """
+    normalized = mcp_policy.normalize_tool(tool) if isinstance(tool, str) else None
+    if (
+        not normalized
+        or decision not in (mcp_policy.ALLOW, mcp_policy.DENY)
+        or reason not in mcp_policy.REASONS
+        or mcp_use not in mcp_policy.MODES
+    ):
+        return
+    record(
+        command=f"mcp {normalized}",
+        decision=decision,
+        caller="mcp",
+        entry=entry,
+        signals=[],
+        tty=False,
+        token_id=None,
+        policy_mode=None,
+        path=path,
+        tool=normalized,
+        reason=reason,
+        mcp_use=mcp_use,
+        ask=bool(ask),
+    )
 
 
 def read(path: Path | None = None) -> list[dict]:

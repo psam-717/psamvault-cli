@@ -1,5 +1,10 @@
 """Reveal policy — who may print a secret, and how long an approval lives.
 
+Also the MCP-use policy in the same file. ``mcp_use`` says whether an
+unlisted tool is refused. ``entries.<name>.allow_tools`` names the MCP tools
+that may use that entry. ``entries.<name>.ask_each_time`` is the flag a later
+MCP elicitation will read. See ``mcp_use.py`` for the decision.
+
 ``~/.psamvault/policy.json`` (mode ``0600``), absent means safe defaults, so a
 fresh machine is protected with no setup and nothing to configure:
 
@@ -27,9 +32,12 @@ the vault unusable, and failing open silently would hide a misconfiguration.
 
 ``entries`` is a different list from ``allow_entries``. ``allow_entries`` names
 secrets an agent may *reveal*. ``entries.<name>.allow_hosts`` names hosts a
-stored secret may be *sent* to. The MCP reads ``allow_hosts`` and does not
-write it. Loading validates each host and records a warning for a bad one.
-It does not rewrite the file, so a hand-edited list and every other key survive.
+stored secret may be *sent* to. ``entries.<name>.allow_tools`` names MCP tools
+that may *use* it, and ``mcp_use`` says whether an unlisted tool is refused
+(``audit`` until a human sets ``enforce``). The MCP reads these and does not
+write them. Loading validates hosts and tools and records a warning for a bad
+one. It does not rewrite the file, so a hand-edited list and every other key
+survive.
 """
 from __future__ import annotations
 
@@ -40,6 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import allow_hosts
+import mcp_use
 from config import CONFIG_DIR
 
 POLICY_FILE = CONFIG_DIR / "policy.json"
@@ -76,10 +85,36 @@ class Policy:
     # A value the MCP would ignore, or that cannot take effect, is absent
     # here and named in ``warnings``. The file itself is not rewritten.
     entry_hosts: dict[str, list[str]] = field(default_factory=dict)
+    # Effective MCP-use mode. Absent in the file means audit (record, do not
+    # refuse). Unknown values are substituted with audit and named in warnings.
+    mcp_use: str = mcp_use.DEFAULT_MODE
+    # Effective tool names, keyed by the name stored in the file. An entry
+    # with no allow_tools key is absent. A bad token is absent from the list
+    # and named in warnings. The file itself is not rewritten.
+    entry_tools: dict[str, list[str]] = field(default_factory=dict)
+    # Explicit ask_each_time values. Absent key means false and is not stored
+    # here. A non-boolean is false, with a warning.
+    entry_ask: dict[str, bool] = field(default_factory=dict)
 
 
 class HostRejected(Exception):
     """The host must not be written to allow_hosts."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+class ToolRejected(Exception):
+    """The tool must not be written to allow_tools."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+class McpUseRejected(Exception):
+    """The mcp_use mode must not be written."""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -149,6 +184,7 @@ def load(path: Path | None = None) -> Policy:
     if isinstance(data.get("audit"), bool):
         policy.audit = data["audit"]
 
+    _load_mcp_use(policy, data)
     _load_entry_hosts(policy, data)
 
     # POSIX only: Windows reports 0o666 for every file regardless of its ACLs,
@@ -189,23 +225,71 @@ def _load_entry_hosts(policy: Policy, data: dict) -> None:
         hosts = spec.get("allow_hosts", [])
         if hosts is None:
             policy.entry_hosts[name] = []
+            _load_entry_tools(policy, name, spec)
             continue
         if not isinstance(hosts, list):
             policy.warnings.append(
                 f"entries[{name!r}].allow_hosts must be a list — ignored"
             )
             policy.entry_hosts[name] = []
-            continue
-        accepted: list[str] = []
-        for item in hosts:
-            verdict = allow_hosts.judge(str(item), strict=False)
-            if verdict.problem or not verdict.normalized:
-                detail = verdict.problem or f"{item!r} is not a hostname"
-                policy.warnings.append(f"entries[{name!r}].allow_hosts: {detail}")
-                continue
-            if verdict.normalized not in accepted:
-                accepted.append(verdict.normalized)
-        policy.entry_hosts[name] = accepted
+        else:
+            accepted: list[str] = []
+            for item in hosts:
+                verdict = allow_hosts.judge(str(item), strict=False)
+                if verdict.problem or not verdict.normalized:
+                    detail = verdict.problem or f"{item!r} is not a hostname"
+                    policy.warnings.append(f"entries[{name!r}].allow_hosts: {detail}")
+                    continue
+                if verdict.normalized not in accepted:
+                    accepted.append(verdict.normalized)
+            policy.entry_hosts[name] = accepted
+        _load_entry_tools(policy, name, spec)
+
+
+def _load_mcp_use(policy: Policy, data: dict) -> None:
+    """Absent ``mcp_use`` is audit, with no warning. A bad value is audit too."""
+    if "mcp_use" not in data or data.get("mcp_use") is None:
+        return
+    mode = data.get("mcp_use")
+    if isinstance(mode, str) and mode in mcp_use.MODES:
+        policy.mcp_use = mode
+        return
+    policy.warnings.append(f"unknown mcp_use {mode!r} — using {mcp_use.DEFAULT_MODE}")
+
+
+def _load_entry_tools(policy: Policy, name: str, spec: dict) -> None:
+    """Fill tool and ask maps. Does not rewrite the file."""
+    if "allow_tools" in spec:
+        tools = spec.get("allow_tools")
+        if tools is None:
+            policy.entry_tools[name] = []
+        elif not isinstance(tools, list):
+            policy.warnings.append(f"entries[{name!r}].allow_tools must be a list — ignored")
+            policy.entry_tools[name] = []
+        else:
+            accepted: list[str] = []
+            for item in tools:
+                verdict = mcp_use.judge(str(item), strict=False)
+                if not verdict.normalized:
+                    detail = verdict.problem or f"{item!r} is not a tool name"
+                    policy.warnings.append(f"entries[{name!r}].allow_tools: {detail}")
+                    continue
+                if verdict.problem:
+                    policy.warnings.append(f"entries[{name!r}].allow_tools: {verdict.problem}")
+                if verdict.normalized not in accepted:
+                    accepted.append(verdict.normalized)
+            policy.entry_tools[name] = accepted
+
+    if "ask_each_time" not in spec or spec.get("ask_each_time") is None:
+        return
+    flag = spec.get("ask_each_time")
+    if isinstance(flag, bool):
+        policy.entry_ask[name] = flag
+        return
+    policy.warnings.append(
+        f"entries[{name!r}].ask_each_time must be true or false — treated as false"
+    )
+    policy.entry_ask[name] = False
 
 
 def matching_entry_key(entries: dict, name: str) -> str | None:
@@ -349,6 +433,112 @@ def remove_allow_host(entry: str, host: str, path: Path | None = None) -> tuple[
     spec["allow_hosts"] = kept
     write_document(data, target)
     return key, removed
+
+
+def _tool_list(spec: dict, key: str) -> list:
+    tools = spec.get("allow_tools", [])
+    if tools is None:
+        tools = []
+    if not isinstance(tools, list):
+        raise PolicyDocumentError(
+            f"entries[{key!r}].allow_tools must be a list — not rewritten"
+        )
+    return tools
+
+
+def add_allow_tool(entry: str, tool: str, path: Path | None = None) -> tuple[str, str, bool]:
+    """Append one tool. Returns ``(entry_key, tool, changed)``.
+
+    ``changed`` is false when that tool is already listed. A tool that does
+    not decrypt a secret raises :class:`ToolRejected` and the file is not
+    opened for writing. Granting a tool does not set ``mcp_use``.
+    """
+    verdict = mcp_use.judge(tool, strict=True)
+    if verdict.problem or not verdict.normalized or verdict.normalized not in mcp_use.TOOLS:
+        raise ToolRejected(verdict.problem or f"{tool!r} is not an MCP tool that uses a stored secret.")
+    target = Path(path) if path is not None else POLICY_FILE
+    data = read_document(target)
+    key, spec, _hosts = entry_spec(data, entry, create=True)
+    assert key is not None and spec is not None
+    tools = _tool_list(spec, key)
+    if any(mcp_use.normalize_tool(str(item)) == verdict.normalized for item in tools):
+        return key, verdict.normalized, False
+    tools.append(verdict.normalized)
+    spec["allow_tools"] = tools
+    write_document(data, target)
+    return key, verdict.normalized, True
+
+
+def remove_allow_tool(entry: str, tool: str, path: Path | None = None) -> tuple[str, list[str]]:
+    """Remove every listed value that is this tool. Returns ``(entry_key, removed)``.
+
+    A value the grant command would refuse can still be removed. ``removed``
+    is empty when nothing matched. The file is not written in that case.
+    """
+    target = Path(path) if path is not None else POLICY_FILE
+    data = read_document(target)
+    key, spec, _hosts = entry_spec(data, entry, create=False)
+    if key is None or spec is None:
+        return entry.strip(), []
+    tools = _tool_list(spec, key)
+    kept: list = []
+    removed: list[str] = []
+    for item in tools:
+        if _same_tool(item, tool):
+            removed.append(str(item))
+        else:
+            kept.append(item)
+    if not removed:
+        return key, []
+    spec["allow_tools"] = kept
+    write_document(data, target)
+    return key, removed
+
+
+def _same_tool(stored, query: str) -> bool:
+    if str(stored).strip().casefold() == str(query).strip().casefold():
+        return True
+    left = mcp_use.normalize_tool(str(stored))
+    right = mcp_use.normalize_tool(query)
+    return bool(left and right and left == right)
+
+
+def set_ask_each_time(entry: str, enabled: bool, path: Path | None = None) -> tuple[str, bool, bool]:
+    """Set ``ask_each_time``. Returns ``(entry_key, enabled, changed)``."""
+    target = Path(path) if path is not None else POLICY_FILE
+    data = read_document(target)
+    key, spec, _hosts = entry_spec(data, entry, create=True)
+    assert key is not None and spec is not None
+    current = spec.get("ask_each_time", None)
+    if current is enabled:
+        return key, enabled, False
+    spec["ask_each_time"] = bool(enabled)
+    write_document(data, target)
+    return key, bool(enabled), True
+
+
+def set_mcp_use(mode: str, path: Path | None = None) -> tuple[str, bool]:
+    """Set the top-level ``mcp_use`` mode. Returns ``(mode, changed)``."""
+    if mode not in mcp_use.MODES:
+        raise McpUseRejected(f"{mode!r} is not an mcp_use mode. Use audit, enforce, or off.")
+    target = Path(path) if path is not None else POLICY_FILE
+    data = read_document(target)
+    if data.get("mcp_use") == mode:
+        return mode, False
+    data["mcp_use"] = mode
+    write_document(data, target)
+    return mode, True
+
+
+def mcp_plan(loaded: Policy, entry: str, tool: str) -> mcp_use.McpPlan:
+    """The decision the MCP should make for one use of one entry, before elicitation."""
+    key = matching_entry_key(loaded.entry_tools, entry)
+    tools = list(loaded.entry_tools.get(key, [])) if key else []
+    decision, reason = mcp_use.decide(loaded.mcp_use, tools, tool)
+    ask_key = matching_entry_key(loaded.entry_ask, entry)
+    flag = bool(ask_key and loaded.entry_ask.get(ask_key))
+    ask = flag and decision == mcp_use.ALLOW and loaded.mcp_use != mcp_use.MODE_OFF
+    return mcp_use.McpPlan(decision=decision, reason=reason, ask=ask, mcp_use=loaded.mcp_use)
 
 
 def entry_allowed(policy: Policy, entry: str | None) -> bool:

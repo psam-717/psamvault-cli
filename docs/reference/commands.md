@@ -908,7 +908,7 @@ psamvault --agent get github.com
 
 Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs, which is the same thing the MCP server does for its subprocesses.
 
-**When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host` and `psamvault policy remove-host`. It does not refuse `psamvault policy hosts`.
+**When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host`, `psamvault policy remove-host`, `psamvault policy allow-tool`, `psamvault policy remove-tool`, `psamvault policy ask-each-time` and `psamvault policy mcp-use` when a mode is given. It does not refuse `psamvault policy hosts`, `psamvault policy tools`, or `psamvault policy mcp-use` with no mode.
 
 ## Destination allow list
 
@@ -976,6 +976,115 @@ A bad value already in the file is printed as a warning and is not treated as al
 
 **What it is not for:** granting a host. Listing does not change the file.
 
+## MCP tool allow list
+
+`allow_hosts` is where a secret may be sent. `entries["<entry>"].allow_tools` is which MCP tool may use it. The two lists are independent. There is no MCP tool that adds either one.
+
+Today, once you are logged in, every MCP tool that decrypts a secret can use every entry. `mcp_use` in [policy.json](configuration.md#policyjson) is how that changes without breaking an existing install. When the key is absent, the mode is `audit`: psamvault-mcp records each use and does not refuse a tool that is not listed. `enforce` refuses anything not listed. `off` does not consult the list. The default is `audit` on purpose. A silent switch to `enforce` would refuse every use on the day the MCP starts reading the file, including a machine that has never had a `policy.json`.
+
+`ask_each_time` is the flag for a later in-chat yes or no. The CLI stores it. psamvault-mcp is what asks, and only for a use that would otherwise be allowed. This command does not prompt you when a tool runs.
+
+This is not the reveal list. `allow_entries`, and `psamvault approve`, decide who may *print* a secret. Allowing `use_credential` does not let an agent run `psamvault get`.
+
+### psamvault policy allow-tool
+
+Allow one MCP tool to use one entry. A human runs this in their own terminal.
+
+```bash
+psamvault policy allow-tool ledger-key use_credential
+psamvault policy allow-tool github.com browser_login
+pv policy allow-tool ledger-key run_with_credential
+```
+
+| Argument | What it does |
+|---|---|
+| `entry` *(required)* | The vault name the MCP looks up: a site, an API key name, or a note title |
+| `tool` *(required)* | One tool that decrypts a secret: `use_credential`, `run_with_credential`, `browser_login`, `export_key_to_mcp_config`, `export_key_to_env_file`, or `verify_api_key` |
+
+The name is stored in lower case. The command then asks you to confirm. Both stdin and stdout must be a terminal, so a pipe cannot answer. The caller is classified the same way a reveal is. An agent is refused, and the refusal is an audit row. A successful grant is an audit row too (`granted`, with `tool`). The row names the entry and the tool. It never contains a secret.
+
+Refused, with no write: a discovery tool (`list_api_keys`, `list_vault_sites`, `get_username_for_site`, `get_version`, and the others that do not decrypt a secret), a typo, an empty name. Those tools are not gated by this list.
+
+If the entry does not exist, the command says so and still saves the tool when you confirm. Granting a tool does not set `mcp_use`. While the mode is `audit`, the new line is recorded and an unlisted tool is still allowed. The command says that, and names `psamvault policy mcp-use enforce` as the switch.
+
+Other keys in the file are kept, including `allow_hosts`, `reveal`, and `allow_commands` / `allow_inject`. Those last two are not enforced. The write is atomic and owner-only (`0600`).
+
+**When to run it:** you want one MCP tool to be allowed to use one entry once you turn enforcement on, or you want the audit trail to show that tool as `listed` during grace.
+
+**What it is not for:** revealing a secret, approving `psamvault get`, allowing a destination host, or turning enforcement on. An agent must not run it. `allow-host` is the sibling for hosts. This command is the sibling for tools.
+
+### psamvault policy remove-tool
+
+Remove one MCP tool from one entry. Same human-terminal rule, same audit row (`revoked`, with `tool`).
+
+```bash
+psamvault policy remove-tool ledger-key use_credential
+pv policy remove-tool ledger-key use_credential
+```
+
+A value this command would have refused to grant can still be removed. That is how a typo leaves a file that was edited by hand.
+
+**When to run it:** that tool should no longer use that entry. Under `enforce`, the next use is refused. Under `audit`, the next use is still allowed and the reason becomes `not-listed`.
+
+**What it is not for:** deleting the vault entry, changing `allow_hosts`, or changing `allow_entries`. An agent must not run it.
+
+### psamvault policy tools
+
+List the MCP tools and the ask-each-time flag. One entry, or every entry that has either. The current `mcp_use` mode is printed first. An agent may run this. It prints tool names and warnings, never a secret, and never a destination host.
+
+```bash
+psamvault policy tools
+psamvault policy tools ledger-key
+pv policy tools
+```
+
+A bad token already in the file is printed as a warning. A tool-shaped name that is not one of the six tools above is kept and warned about. The file is not rewritten by listing it.
+
+**When to run it:** you want to see which tools may use an entry, whether each use will ask, or which mode is in effect.
+
+**What it is not for:** granting a tool. Listing does not change the file. `psamvault policy hosts` is the sibling that lists destinations.
+
+### psamvault policy ask-each-time
+
+Store the per-entry flag that tells psamvault-mcp to ask in chat before each use.
+
+```bash
+psamvault policy ask-each-time ledger-key on
+psamvault policy ask-each-time ledger-key off
+pv policy ask-each-time ledger-key on
+```
+
+| Argument | What it does |
+|---|---|
+| `entry` *(required)* | The vault name the flag applies to |
+| `on` or `off` *(required)* | `on` writes `true`. `off` writes `false` |
+
+A human runs this in a terminal. An agent is refused. A pipe cannot answer. The audit decision is `set`, with `ask` true or false. The flag does nothing by itself until psamvault-mcp reads it. The MCP asks only when the use would otherwise be allowed: a tool that `enforce` already refuses is not asked. `mcp_use off` does not consult the flag.
+
+**When to run it:** you want a yes or no in the chat before a particular entry is used, on top of the tool list. That question is the later option. This command is how you arm it.
+
+**What it is not for:** approving one reveal (`psamvault approve` does that, once, for a printed secret). Not for choosing which tool may run (`allow-tool`). Not for a prompt the CLI shows at use time. The CLI does not ask. An agent must not run it.
+
+### psamvault policy mcp-use
+
+Show or set the rollout mode.
+
+```bash
+psamvault policy mcp-use
+psamvault policy mcp-use enforce
+psamvault policy mcp-use audit
+psamvault policy mcp-use off
+pv policy mcp-use
+```
+
+With no mode, this prints the effective mode and what it does. An agent may run that. With `audit`, `enforce` or `off`, a human confirms in a terminal. An agent is refused. A pipe cannot answer. The audit decision is `set`, with `mcp_use` set to the new mode and `entry` null.
+
+`enforce` says so before it writes when no entry lists a tool: every MCP use of a stored secret will then be refused until you grant one. That is the point of the warning. The command still does what you confirmed.
+
+**When to run it:** `psamvault policy mcp-use` when you want to see the mode. `enforce` when the audit trail has shown you which tools are in use and you want anything else refused. `audit` to go back to recording without refusing. `off` when the list should be ignored and uses should still be recorded.
+
+**What it is not for:** granting a tool, revealing a secret, or a silent migration. Nothing rewrites an old file to `enforce` on upgrade. An agent must not set it.
+
 ## Command groups
 
 All commands are available at the root level and also under grouped sub-commands:
@@ -997,6 +1106,8 @@ All commands are available at the root level and also under grouped sub-commands
 | `psamvault restore` | `psamvault backup restore` |
 | `psamvault approve` | `psamvault approve` |
 | `psamvault policy allow-host` | `psamvault policy allow-host` |
+| `psamvault policy allow-tool` | `psamvault policy allow-tool` |
+| `psamvault policy mcp-use` | `psamvault policy mcp-use` |
 | `psamvault dashboard` | — |
 
 Run any group without a subcommand to see its full command table:
@@ -1031,9 +1142,9 @@ Every command in this reference is also reachable through its group:
 | `psamvault note` | `add`, `get`, `list`, `update`, `delete` |
 | `psamvault changelog` | `latest`, `all`, `show` |
 | `psamvault backup` | `create`, `verify`, `status`, `rotate`, `revoke`, `restore` |
-| `psamvault policy` | `allow-host`, `remove-host`, `hosts` |
+| `psamvault policy` | `allow-host`, `remove-host`, `hosts`, `allow-tool`, `remove-tool`, `tools`, `ask-each-time`, `mcp-use` |
 
-`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`. `allow-host`, `remove-host` and `hosts` exist only under `psamvault policy`.
+`export`, `import`, `uninstall`, `upgrade`, `restore`, `approve` and `dashboard` are root-level commands with no group of their own; `psamvault backup restore` is the one grouped alias for `psamvault restore`. The policy commands exist only under `psamvault policy`.
 
 ## Related pages
 
