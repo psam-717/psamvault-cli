@@ -137,23 +137,29 @@ These are not psamvault settings — psamvault only reads them, to work out who 
 | `entries` | object | absent | Map of entry name → object. Destination hosts and MCP tools live here. Absent means no extra hosts and no listed tools |
 | `entries.<name>.allow_hosts` | list of strings | absent | Hosts that entry's secret may also be sent to. One hostname, or a leading `*.` for that domain and its subdomains |
 | `entries.<name>.allow_tools` | list of strings | absent | MCP tools that may use this entry once `mcp_use` is `"enforce"`. A tool name, compared case-insensitively |
-| `entries.<name>.ask_each_time` | boolean | `false` when the key is absent | When `true`, psamvault-mcp asks in chat before a use that would otherwise be allowed. Only JSON `true` counts. The CLI stores the flag and does not ask |
+| `entries.<name>.ask_each_time` | boolean | `false` when the key is absent | When `true` and `mcp_use` is `"enforce"`, psamvault-mcp asks in chat before an allowed use. `"audit"` and `"off"` never ask. Only JSON `true` counts. The CLI stores the flag and does not ask |
 
 `allow_entries`, `allow_hosts` and `allow_tools` answer three different questions. `allow_entries` lets an agent print one secret. `allow_hosts` lets psamvault-mcp send that secret to a host that is not already the entry's own site or service. `allow_tools` names which MCP tool may use the secret at all. Granting a host does not grant a tool. Granting a tool does not reveal the secret and does not make a foreign host legal.
 
 ### mcp_use
 
-This is the rollout switch. The steady state the owner asked for is "anything not listed is refused". Turning that on for every existing file would stop every MCP user on the day psamvault-mcp starts reading the list, including a machine that has no `policy.json`. So the absent key means `"audit"`.
+This is the rollout switch. The steady state the owner asked for is "anything not listed is refused". Turning that on for every existing file would stop every MCP user on the day psamvault-mcp starts reading the list, including a machine that has no `policy.json`. So the absent key still means `"audit"` in this release.
+
+A later release will treat a missing `mcp_use` as `"enforce"`. That change is not in this release. Until then, [`psamvault policy tools`](commands.md#psamvault-policy-tools) and [`psamvault policy mcp-use`](commands.md#psamvault-policy-mcp-use) with no mode print this when the key is absent:
+
+> mcp_use is not set, so it defaults to audit; a future release will default to enforce; run `psamvault policy mcp-use audit` to keep audit explicitly, or `enforce` to opt in now.
+
+An explicit `"mcp_use": "audit"` does not print it. `psamvault policy hosts` does not print it. Loading does not write the key, so an old file stays byte-for-byte until a command edits it. The same sentence is `notice` on the decision the MCP copies (`policy.mcp_plan`). Show it when you display the mode. Do not prefix every tool result with it.
 
 | `mcp_use` | An unlisted tool | A listed tool | `ask_each_time` |
 |---|---|---|---|
-| `"audit"` *(default, including a missing key)* | Allowed. The audit reason is `not-listed` | Allowed. Reason `listed` | Consulted. The MCP asks only when the use would be allowed |
-| `"enforce"` | Refused. Reason `not-listed`. The MCP does not ask | Allowed. Reason `listed` | Consulted when the tool is listed |
-| `"off"` | Allowed. The list is not consulted. Reason `mcp-use-off` | Allowed. Same reason | Not consulted |
+| `"audit"` *(this release's default when the key is absent; a later release will default that absence to enforce)* | Allowed. The audit reason is `not-listed`. `ask` is false | Allowed. Reason `listed`. `ask` is false | Not consulted. The flag can be stored. The MCP does not ask |
+| `"enforce"` | Refused. Reason `not-listed`. The MCP does not ask | Allowed. Reason `listed` | Consulted. The MCP asks when the tool is listed |
+| `"off"` | Allowed. The list is not consulted. Reason `mcp-use-off`. `ask` is false | Allowed. Same reason. `ask` is false | Not consulted |
 
-An unrecognised value is treated as `"audit"` and `psamvault policy tools` prints a warning. Treating a typo as `"enforce"` would refuse every tool. Loading does not rewrite the file, so an old file stays byte-for-byte until a command edits it. Granting a tool does not write `mcp_use`.
+An unrecognised value is treated as `"audit"` and `psamvault policy tools` prints a warning. That is a different warning from the absent-key notice, and it does not repeat the planned-flip sentence. Treating a typo as `"enforce"` would refuse every tool. Granting a tool does not write `mcp_use`.
 
-`"audit"` is the grace mode: every use is recorded, and nothing that works today stops working. Run [`psamvault policy mcp-use enforce`](commands.md#psamvault-policy-mcp-use) when you want an unlisted tool refused. That command tells you when no entry lists a tool, which would refuse every use.
+`"audit"` is the grace mode: every use is recorded, and nothing that works today stops working. The in-chat question does not run in this mode, even if `ask_each_time` is true. Run [`psamvault policy mcp-use enforce`](commands.md#psamvault-policy-mcp-use) when you want an unlisted tool refused and, for a listed tool, the in-chat question. That command tells you when no entry lists a tool, which would refuse every use. Run `psamvault policy mcp-use audit` when you want to keep grace after the default flips.
 
 ### allow_tools
 
@@ -182,7 +188,8 @@ psamvault-mcp is a separate package and does not import the CLI. It reads the sa
 * `allow_tools`: ignore a value that is not a list. For each item, trim and casefold. Keep it when it matches `^[a-z][a-z0-9_]*$`. Compare that to the tool that is about to run.
 * `ask_each_time`: JSON `true` only. Anything else, including a missing key, is false.
 * Decision, before any in-chat question, from `mcp_use` and whether the tool is in the list: the table above. `"off"` does not look at the list.
-* Ask only when that decision is allow, `mcp_use` is not `"off"`, and `ask_each_time` is true. A yes keeps the decision. A no becomes deny, reason `ask-declined`. A prompt that does not complete becomes deny, reason `ask-unanswered`. A decision that is already deny is not asked.
+* Ask only when `mcp_use` is `"enforce"`, that decision is allow, and `ask_each_time` is true. `"audit"` and `"off"` set `ask` to false and do not prompt, even when the flag is true. A yes keeps the decision. A no becomes deny, reason `ask-declined`. A prompt that does not complete becomes deny, reason `ask-unanswered`. A decision that is already deny is not asked.
+* When `mcp_use` is absent, the decision's `notice` is the planned-flip sentence above. When the key is an explicit `"audit"`, `"enforce"` or `"off"`, `notice` is null. A missing file counts as absent.
 * Discovery tools skip this check. They do not write an MCP-use row.
 * Then append one audit row, allowed or denied. A failure to write the row must not fail the tool.
 
@@ -280,7 +287,7 @@ psamvault-mcp appends one row per use of a tool that decrypts a secret, whether 
 | `ask-declined` | The use would have been allowed, the entry asks each time, and the human said no |
 | `ask-unanswered` | The use would have been allowed, the entry asks each time, and the prompt did not complete |
 
-`tool` is the tool name after casefold. `ask` is true only when an in-chat prompt was part of this decision. It is false when the flag is off, when `mcp_use` is `off`, or when the use was refused before a prompt. The row has no field for a secret value, a URL body, or a free-text explanation. The CLI's `audit.record_mcp_use` writes this shape and drops a call whose `tool`, `reason`, `decision` or `mcp_use` is not in the closed sets. The MCP reimplements that; it does not import the CLI.
+`tool` is the tool name after casefold. `ask` is true only when an in-chat prompt was part of this decision. It is false under `audit` and under `off`, even when `ask_each_time` is true, and it is false when `enforce` refused the tool before a prompt. The row has no field for a secret value, a URL body, or a free-text explanation. The CLI's `audit.record_mcp_use` writes this shape and drops a call whose `tool`, `reason`, `decision` or `mcp_use` is not in the closed sets. The MCP reimplements that; it does not import the CLI.
 
 Two invariants hold for every row, and both are pinned by tests:
 

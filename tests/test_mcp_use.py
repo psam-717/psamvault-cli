@@ -152,6 +152,67 @@ def test_a_leaf_name_matches_the_way_allow_hosts_already_does(tmp_path):
     assert (refused.decision, refused.reason, refused.ask) == ("deny", "not-listed", False)
 
 
+def test_audit_does_not_ask_even_when_the_flag_is_set(tmp_path):
+    """ask_each_time is consulted only under enforce. Audit records and allows."""
+    loaded = policy.load(
+        write_policy(
+            tmp_path,
+            {
+                "mcp_use": "audit",
+                "entries": {"ledger-key": {"allow_tools": ["use_credential"], "ask_each_time": True}},
+            },
+        )
+    )
+    unlisted = policy.mcp_plan(loaded, "ledger-key", "browser_login")
+    assert (unlisted.decision, unlisted.reason, unlisted.ask) == ("allow", "not-listed", False)
+    listed = policy.mcp_plan(loaded, "ledger-key", "use_credential")
+    assert (listed.decision, listed.reason, listed.ask) == ("allow", "listed", False)
+
+
+def test_should_ask_is_only_enforce_and_an_allowed_use():
+    assert mcp_use.should_ask("audit", "allow", ask_each_time=True) is False
+    assert mcp_use.should_ask("off", "allow", ask_each_time=True) is False
+    assert mcp_use.should_ask("enforce", "deny", ask_each_time=True) is False
+    assert mcp_use.should_ask("enforce", "allow", ask_each_time=False) is False
+    assert mcp_use.should_ask("enforce", "allow", ask_each_time=True) is True
+
+
+def test_an_absent_mcp_use_names_the_planned_flip_to_enforce(tmp_path):
+    """Missing key and a missing file are implicit audit. The file is not rewritten."""
+    missing = policy.load(tmp_path / "nope.json")
+    assert missing.mcp_use == "audit"
+    assert missing.mcp_use_implicit is True
+    notice = policy.mcp_use_notice(missing)
+    assert notice is not None
+    assert "defaults to audit" in notice
+    assert "future release will default to enforce" in notice
+    assert "psamvault policy mcp-use audit" in notice
+    plan = policy.mcp_plan(missing, "ledger-key", "use_credential")
+    assert plan.notice == notice
+    assert plan.ask is False
+
+    target = write_policy(tmp_path, {"reveal": "human-only", "entries": {"ledger-key": {"ask_each_time": True}}})
+    before = target.read_bytes()
+    loaded = policy.load(target)
+    assert loaded.mcp_use_implicit is True
+    assert policy.mcp_use_notice(loaded) == notice
+    assert target.read_bytes() == before
+    # The flag is stored, and audit still does not ask.
+    flagged = policy.mcp_plan(loaded, "ledger-key", "use_credential")
+    assert (flagged.decision, flagged.reason, flagged.ask) == ("allow", "not-listed", False)
+
+
+def test_an_explicit_audit_does_not_name_the_planned_flip(tmp_path):
+    target = write_policy(tmp_path, {"mcp_use": "audit", "entries": {"ledger-key": {"ask_each_time": True}}})
+    before = target.read_bytes()
+    loaded = policy.load(target)
+    assert loaded.mcp_use == "audit"
+    assert loaded.mcp_use_implicit is False
+    assert policy.mcp_use_notice(loaded) is None
+    assert policy.mcp_plan(loaded, "ledger-key", "use_credential").notice is None
+    assert target.read_bytes() == before
+
+
 def test_ask_each_time_does_not_turn_a_refusal_into_an_allow(tmp_path):
     loaded = policy.load(
         write_policy(
