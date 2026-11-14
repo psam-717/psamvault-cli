@@ -142,8 +142,11 @@ An agent that can write `policy.json` itself can still add a tool or set `mcp_us
 
 The design is deliberately layered, because each layer was measured to fail on its own:
 
-- **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets), or the MCP server
-  exporting it into a subprocess. Deterministic, and the only layer an integration controls.
+- **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets). From the next
+  psamvault-mcp release, `run_with_credential` exports it into the subprocess it spawns.
+  psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified
+  `uncertain`. When the variable is set, this layer is deterministic, and it is the only
+  layer an integration controls.
 - **Host markers** — the identity a known runtime leaves in the environment: Hermes
   (`AI_AGENT`, `HERMES_AGENT`, and its terminal's `TERMINAL_CWD`/`TERMINAL_ENV`) and Claude Code
   (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`). Measured on a real agent shell, not assumed.
@@ -154,6 +157,10 @@ The design is deliberately layered, because each layer was measured to fail on i
   agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
   match the desktop app's own install prefix, which would block the user's own terminal pane.
 
+The program being classified is the same one under three invocations: `psamvault`, `pv`, and
+`python -m main`. `main.py` is the top-level module, so `python -m main` loads it. A reveal is
+refused the same way for all three.
+
 ## The dashboard uses the same gate
 
 `pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password, API-key and notes reveals on that server call `require_reveal` with that verdict. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. Notes text is not on the list or detail GET (`has_notes` is). A save does not replace notes that were never revealed. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
@@ -163,7 +170,8 @@ The page still has to be the one `pv dashboard` opened. The launch token is in t
 ## What it stops
 
 A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
-running `psamvault get` gets exit code 1 and a message naming the capability alternatives
+running `psamvault get`, `pv get`, or `python -m main get` gets exit code 1 and a
+message naming the capability alternatives
 (`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
 (`psamvault approve <entry> --for-agent`). Every decision, allow or deny, appends a row to
 `~/.psamvault/audit.jsonl` naming the caller, the matched signal and the outcome. An agent cannot

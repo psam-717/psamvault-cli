@@ -98,9 +98,11 @@ def main(
         import error_ui
         error_ui.enable_verbose()
     if agent:
-        # One code path for both ways of declaring an agent: the env var the
-        # MCP server exports into its subprocesses, and this flag. Set before
-        # any command body runs, so the guardrail sees it everywhere.
+        # One code path for both ways of declaring an agent: this flag, and
+        # PSAMVAULT_AGENT. From the next psamvault-mcp release,
+        # run_with_credential exports that variable into the subprocess it
+        # spawns. 0.5.5 and earlier do not, so those children are uncertain.
+        # Set before any command body runs, so the guardrail sees it everywhere.
         os.environ["PSAMVAULT_AGENT"] = "1"
 
 

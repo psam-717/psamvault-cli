@@ -5,8 +5,10 @@ exactly, and so a single rule governs every secret-emitting path.
 
 The ladder (signals 1-4, cheapest first):
 
-1. **explicit** — ``PSAMVAULT_AGENT`` set (also what ``--agent`` sets), or the
-   MCP exporting it into a subprocess it started.
+1. **explicit** — ``PSAMVAULT_AGENT`` set (also what ``--agent`` sets). From
+   the next psamvault-mcp release, ``run_with_credential`` exports it into a
+   subprocess it started. psamvault-mcp 0.5.5 and earlier do not set it, so
+   those child commands are classified ``uncertain``.
 2. **host markers** — the self-identification a known agent runtime leaves in
    the environment. Hermes exports ``AI_AGENT=hermes-agent`` /
    ``HERMES_AGENT=true`` and its terminal tool exports ``TERMINAL_CWD`` /
@@ -67,7 +69,9 @@ VERDICT_HUMAN = "human"
 VERDICT_UNCERTAIN = "uncertain"
 VERDICT_AGENT = "agent"
 
-# Set by the global `--agent` flag, or by a host/MCP that talks to the CLI.
+# Set by the global `--agent` flag, or by a host that declares itself.
+# psamvault-mcp exports it into run_with_credential children from its next
+# release. 0.5.5 and earlier do not, so those children are ``uncertain``.
 EXPLICIT_ENV = "PSAMVAULT_AGENT"
 
 _TRUTHY = {"1", "true", "yes", "on"}

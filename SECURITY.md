@@ -89,8 +89,11 @@ Four commands emit secrets: `get`, `ak-get`, `note-get` and `export --plaintext`
 on any of them). Each one now classifies its caller first and refuses when the caller is a
 program. The design is deliberately layered, because each layer was measured to fail on its own:
 
-- **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets), or the MCP server
-  exporting it into a subprocess. Deterministic, and the only layer an integration controls.
+- **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets). From the next
+  psamvault-mcp release, `run_with_credential` exports it into the subprocess it spawns.
+  psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified
+  `uncertain`. When the variable is set, this layer is deterministic, and it is the only
+  layer an integration controls.
 - **Host markers** — the identity a known runtime leaves in the environment: Hermes
   (`AI_AGENT`, `HERMES_AGENT`, and its terminal's `TERMINAL_CWD`/`TERMINAL_ENV`) and Claude Code
   (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`). Measured on a real agent shell, not assumed.
