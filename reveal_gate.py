@@ -17,6 +17,15 @@ this is not. ``entry=None`` already skips the approval-token branch.
 ``export --plaintext`` is the other early call, and it does pass
 ``whole_vault=True``.
 
+``generate`` is the same kind of early call when the new password would be
+printed. A bare ``generate``, and ``generate --save --show``, call the gate
+before the password is generated or stored, so a refusal leaves nothing
+behind. ``--save`` without ``--show`` stores the password and does not print
+it, so that path is not a reveal and does not call the gate. A bare
+``generate`` passes ``entry=None``: there is no vault entry to approve.
+``--save --show`` passes the site name, so one approval for that site covers
+the print, the same way ``get`` does.
+
     from reveal_gate import require_reveal
 
     try:
@@ -25,9 +34,10 @@ this is not. ``entry=None`` already skips the approval-token branch.
         exit_error(exc)
 
 Gated actions: ``get``, ``ak-get``, ``note-get``, ``export --plaintext``,
-``generate-codes``, ``restore-codes``, plus ``--copy`` on a per-entry reveal
-(the clipboard is a reveal). The dashboard uses those same action names.
-Discovery is never gated: ``list``, ``site-list``, ``ak-list``,
+``generate`` (when it prints), ``generate-codes``, ``restore-codes``, plus
+``--copy`` on a per-entry reveal (the clipboard is a reveal). The dashboard
+uses those same action names. ``generate --save`` without ``--show`` is not
+gated. Discovery is never gated: ``list``, ``site-list``, ``ak-list``,
 ``note-list``, ``whoami`` and ``check_credential_exists`` stay open, because
 an agent must be able to see *what* exists — and ``search`` reveals no value
 to anyone at all (:class:`Discovery`), so it needs no gate. ``restore
