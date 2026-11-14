@@ -256,8 +256,8 @@ Forensics for the reveal guardrail, one JSONL row per decision, `0600`, rotated 
 | Field | Meaning |
 |---|---|
 | `ts` | UTC timestamp of the decision, `YYYY-MM-DDTHH:MM:SSZ` |
-| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, `approve`, `policy allow-host`, `policy remove-host`, `policy allow-tool`, `policy remove-tool`, `policy ask-each-time`, `policy mcp-use`, or `mcp <tool>` for a use |
-| `entry` | The entry the reveal, the destination change, or the MCP use was for, or `null` for a whole-vault dump or a mode change |
+| `command` | The gated action: `get`, `ak-get`, `note-get`, `export --plaintext`, `generate-codes`, `restore-codes`, `approve`, `policy allow-host`, `policy remove-host`, `policy allow-tool`, `policy remove-tool`, `policy ask-each-time`, `policy mcp-use`, or `mcp <tool>` for a use |
+| `entry` | The entry the reveal, the destination change, or the MCP use was for, or `null` for a whole-vault dump, a mode change, or recovery codes (`generate-codes`, `restore-codes`) |
 | `host` | Present on a destination grant or removal: the hostname, never a secret. Omitted on reveal rows and on MCP-use rows |
 | `tool` | Present when the row is about an MCP tool: the tool name. Omitted on reveal rows |
 | `reason` | Present on an MCP use: one of `listed`, `not-listed`, `mcp-use-off`, `ask-declined`, `ask-unanswered`. Never a sentence |

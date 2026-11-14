@@ -3,7 +3,9 @@
 The browser never receives the VEK. Lists and detail GETs carry names, hints
 and a ``has_notes`` flag. They do not carry notes text. Passwords and API keys
 are returned from the reveal POST. Notes are returned from the notes POST.
-Both go through ``require_reveal``.
+Recovery codes are returned from the issue and restore POSTs when a new set
+is created. All of those go through ``require_reveal``, and the recovery-code
+calls happen before anything is generated, stored, or restored.
 """
 
 from __future__ import annotations
@@ -204,8 +206,12 @@ def _browser_origin_or_response():
     return None
 
 
-def _guard_reveal(action: str, entry: str):
-    """The same gate the CLI uses, for the process that started the dashboard."""
+def _guard_reveal(action: str, entry: str | None = None):
+    """The same gate the CLI uses, for the process that started the dashboard.
+
+    ``entry`` is None for a reveal that is not one vault entry. Recovery codes
+    pass None so an approval token for a site, key, or note cannot cover them.
+    """
     try:
         reveal_gate.require_reveal(action=action, entry=entry, verdict=CACHE.caller)
     except RevealBlockedError as exc:
@@ -327,6 +333,17 @@ def auth_recover():
 @bp.post("/auth/restore")
 def auth_restore():
     data = _body()
+    generate_codes = data.get("generate_codes") is True
+    # Only a restore that will show codes is a reveal. Refuse before
+    # restore_account runs, so an agent is not left with a new password and
+    # no codes. The same action name the CLI writes.
+    if generate_codes:
+        failure = _browser_origin_or_response()
+        if failure is not None:
+            return failure
+        blocked = _guard_reveal("restore-codes")
+        if blocked is not None:
+            return blocked
     return _account_status(
         lambda: account_flows.restore_account(
             _text(data, "username"),
@@ -334,7 +351,7 @@ def auth_restore():
             _text(data, "new_password"),
             _text(data, "confirm"),
             kit_text=_text(data, "kit"),
-            generate_codes=data.get("generate_codes") is True,
+            generate_codes=generate_codes,
             replace_session=data.get("replace_session") is True,
         )
     )
@@ -357,6 +374,11 @@ def auth_issue_recovery_codes():
     auth, failure = _csrf_or_response()
     if failure is not None:
         return failure
+    # Before the password check and before the call that replaces the set.
+    # A refusal after that call would store codes this caller must not see.
+    blocked = _guard_reveal("generate-codes")
+    if blocked is not None:
+        return blocked
     try:
         codes = account_flows.issue_recovery_codes(_text(_body(), "password"), auth)
     except account_flows.AccountFlowError as exc:

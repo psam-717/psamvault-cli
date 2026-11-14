@@ -291,6 +291,10 @@ def restore_account(
     A kit file supplies the account name. Without one, the server-side backup
     slot is opened with the username and backup passphrase. Entries stay as
     they are; only the login wrap is replaced.
+
+    This function does not decide who may see recovery codes. When
+    ``generate_codes`` is true the caller must already have passed the reveal
+    gate, because this is where the codes are created and stored.
     """
     _require_configured()
     if is_logged_in() and not replace_session:
@@ -368,6 +372,8 @@ def issue_recovery_codes(password: str, session: dict) -> list[str]:
     """Replace every recovery code. The password proves this is the account owner.
 
     The new codes are returned once. They are not written to the dashboard cache.
+    The caller must already have passed the reveal gate: this function generates
+    and stores the codes, and it does not decide who may see them.
     """
     if not password:
         raise AccountFlowError("Your login password is required to replace recovery codes.")

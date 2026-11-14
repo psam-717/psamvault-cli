@@ -6,9 +6,10 @@ order: 50
 
 # Agents and the reveal guardrail
 
-An agent with a shell can run `psamvault get` and read your password — a rule in
-a document does not stop it. So the four commands that print a secret now ask
-*who is calling* first, and refuse when the caller is a program.
+An agent with a shell can run `psamvault get` and read your password, or
+`psamvault generate-codes` and read a fresh set of recovery codes. A rule in
+a document does not stop it. The commands that print a secret ask *who is
+calling* first, and refuse when the caller is a program.
 
 | Situation | What happens |
 |---|---|
@@ -22,7 +23,12 @@ a document does not stop it. So the four commands that print a secret now ask
 | You want the guardrail out of the way on this machine | `~/.psamvault/policy.json` with `"reveal": "open"`. |
 
 Gated: `get`, `ak-get`, `note-get`, `export --plaintext`, and `--copy` on any of
-them (the clipboard is just as readable). Never gated: `list`, `site-list`,
+them (the clipboard is just as readable). Also gated: `generate-codes` (and
+`recovery generate-codes`, the same command) and `restore` when it will offer
+recovery codes. Those two run the gate before anything is generated, stored,
+or restored, and they pass no entry name, so an approval for one vault entry
+cannot cover the codes. `restore --no-codes` does not show codes and is not
+gated. Never gated: `list`, `site-list`,
 `ak-list`, `note-list`, `whoami`, `check_credential_exists` — an agent must
 always be able to see *what* exists.
 
@@ -46,7 +52,8 @@ psamvault get github.com
 ```
 
 The next reveal of that entry succeeds **once**; a second attempt is refused. The
-approval covers nothing else — not another entry, and never a whole-vault dump.
+approval covers nothing else — not another entry, never a whole-vault dump, and
+never a set of recovery codes.
 `approve` requires a real terminal (both stdin and stdout), so an agent cannot
 approve itself out of a refusal, and `--for-agent` is required so the intent to
 hand a secret to a *program* is typed rather than assumed. `psamvault logout`
@@ -163,7 +170,7 @@ refused the same way for all three.
 
 ## The dashboard uses the same gate
 
-`pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password, API-key and notes reveals on that server call `require_reveal` with that verdict. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. Notes text is not on the list or detail GET (`has_notes` is). A save does not replace notes that were never revealed. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
+`pv dashboard` classifies the process that started it, once, with the same caller ladder as a terminal reveal. Password, API-key and notes reveals on that server call `require_reveal` with that verdict. Issuing recovery codes and a restore that asks for a new set (`generate_codes: true`) call it too, before any code is generated or stored and before that restore begins. The audit command is `generate-codes` or `restore-codes`, with no entry. A restore that does not ask for codes is not a reveal. An agent that started the dashboard is refused, and the refusal is an audit row. A human terminal, or an uncertain caller under `"human-only"`, is allowed, and that allow is an audit row too. Notes text is not on the list or detail GET (`has_notes` is). A save does not replace notes that were never revealed. The HTTP client does not get its own classification: `PSAMVAULT_AGENT` on a `curl` process is not what the gate sees.
 
 The page still has to be the one `pv dashboard` opened. The launch token is in the URL fragment, exchanged once for an HttpOnly cookie, and every `/api` route requires that cookie. A request that sends an Origin must be the dashboard's own origin for the bound port. A same-origin GET omits Origin; a POST that omits it is rejected. That is a separate check from the reveal gate. Detail is in [Web dashboard](web-dashboard.md).
 

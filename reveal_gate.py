@@ -1,9 +1,21 @@
 """The reveal gate — one chokepoint every secret-emitting path calls first.
 
 ``require_reveal`` is the only place that decides whether a secret may be
-printed or copied. Every gated command calls it immediately before it emits
-(not before it fetches): a token is therefore consumed only by a reveal that
-actually happens, so a token is never burned by a failed fetch.
+printed or copied. A per-entry reveal (``get``, ``ak-get``, ``note-get``,
+and ``--copy`` on any of them) calls it immediately before it emits, not
+before it fetches: a token is consumed only by a reveal that actually
+happens, so a failed fetch never burns one.
+
+Recovery codes are not an entry being fetched. ``generate-codes`` replaces
+the set on the server, and a ``restore`` that offers codes replaces the
+account password before it can show the new set. Those paths call the gate
+first, with ``entry=None``, before any prompt and before anything is
+generated, stored, or restored. A refusal then leaves the account as it was,
+and no per-entry approval can cover the codes. ``whole_vault=True`` is the
+wrong flag here: that sentence is for a dump of every vault entry, which
+this is not. ``entry=None`` already skips the approval-token branch.
+``export --plaintext`` is the other early call, and it does pass
+``whole_vault=True``.
 
     from reveal_gate import require_reveal
 
@@ -12,12 +24,14 @@ actually happens, so a token is never burned by a failed fetch.
     except RevealBlockedError as exc:
         exit_error(exc)
 
-Gated actions: ``get``, ``ak-get``, ``note-get``, ``export --plaintext``, plus
-``--copy`` on any of them (the same call site covers both — the clipboard is a
-reveal). Discovery is never gated: ``list``, ``site-list``, ``ak-list``,
-``note-list``, ``whoami`` and ``check_credential_exists`` stay open, because an
-agent must be able to see *what* exists — and ``search`` reveals no value to anyone
-at all (:class:`Discovery`), so it needs no gate.
+Gated actions: ``get``, ``ak-get``, ``note-get``, ``export --plaintext``,
+``generate-codes``, ``restore-codes``, plus ``--copy`` on a per-entry reveal
+(the clipboard is a reveal). The dashboard uses those same action names.
+Discovery is never gated: ``list``, ``site-list``, ``ak-list``,
+``note-list``, ``whoami`` and ``check_credential_exists`` stay open, because
+an agent must be able to see *what* exists — and ``search`` reveals no value
+to anyone at all (:class:`Discovery`), so it needs no gate. ``restore
+--no-codes`` does not show recovery codes, so it is not a reveal.
 
 What this is and is not: a guardrail, not a boundary. An agent that already has
 a shell *and* the user's keychain can read Windows Credential Manager, import

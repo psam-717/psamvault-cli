@@ -18,7 +18,7 @@ Available on every command:
 |---|---|
 | `--version`, `-V` | Show version and exit |
 | `--verbose`, `-v` | Show underlying error details |
-| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`) |
+| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate-codes`, and `restore` when it offers recovery codes) |
 | `--install-completion` | Install completion for the current shell |
 | `--show-completion` | Show completion for the current shell, to copy it or customize the installation |
 | `--help` | Show the command's message and exit |
@@ -503,6 +503,8 @@ psamvault generate-codes
 
 Generates **8 one-time recovery codes**. Each code encrypts your VEK — store them somewhere safe. Running this replaces all existing codes.
 
+This is one of the [gated commands](#agent-guardrail-commands). The check runs before the confirm prompt, the password prompt, and the call that stores the new set, so a refusal leaves the codes you already have. `psamvault recovery generate-codes` is the same command. An approval token for a vault entry does not cover these codes: the audit row names `generate-codes` and the entry is null.
+
 **When to run it:** right after signup or a restore, and any time you have used codes or lost the sheet they were on. It asks you to confirm your current login password before replacing the old set.
 
 ### psamvault remaining-codes
@@ -683,7 +685,9 @@ That replacement is **account-wide**, and the command says so before it changes 
 |---|---|
 | `--from-kit` | Restore from a kit file instead of the server-side slot |
 | `--force` | Run even though this machine already has a session |
-| `--no-codes` | Do not offer a fresh set of recovery codes at the end |
+| `--no-codes` | Do not offer a fresh set of recovery codes at the end. This run is not gated, because no codes are shown |
+
+Offering those codes is gated, the same way `psamvault generate-codes` is. The check runs before the restore starts whenever codes will be offered (the default; the later confirm still defaults to yes), so a program is refused and the account is left as it was. A person at the terminal still sees today's prompts, including `Generate a fresh set of 8 recovery codes now?` after the restore. An approval token does not cover the codes. The audit row names `restore-codes` and the entry is null.
 
 `psamvault backup restore` is the same command under the grouped form. The full runbook — what the command does in order, what changes the moment you restore, and the failure modes — is in [Backup and recovery](../guides/backup-and-recovery.md).
 
@@ -873,7 +877,7 @@ That path is for a **deleted account**. If instead your *machine* was lost while
 
 ## Agent guardrail commands
 
-The four commands that print a secret (`get`, `ak-get`, `note-get`, `export --plaintext`, plus `--copy` on any of them) ask *who is calling* first and refuse when the caller is a program. The guide is [The agent reveal guardrail](../guides/agent-reveal-guardrail.md); this is the command surface.
+The commands that print a secret (`get`, `ak-get`, `note-get`, `export --plaintext`, `generate-codes`, and `restore` when it offers recovery codes, plus `--copy` on a per-entry reveal) ask *who is calling* first and refuse when the caller is a program. `generate-codes` and the recovery-code part of `restore` pass no entry name, so an approval token cannot cover them. `restore --no-codes` does not print codes and is not gated. The guide is [The agent reveal guardrail](../guides/agent-reveal-guardrail.md); this is the command surface.
 
 ### psamvault approve
 
@@ -888,7 +892,7 @@ psamvault approve openai-prod --for-agent --ttl 60
 psamvault get github.com
 ```
 
-The next reveal of that entry succeeds **once**; a second attempt is refused. The approval covers nothing else — not another entry, and never a whole-vault dump. `approve` requires a real terminal (both stdin and stdout), so an agent cannot approve itself out of a refusal, and `--for-agent` is required so the intent to hand a secret to a *program* is typed rather than assumed. `psamvault logout` drops every pending approval.
+The next reveal of that entry succeeds **once**; a second attempt is refused. The approval covers nothing else — not another entry, never a whole-vault dump, and never a set of recovery codes. `approve` requires a real terminal (both stdin and stdout), so an agent cannot approve itself out of a refusal, and `--for-agent` is required so the intent to hand a secret to a *program* is typed rather than assumed. `psamvault logout` drops every pending approval.
 
 | Argument / option | What it does |
 |---|---|
@@ -906,7 +910,7 @@ The next reveal of that entry succeeds **once**; a second attempt is refused. Th
 psamvault --agent get github.com
 ```
 
-Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs. From the next psamvault-mcp release, `run_with_credential` exports that same variable into the subprocess it spawns. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`.
+Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate-codes`, and `restore` unless `--no-codes` is set). It sets `PSAMVAULT_AGENT=1` before any command body runs. From the next psamvault-mcp release, `run_with_credential` exports that same variable into the subprocess it spawns. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`.
 
 **When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host`, `psamvault policy remove-host`, `psamvault policy allow-tool`, `psamvault policy remove-tool`, `psamvault policy ask-each-time` and `psamvault policy mcp-use` when a mode is given. It does not refuse `psamvault policy hosts`, `psamvault policy tools`, or `psamvault policy mcp-use` with no mode.
 
