@@ -79,22 +79,29 @@ an old session cannot outlive the rotation.
   target) and store it apart from the kit.
 - A backup protects against *losing* a machine, not against a *compromised* one. Code running as
   you can read the OS keychain, the session state, and anything the CLI prints.
-- `psamvault export --plaintext`, `psamvault get`, `ak-get`, `note-get` and
-  `psamvault generate-codes` print secrets in cleartext. `psamvault restore` does too
-  when it offers a fresh set of recovery codes (`--no-codes` does not). Treat shell
-  history, process listings and terminal scrollback as untrusted. These are the
-  commands the reveal guardrail below refuses in an agent context.
+- `psamvault export --plaintext`, `psamvault get`, `ak-get`, `note-get`,
+  `psamvault generate` (when it prints the password), and `psamvault generate-codes`
+  print secrets in cleartext. `psamvault restore` does too when it offers a fresh
+  set of recovery codes (`--no-codes` does not). `generate --save` without `--show`
+  stores the password and does not print it. Treat shell history, process listings
+  and terminal scrollback as untrusted. These are the commands the reveal guardrail
+  below refuses in an agent context.
 
 ### The reveal guardrail — who may print a secret
 
 The commands that emit secrets are `get`, `ak-get`, `note-get`, `export --plaintext`
-(plus `--copy` on any of them), `generate-codes`, and `restore` when it will show
-recovery codes. Each one classifies its caller first and refuses when the caller is a
-program. Recovery codes are gated before any prompt and before anything is generated,
-stored, or restored, so a refusal cannot replace a set the caller is not allowed to
-see, and it cannot leave a half-finished restore. No per-entry approval covers them.
-`restore --no-codes` does not show codes and is not gated. The design is deliberately
-layered, because each layer was measured to fail on its own:
+(plus `--copy` on any of them), `generate` when it prints, `generate-codes`, and
+`restore` when it will show recovery codes. Each one classifies its caller first and
+refuses when the caller is a program. `generate` (a bare run, or `--save --show`) is
+gated before the password is drawn or stored, so a refusal leaves nothing behind.
+`--save` without `--show` is not a reveal. A bare `generate` passes no entry name, so
+an approval cannot cover it. `--save --show` names the site, so one approval for that
+site covers the print once. Recovery codes are gated before any prompt and before
+anything is generated, stored, or restored, so a refusal cannot replace a set the
+caller is not allowed to see, and it cannot leave a half-finished restore. No
+per-entry approval covers them. `restore --no-codes` does not show codes and is not
+gated. The design is deliberately layered, because each layer was measured to fail
+on its own:
 
 - **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets). From the next
   psamvault-mcp release, `run_with_credential` exports it into the subprocess it spawns.
@@ -118,7 +125,8 @@ List and detail GETs do not return notes text. They return a `has_notes` flag. T
 Opening the browser puts that one-time address on the browser process command line, fragment included, until the page exchanges the token and the process drops the argument. That copy is accepted. The token is single-use and short-lived: the page posts it once, a wrong token does not spend the real one, and the success path does not print it in the terminal (scrollback would keep it longer than the command line does). Someone who can read another process's arguments on this machine can already read the OS keychain. The command line is not a second secret.
 
 **What it stops.** A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
-running `psamvault get` gets exit code 1 and a message naming the capability alternatives
+running `psamvault get` or `psamvault generate` (when that command would print the
+password) gets exit code 1 and a message naming the capability alternatives
 (`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
 (`psamvault approve <entry> --for-agent`). Every decision — `allow`, `deny`, or `discovery` for a search that revealed nothing — appends a
 row to `~/.psamvault/audit.jsonl` naming the caller, the matched signal and the outcome. An agent cannot
