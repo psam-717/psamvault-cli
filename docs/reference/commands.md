@@ -906,7 +906,7 @@ The next reveal of that entry succeeds **once**; a second attempt is refused. Th
 psamvault --agent get github.com
 ```
 
-Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs, which is the same thing the MCP server does for its subprocesses.
+Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`). It sets `PSAMVAULT_AGENT=1` before any command body runs. From the next psamvault-mcp release, `run_with_credential` exports that same variable into the subprocess it spawns. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`.
 
 **When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host`, `psamvault policy remove-host`, `psamvault policy allow-tool`, `psamvault policy remove-tool`, `psamvault policy ask-each-time` and `psamvault policy mcp-use` when a mode is given. It does not refuse `psamvault policy hosts`, `psamvault policy tools`, or `psamvault policy mcp-use` with no mode.
 
