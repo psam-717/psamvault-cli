@@ -17,6 +17,7 @@
 
 ## Fixed
 
+- fix(reveal): `psamvault generate-codes` (and `psamvault recovery generate-codes`) and `psamvault restore` when it offers recovery codes go through the reveal gate before any prompt, code generation, or account change. An agent is refused and the existing codes stay. A human sees the same prompts, and both the allow and the deny write an audit row. The dashboard routes that issue codes, or restore with `generate_codes` true, use the same gate. `restore --no-codes` does not show codes and is not gated. No approval token covers the codes
 - fix(policy): match MCP tool entries the way `allow_hosts` matches names. A call named `project/.env/KEY` uses the policy key `KEY`, and several matching keys contribute their tool lists. The editor still stores the key that was typed
 - fix(keyring): `psamvault --version` and `--help` no longer read the OS keychain, so on Linux they print instead of crashing with `NoKeyringError` or hanging on a locked Secret Service prompt. `changelog` and `generate` (without `--save`) do not need the keychain either
 - fix(keyring): a command that needs the keychain and finds it missing or locked stops with one line (`✗ what failed — what to do next`) instead of a traceback. A locked Secret Service collection is reported before keyring can block on a GUI unlock prompt. A Secret Service with no default collection (gnome-keyring running, login keyring never created) stops the same way, before `create_collection` can block on a prompt. The check reuses one Secret Service connection instead of opening a new one on every keyring read. The pepper and the tokens are never written to a file when the keychain cannot keep them
@@ -30,6 +31,7 @@
 
 ## Tests
 
+- test(reveal): an agent is refused for CLI `generate-codes`, CLI `restore`, dashboard `POST /auth/recovery-codes`, and dashboard `POST /auth/restore` with `generate_codes` true, before the API that stores codes is called, and a deny audit row is written. A human is allowed, the codes are shown, and an allow audit row is written. The gate runs before the password prompt. `restore --no-codes` is not a reveal
 - test(policy): `audit` with `ask_each_time` set does not ask, `enforce` still asks for a listed tool, and a missing `mcp_use` carries the future-enforce notice while an explicit `audit` does not
 - test(policy): MCP tool grants cover the audit, enforce and off matrix, the ask-each-time flag, an agent refusal, a pipe that cannot confirm, a discovery tool that does not decrypt a secret, a missing entry, and that a secret returned by the entry lookup is never printed. An MCP-use audit row names the entry, the tool, the decision and a closed reason, and a free-text reason is not written
 - test(conftest): set `PYTHON_KEYRING_BACKEND`, `PSAMVAULT_PEPPER` and `PSAMVAULT_API_URL` when they are unset, so a bare pytest does not touch the developer keychain
@@ -38,6 +40,7 @@
 
 ## Docs
 
+- docs(guardrail): the command reference, the agent reveal guardrail, SECURITY.md, the web dashboard guide, the backup guide, the feature map, and the audit row schema list recovery codes as gated. `generate-codes` and `restore` (unless `--no-codes`) are refused for an agent before codes are stored. The dashboard issue and coded-restore routes use the same gate
 - docs(guardrail): the configuration reference, the command reference, the agent reveal guardrail and SECURITY.md say that `run_with_credential` exports `PSAMVAULT_AGENT=1` from the next psamvault-mcp release. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`. The guardrail guide also names `python -m main` (`main.py` is the top-level module) alongside `psamvault` and `pv`
 - docs(policy): the configuration reference, the command reference, the agent reveal guardrail, the feature map and SECURITY.md say that a missing `mcp_use` will later mean `enforce`, and that the in-chat question runs only under `enforce`
 - docs(policy): the command reference, the configuration reference, the agent reveal guardrail, the feature map, installation, the README and SECURITY.md say when to grant an MCP tool, what `mcp_use` audit means, and what those commands are not for. The configuration page is the on-disk contract psamvault-mcp reads and the audit row it appends
