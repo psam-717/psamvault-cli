@@ -2,7 +2,10 @@ import typer
 from cryptography.exceptions import InvalidTag
 
 import api_client
+import reveal_gate
 from config import is_configured
+from error_ui import exit_error
+from errors import RevealBlockedError
 from crypto import (
     decrypt_master_with_code,
     decrypt_vek,
@@ -111,7 +114,16 @@ def generate_codes():
     if not is_logged_in():
         typer.echo(" You are not logged in. Run psamvault login first", err=True)
         raise typer.Exit(code=1)
-    
+
+    # Before the confirm, the password, and the call that replaces the set.
+    # A refusal after that call would store codes this caller must not see
+    # and leave the account with no usable recovery codes. entry=None so a
+    # token minted for one vault entry cannot cover these codes.
+    try:
+        reveal_gate.require_reveal(action="generate-codes", entry=None)
+    except RevealBlockedError as exc:
+        exit_error(exc)
+
     session = api_client.ensure_session()
     
     typer.echo(

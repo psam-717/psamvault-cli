@@ -16,6 +16,7 @@ from typing import Optional
 import typer
 
 import api_client
+import reveal_gate
 from config import is_configured
 from crypto import (
     decrypt_credentials,
@@ -27,8 +28,8 @@ from crypto import (
     parse_kit,
     unwrap_vek_with_passphrase,
 )
-from error_ui import print_error
-from errors import PsamVaultError, SessionExpiredError
+from error_ui import exit_error, print_error
+from errors import PsamVaultError, RevealBlockedError, SessionExpiredError
 from secret_prompt import secret_prompt
 from session import is_logged_in, load_session, save_session
 from spinner import Spinner
@@ -165,6 +166,17 @@ def restore(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    # Codes are optional. --no-codes never prints them, so that run is not a
+    # reveal. Otherwise the offer defaults to yes, and the confirm is only
+    # asked after the account password has been replaced. Gate first so an
+    # agent is refused with the account untouched. A human still sees that
+    # confirm at the end. entry=None: no per-entry approval covers the codes.
+    if not no_codes:
+        try:
+            reveal_gate.require_reveal(action="restore-codes", entry=None)
+        except RevealBlockedError as exc:
+            exit_error(exc)
 
     typer.echo("\n  psamvault vault restore\n")
     typer.echo(
