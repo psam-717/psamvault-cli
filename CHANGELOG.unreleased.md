@@ -38,6 +38,7 @@
 
 ## Docs
 
+- docs(guardrail): the configuration reference, the command reference, the agent reveal guardrail and SECURITY.md say that `run_with_credential` exports `PSAMVAULT_AGENT=1` from the next psamvault-mcp release. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`. The guardrail guide also names `python -m main` (`main.py` is the top-level module) alongside `psamvault` and `pv`
 - docs(policy): the configuration reference, the command reference, the agent reveal guardrail, the feature map and SECURITY.md say that a missing `mcp_use` will later mean `enforce`, and that the in-chat question runs only under `enforce`
 - docs(policy): the command reference, the configuration reference, the agent reveal guardrail, the feature map, installation, the README and SECURITY.md say when to grant an MCP tool, what `mcp_use` audit means, and what those commands are not for. The configuration page is the on-disk contract psamvault-mcp reads and the audit row it appends
 - docs(installation): Linux install covers PEP 668 (`sudo apt install pipx` — `pip install pipx` is refused), a headless Secret Service setup, and Chromium via the pipx environment's `playwright` because that executable is not on `PATH` (a virtualenv uses that environment's `python -m playwright`). The no-default-collection error is documented, including `--replace` so unlock creates the keyring on a daemon that is already running
