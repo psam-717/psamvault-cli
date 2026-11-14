@@ -79,15 +79,22 @@ an old session cannot outlive the rotation.
   target) and store it apart from the kit.
 - A backup protects against *losing* a machine, not against a *compromised* one. Code running as
   you can read the OS keychain, the session state, and anything the CLI prints.
-- `psamvault export --plaintext`, `psamvault get`, `ak-get` and `note-get` print secrets in
-  cleartext. Treat shell history, process listings and terminal scrollback as untrusted. These
-  are the commands the reveal guardrail below refuses in an agent context.
+- `psamvault export --plaintext`, `psamvault get`, `ak-get`, `note-get` and
+  `psamvault generate-codes` print secrets in cleartext. `psamvault restore` does too
+  when it offers a fresh set of recovery codes (`--no-codes` does not). Treat shell
+  history, process listings and terminal scrollback as untrusted. These are the
+  commands the reveal guardrail below refuses in an agent context.
 
 ### The reveal guardrail — who may print a secret
 
-Four commands emit secrets: `get`, `ak-get`, `note-get` and `export --plaintext` (plus `--copy`
-on any of them). Each one now classifies its caller first and refuses when the caller is a
-program. The design is deliberately layered, because each layer was measured to fail on its own:
+The commands that emit secrets are `get`, `ak-get`, `note-get`, `export --plaintext`
+(plus `--copy` on any of them), `generate-codes`, and `restore` when it will show
+recovery codes. Each one classifies its caller first and refuses when the caller is a
+program. Recovery codes are gated before any prompt and before anything is generated,
+stored, or restored, so a refusal cannot replace a set the caller is not allowed to
+see, and it cannot leave a half-finished restore. No per-entry approval covers them.
+`restore --no-codes` does not show codes and is not gated. The design is deliberately
+layered, because each layer was measured to fail on its own:
 
 - **Explicit** — `PSAMVAULT_AGENT=1` (also what `psamvault --agent` sets). From the next
   psamvault-mcp release, `run_with_credential` exports it into the subprocess it spawns.
@@ -104,7 +111,7 @@ program. The design is deliberately layered, because each layer was measured to 
   agent binary (`claude.exe`), never a bare `python.exe`/`node.exe` — and it deliberately does not
   match the desktop app's own install prefix, which would block the user's own terminal pane.
 
-The local dashboard reveals through the same gate. `pv dashboard` classifies the process that started it and uses that verdict for password, API-key and notes reveals. An agent that started the dashboard is refused, and the row is written on the denial and on an allow. The browser session is a one-time fragment token exchanged for an HttpOnly, SameSite=Strict cookie. The cookie is not the vault key. A request with no cookie is rejected before a reveal. A request that sends an Origin must use the dashboard's own origin for the port that was bound. A same-origin GET from the browser does not send Origin; that is accepted because the Host was already checked and the cookie is not sent cross-site. A POST with no Origin is rejected.
+The local dashboard reveals through the same gate. `pv dashboard` classifies the process that started it and uses that verdict for password, API-key and notes reveals, and for issuing recovery codes or restoring with a new set. An agent that started the dashboard is refused before those codes are generated or the restore begins, and the row is written on the denial and on an allow. The browser session is a one-time fragment token exchanged for an HttpOnly, SameSite=Strict cookie. The cookie is not the vault key. A request with no cookie is rejected before a reveal. A request that sends an Origin must use the dashboard's own origin for the port that was bound. A same-origin GET from the browser does not send Origin; that is accepted because the Host was already checked and the cookie is not sent cross-site. A POST with no Origin is rejected.
 
 List and detail GETs do not return notes text. They return a `has_notes` flag. The notes text is a separate request that calls `require_reveal`. A save that arrives before that reveal does not replace the stored notes, including a body that sends an empty notes field.
 
