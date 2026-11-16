@@ -18,7 +18,7 @@ Available on every command:
 |---|---|
 | `--version`, `-V` | Show version and exit |
 | `--verbose`, `-v` | Show underlying error details |
-| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate-codes`, and `restore` when it offers recovery codes) |
+| `--agent` | Declare this process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate` when it would print the password/`generate-codes`, and `restore` when it offers recovery codes). `generate --save` without `--show` does not print, so it is not refused |
 | `--install-completion` | Install completion for the current shell |
 | `--show-completion` | Show completion for the current shell, to copy it or customize the installation |
 | `--help` | Show the command's message and exit |
@@ -264,27 +264,40 @@ Permanent — prompts for confirmation first.
 
 ### psamvault generate
 
-Generate a cryptographically secure password. Uses Python's `secrets` module — suitable for security-sensitive contexts. Optionally save the generated password directly to your vault.
+Generate a cryptographically secure password. Uses Python's `secrets` module. Each enabled character class appears at least once. You can store the password in the same command.
 
 ```bash
-psamvault generate                          # 20-char password with symbols
+psamvault generate                          # 20 characters, printed
 psamvault generate --length 32
 psamvault generate --length 16 --no-symbols
 psamvault generate --length 20 --no-digits
-psamvault generate --save github.com --user me@example.com  # generate and save
+psamvault generate --no-upper --no-lower    # digits and symbols only
+psamvault generate --all-symbols            # full punctuation, not the safe subset
+psamvault generate --save github.com --user me@example.com
+psamvault generate --save github.com --user me@example.com --show
 ```
 
-Uses Python's `secrets` module (cryptographically secure).
+`--save` stores the password and does not print it. The confirmation names the site, the length, and the character classes. `--show` prints the value as well. Without `--save`, a person at the terminal still sees the password.
+
+Printing is one of the [gated commands](#agent-guardrail-commands). An agent running `generate` with no `--save`, or with `--save --show`, is refused before a password is drawn and before anything is stored. The refusal is an audit row. `generate --save` without `--show` is allowed, because the value never reaches the output. A bare `generate` has no vault entry, so `psamvault approve` cannot cover it. `--save --show` names the site, so one approval for that site covers the print once, the same way `get` does.
+
+Length is 8 to 128. The floor is the higher of 8 and the number of enabled classes, so each class can appear once. `--no-upper`, `--no-lower`, `--no-digits`, and `--no-symbols` together are refused. The site name on `--save` is checked the same way as `psamvault add`.
+
+Symbols default to `!@^*()-_=+[]{}:,.`. That set leaves out the characters that break a shell word, a URL, or an HTML attribute: quotes (`'` `"`), backtick, backslash, `$`, `%`, `&`, `|`, `;`, `<`, `>`, `#`, `?`, `/`, `~`, and space. A few characters that some shells still treat specially (`!`, `*`, and brackets) stay in, because sites commonly require them. Quote the password when you paste it into a shell. `--all-symbols` opts into the full punctuation set for a site that rejects the safe subset. It cannot be combined with `--no-symbols`.
 
 | Option | What it does |
 |---|---|
-| `--length`, `-l` | Password length (default 20) `[default: 20]` |
-| `--no-symbols` | Exclude special characters |
+| `--length`, `-l` | Password length. Default 20. Minimum 8, or one character per enabled class when that is higher. Maximum 128 `[default: 20]` |
+| `--no-upper` | Exclude uppercase letters |
+| `--no-lower` | Exclude lowercase letters |
 | `--no-digits` | Exclude digits |
-| `--save`, `-s` | Site name to save the generated password to (requires `--user`) |
+| `--no-symbols` | Exclude symbols |
+| `--all-symbols` | Draw symbols from the full punctuation set. The default is the safe subset above |
+| `--save`, `-s` | Site name to save the password to (requires `--user`). Does not print the password unless `--show` is passed |
 | `--user`, `-u` | Username to pair with the generated password (used with `--save`) |
+| `--show` | Print the password when `--save` is used. An agent is refused whenever the password would be printed |
 
-**When to run it:** when you are setting a new password — generate it, then store it in the same command with `--save`/`--user` so it never has to pass through your memory.
+**When to run it:** when you are setting a new password. Store it in the same command with `--save` and `--user` so it never has to pass through your memory, and leave `--show` off unless you need to see it.
 
 ### psamvault open
 
@@ -877,7 +890,7 @@ That path is for a **deleted account**. If instead your *machine* was lost while
 
 ## Agent guardrail commands
 
-The commands that print a secret (`get`, `ak-get`, `note-get`, `export --plaintext`, `generate-codes`, and `restore` when it offers recovery codes, plus `--copy` on a per-entry reveal) ask *who is calling* first and refuse when the caller is a program. `generate-codes` and the recovery-code part of `restore` pass no entry name, so an approval token cannot cover them. `restore --no-codes` does not print codes and is not gated. The guide is [The agent reveal guardrail](../guides/agent-reveal-guardrail.md); this is the command surface.
+The commands that print a secret (`get`, `ak-get`, `note-get`, `export --plaintext`, `generate` when it prints, `generate-codes`, and `restore` when it offers recovery codes, plus `--copy` on a per-entry reveal) ask *who is calling* first and refuse when the caller is a program. `generate` with no `--save`, `generate-codes`, and the recovery-code part of `restore` pass no entry name, so an approval token cannot cover them. `generate --save --show` names the site, so one approval for that site covers that print. `generate --save` without `--show` does not print and is not gated. `restore --no-codes` does not print codes and is not gated. The guide is [The agent reveal guardrail](../guides/agent-reveal-guardrail.md); this is the command surface.
 
 ### psamvault approve
 
@@ -910,7 +923,7 @@ The next reveal of that entry succeeds **once**; a second attempt is refused. Th
 psamvault --agent get github.com
 ```
 
-Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate-codes`, and `restore` unless `--no-codes` is set). It sets `PSAMVAULT_AGENT=1` before any command body runs. From the next psamvault-mcp release, `run_with_credential` exports that same variable into the subprocess it spawns. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`.
+Declares the process an agent caller: the reveal guardrail refuses secrets (`get`/`ak-get`/`note-get`/`export --plaintext`/`generate` when it would print the password/`generate-codes`, and `restore` unless `--no-codes` is set). `generate --save` without `--show` is not refused. It sets `PSAMVAULT_AGENT=1` before any command body runs. From the next psamvault-mcp release, `run_with_credential` exports that same variable into the subprocess it spawns. psamvault-mcp 0.5.5 and earlier do not set it, so those child commands are classified `uncertain`.
 
 **When to run it:** when you are writing an integration and want to be honest about what you are, rather than relying on the guardrail's marker detection. A human at a terminal never needs it. The same declaration refuses `psamvault policy allow-host`, `psamvault policy remove-host`, `psamvault policy allow-tool`, `psamvault policy remove-tool`, `psamvault policy ask-each-time` and `psamvault policy mcp-use` when a mode is given. It does not refuse `psamvault policy hosts`, `psamvault policy tools`, or `psamvault policy mcp-use` with no mode.
 

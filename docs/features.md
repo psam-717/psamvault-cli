@@ -26,7 +26,7 @@ Encrypted free text with a title and an optional category — for the things tha
 
 ## Secure password generation
 
-`psamvault generate` produces a cryptographically secure password using Python's `secrets` module, with control over length, symbols and digits — and can write the result straight into your vault in one step. Reach for it instead of inventing a password, and when you are setting up a new account and want the credential stored before you can forget it. Full detail: [Generate a secure password](reference/commands.md#psamvault-generate).
+`psamvault generate` produces a cryptographically secure password using Python's `secrets` module. Each enabled class (upper, lower, digits, symbols) appears at least once. Symbols default to `!@^*()-_=+[]{}:,.`, which leaves out characters that break a shell word, a URL, or an HTML attribute; `--all-symbols` is the full punctuation set. `--save` writes the result straight into your vault and does not print it unless `--show` is passed. An agent that would see the password is refused before anything is generated or stored. Reach for it instead of inventing a password, and when you are setting up a new account and want the credential stored before you can forget it. Full detail: [Generate a secure password](reference/commands.md#psamvault-generate).
 
 ## Browser autofill
 
@@ -50,7 +50,7 @@ A backup here backs up the **key**, not the data: your entries live on the serve
 
 ## The agent reveal guardrail
 
-The commands that can print a secret are `get`, `ak-get`, `note-get`, `export --plaintext` (plus `--copy` on any of them), `generate-codes`, and `restore` when it offers recovery codes. Each one classifies its caller first and refuses when the caller is a program, with the capability alternatives printed and an audit row recorded. `restore --no-codes` does not print codes and is not gated. Reach for `psamvault approve <entry> --for-agent` when an agent genuinely needs one secret printed once. Full detail: [The agent reveal guardrail](guides/agent-reveal-guardrail.md).
+The commands that can print a secret are `get`, `ak-get`, `note-get`, `export --plaintext` (plus `--copy` on any of them), `generate` when it prints, `generate-codes`, and `restore` when it offers recovery codes. Each one classifies its caller first and refuses when the caller is a program, with the capability alternatives printed and an audit row recorded. `generate --save` without `--show` does not print and is not gated. `restore --no-codes` does not print codes and is not gated. Reach for `psamvault approve <entry> --for-agent` when an agent genuinely needs one secret printed once. Full detail: [The agent reveal guardrail](guides/agent-reveal-guardrail.md).
 
 ## Destination allow list
 

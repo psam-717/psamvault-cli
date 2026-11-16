@@ -610,66 +610,208 @@ def delete(
     typer.echo(f" Entry for '{site}' deleted.\n")
     
 
+# The old floor. A password shorter than this is refused even when fewer
+# classes are enabled. The length must also cover one character per class,
+# so the bound that is applied is the higher of the two.
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128
+
+# Default symbols. string.punctuation is !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
+# Dropped, because each one changes the meaning of a shell word, a URL, or
+# an HTML attribute when the password is pasted:
+#   " '   quotes       shell quoting and HTML attributes
+#   `     backtick     command substitution
+#   \     backslash    escape
+#   $     dollar       shell expansion
+#   %     percent      URL percent-encoding
+#   &     ampersand    shell background, HTML entity, URL query join
+#   | ; < >            shell control and HTML tags
+#   # ? /              URL fragment, query, and path
+#   ~                  tilde expansion
+# Space is not in string.punctuation and is never added.
+# Kept: ! @ ^ * ( ) - _ = + [ ] { } : , .
+# A few of those (! * brackets) are still special in some shells. Quote the
+# password when pasting it into a shell. --all-symbols is the full set.
+SAFE_SYMBOLS = "!@^*()-_=+[]{}:,."
+
+
+def minimum_password_length(class_count: int) -> int:
+    """The length floor: 8, or one character per enabled class, whichever is higher."""
+    return max(MIN_PASSWORD_LENGTH, class_count)
+
+
+def character_classes(
+    *,
+    no_upper: bool = False,
+    no_lower: bool = False,
+    no_digits: bool = False,
+    no_symbols: bool = False,
+    all_symbols: bool = False,
+) -> list[tuple[str, str]]:
+    """Enabled classes as ``(name, alphabet)``, in confirmation order."""
+    classes: list[tuple[str, str]] = []
+    if not no_upper:
+        classes.append(("upper", string.ascii_uppercase))
+    if not no_lower:
+        classes.append(("lower", string.ascii_lowercase))
+    if not no_digits:
+        classes.append(("digits", string.digits))
+    if not no_symbols:
+        symbols = string.punctuation if all_symbols else SAFE_SYMBOLS
+        classes.append(("symbols", symbols))
+    return classes
+
+
+def generate_password(length: int, classes: list[tuple[str, str]]) -> str:
+    """One character from each enabled class, then an unbiased shuffle.
+
+    ``secrets.choice`` draws each character. ``secrets.SystemRandom().shuffle``
+    is Fisher-Yates driven by ``os.urandom``, so the guaranteed characters are
+    not left at the front. ``length`` must be at least ``len(classes)``.
+    """
+    picked = [secrets.choice(alphabet) for _, alphabet in classes]
+    pool = "".join(alphabet for _, alphabet in classes)
+    picked.extend(secrets.choice(pool) for _ in range(length - len(classes)))
+    secrets.SystemRandom().shuffle(picked)
+    return "".join(picked)
+
+
+def _reject_generate_options(
+    length: int,
+    classes: list[tuple[str, str]],
+    *,
+    no_symbols: bool,
+    all_symbols: bool,
+) -> None:
+    """Exit with a clear error before any password is drawn."""
+    if no_symbols and all_symbols:
+        typer.echo(
+            "Error: --all-symbols cannot be combined with --no-symbols.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if not classes:
+        typer.echo(
+            "Error: At least one character class must stay enabled. "
+            "--no-upper, --no-lower, --no-digits, and --no-symbols together "
+            "leave nothing to draw from.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if length > MAX_PASSWORD_LENGTH:
+        typer.echo(
+            f"Error: Password length must be at most {MAX_PASSWORD_LENGTH}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    minimum = minimum_password_length(len(classes))
+    if length < minimum:
+        typer.echo(
+            f"Error: Password length must be at least {minimum}. "
+            f"The floor is the higher of {MIN_PASSWORD_LENGTH} and the number "
+            f"of enabled character classes ({len(classes)}).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
+def _print_saved_confirmation(site: str, length: int, classes: list[tuple[str, str]]) -> None:
+    """Site, length, and class names. Never the password."""
+    names = ", ".join(name for name, _alphabet in classes)
+    typer.echo(f" Saved a generated password for {site}.")
+    typer.echo(f"   Length:  {length}")
+    typer.echo(f"   Classes: {names}\n")
+
+
 @app.command()
 def generate(
-    length: int = typer.Option(20, "--length", "-l", help="Password length (default 20)"),
+    length: int = typer.Option(20, "--length", "-l", help="Password length (default 20, minimum 8, maximum 128)"),
     no_symbols: bool = typer.Option(
         False, "--no-symbols", help="Exclude special characters"
     ),
     no_digits: bool = typer.Option(False, "--no-digits", help="Exclude digits"),
+    no_upper: bool = typer.Option(False, "--no-upper", help="Exclude uppercase letters"),
+    no_lower: bool = typer.Option(False, "--no-lower", help="Exclude lowercase letters"),
+    all_symbols: bool = typer.Option(
+        False, "--all-symbols",
+        help="Use every punctuation character. The default symbol set leaves out characters that break shells, URLs, and form fields",
+    ),
     save: Optional[str] = typer.Option(
         None, "--save", "-s",
-        help="Site name to save the generated password to (requires --user)"
+        help="Site name to save the generated password to (requires --user). Does not print the password unless --show is passed"
     ),
     user: Optional[str] = typer.Option(
         None, "--user", "-u",
         help="Username to pair with the generated password (used with --save)"
-    )
+    ),
+    show: bool = typer.Option(
+        False, "--show",
+        help="Print the password when --save is used. Without --save a human still sees the password. An agent is refused whenever it would be printed"
+    ),
 ):
     """
     Generate a cryptographically secure password.
- 
+
     Uses Python's secrets module — suitable for security-sensitive contexts.
-    Optionally save the generated password directly to your vault.
- 
+    Each enabled character class appears at least once. Symbols come from a
+    safe subset unless --all-symbols is passed.
+
+    With --save the password is stored and not printed, unless --show is
+    passed too. Printing is a reveal: an agent is refused, and nothing is
+    generated or saved.
+
     \b
     Examples:
         psamvault generate
         psamvault generate --length 32 --no-symbols
         psamvault generate --save github.com --user me@example.com
+        psamvault generate --save github.com --user me@example.com --show
         psamvault vault generate --length 32 --no-digits
     """
-    if length < 8:
-        typer.echo("Error: Password length must be at least 8.", err=True)
-        raise typer.Exit(code=1)
-    
-    alphabet = string.ascii_letters
-    if not no_digits:
-        alphabet += string.digits
-    if not no_symbols:
-        alphabet += string.punctuation
-        
-    # secrets.choice is cryptographically secure — uses os.urandom internally
-    generated = "".join(secrets.choice(alphabet) for _ in range(length))
-    
-    typer.echo(f"\n Generated password: {generated}\n")
-    
-    if save: 
+    classes = character_classes(
+        no_upper=no_upper,
+        no_lower=no_lower,
+        no_digits=no_digits,
+        no_symbols=no_symbols,
+        all_symbols=all_symbols,
+    )
+    _reject_generate_options(
+        length, classes, no_symbols=no_symbols, all_symbols=all_symbols
+    )
+
+    if save is not None:
         if not user:
             typer.echo(
                 "Error: --user is required when using --save",
-                err=True
+                err=True,
             )
             raise typer.Exit(code=1)
-        
+        _validate_site_name(save)
+
+    # Printing a fresh password is a reveal. Decide that before drawing one,
+    # so a refusal writes the audit row and leaves nothing generated or saved.
+    # --save without --show stores the value and does not print it.
+    will_print = show or save is None
+    if will_print:
+        try:
+            reveal_gate.require_reveal(
+                action="generate",
+                entry=save if save is not None else None,
+            )
+        except RevealBlockedError as exc:
+            exit_error(exc)
+
+    generated = generate_password(length, classes)
+
+    if save is not None:
         session, key = _get_session_and_key()
-        
+
         encrypted_blob, iv = encrypt_credentials(
             key,
             username=user,
-            password=generated
+            password=generated,
         )
-        
+
         with Spinner(f"Saving generated password for {save}"):
             try:
                 api_client.add_vault_entry(
@@ -690,8 +832,13 @@ def generate(
             except PsamVaultError as exc:
                 print_error(exc)
                 raise typer.Exit(code=1)
-    
-        typer.echo(f" Saved generated password for {save}.")
+
+        if show:
+            typer.echo(f"\n Generated password: {generated}\n")
+        _print_saved_confirmation(save, length, classes)
+        return
+
+    typer.echo(f"\n Generated password: {generated}\n")
 
 
 @app.command()

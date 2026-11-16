@@ -6,10 +6,11 @@ order: 50
 
 # Agents and the reveal guardrail
 
-An agent with a shell can run `psamvault get` and read your password, or
-`psamvault generate-codes` and read a fresh set of recovery codes. A rule in
-a document does not stop it. The commands that print a secret ask *who is
-calling* first, and refuse when the caller is a program.
+An agent with a shell can run `psamvault get` and read your password,
+`psamvault generate` and read a fresh one, or `psamvault generate-codes` and
+read a fresh set of recovery codes. A rule in a document does not stop it.
+The commands that print a secret ask *who is calling* first, and refuse when
+the caller is a program.
 
 | Situation | What happens |
 |---|---|
@@ -18,17 +19,22 @@ calling* first, and refuse when the caller is a program.
 | A script of yours pipes it (`psamvault get x \| cat`) | Allowed, with an audit note — a plain pipe is not evidence of an agent. Set `"reveal": "strict"` to refuse these too. |
 | A CI job runs it (`CI=true`, e.g. GitHub Actions) | Allowed and audited — `env:CI` is recorded, but an unattended job is not an agent. An *agent* running inside CI is still refused, by its own markers or its ancestry. Use `"reveal": "strict"` to refuse CI too. |
 | The agent needs the secret to finish a job | Use the MCP capabilities: `use_credential`, `run_with_credential` or `browser_login` — they inject the secret without ever revealing it. |
-| The agent genuinely needs the value printed once | You run `psamvault approve` in your own terminal (below). |
+| An agent runs `psamvault generate` | Refused, before a password is drawn. `generate --save` is allowed and does not print the value. `generate --save --show` is refused unless you have approved that one site. |
+| The agent genuinely needs the value printed once | You run `psamvault approve` in your own terminal (below). A bare `generate` has no entry, so an approval cannot cover it. |
 | You were blocked but you *are* a human | Read `~/.psamvault/audit.jsonl` — the deny row names the exact signal that matched. |
 | You want the guardrail out of the way on this machine | `~/.psamvault/policy.json` with `"reveal": "open"`. |
 
 Gated: `get`, `ak-get`, `note-get`, `export --plaintext`, and `--copy` on any of
-them (the clipboard is just as readable). Also gated: `generate-codes` (and
-`recovery generate-codes`, the same command) and `restore` when it will offer
-recovery codes. Those two run the gate before anything is generated, stored,
-or restored, and they pass no entry name, so an approval for one vault entry
-cannot cover the codes. `restore --no-codes` does not show codes and is not
-gated. Never gated: `list`, `site-list`,
+them (the clipboard is just as readable). Also gated: `generate` when it would
+print the password, `generate-codes` (and `recovery generate-codes`, the same
+command), and `restore` when it will offer recovery codes. `generate` with no
+`--save`, and the two recovery-code paths, run the gate before anything is
+generated or stored, and they pass no entry name, so an approval for one vault
+entry cannot cover them. `generate --save --show` names the site, so one
+approval for that site covers the print, the same way `get` does. `generate
+--save` without `--show` stores the password and prints the site, the length,
+and the character classes — never the value — so it is not gated. `restore
+--no-codes` does not show codes and is not gated. Never gated: `list`, `site-list`,
 `ak-list`, `note-list`, `whoami`, `check_credential_exists` — an agent must
 always be able to see *what* exists.
 
@@ -177,7 +183,8 @@ The page still has to be the one `pv dashboard` opened. The launch token is in t
 ## What it stops
 
 A well-behaved agent — Hermes, Claude Code, Codex, Goose, OpenCode, a CI job —
-running `psamvault get`, `pv get`, or `python -m main get` gets exit code 1 and a
+running `psamvault get`, `pv get`, `python -m main get`, or `psamvault generate`
+(with no `--save`, or with `--save --show`) gets exit code 1 and a
 message naming the capability alternatives
 (`use_credential`, `run_with_credential`, `browser_login`) and the one-shot human approval
 (`psamvault approve <entry> --for-agent`). Every decision, allow or deny, appends a row to

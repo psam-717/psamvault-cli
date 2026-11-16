@@ -67,7 +67,7 @@ A source checkout gets its own upgrade track — `psamvault upgrade` detects the
 
 ## Linux Secret Service
 
-The pepper and the session tokens live in the OS keychain. `--version` and `--help` do not need it, and neither do `psamvault changelog` or `psamvault generate` (without `--save`). Any command that reads or writes a secret does.
+The pepper and the session tokens live in the OS keychain. `--version` and `--help` do not need it, and neither do `psamvault changelog` or `psamvault generate` (without `--save`). Printing that password is refused when the caller is an agent. `--save` stores it and, unless `--show` is passed, does not print it. Any command that reads or writes a secret does.
 
 Linux uses the Secret Service (gnome-keyring over D-Bus). A desktop session usually starts one and unlocks it at login. A headless machine, a container, or an SSH login does not. Without a service, or with the collection still locked, the command stops on one line instead of a traceback or a prompt that never returns:
 
